@@ -12,7 +12,9 @@ The product layer for BookWriter: **why** the system exists, **who** it's for, *
 
 The product layer sits **before or alongside** `/architect`, never after — architecture reads product ids to know what it's designing for, not the reverse.
 
-**Never write a technical decision here.** No schema, no library choice, no layering, no endpoint path, no storage detail. If a requirement implies one, surface the requirement (the observable behavior) and leave the decision to `docs/architecture/`. This mirrors the root `CLAUDE.md` rule that the book/document domain model is deferred: product docs state *what the domain must do*, never *how it's implemented*.
+**Never write a technical decision here.** No schema, no library choice, no layering, no endpoint path, no storage detail. If a requirement implies one, surface the requirement (the observable behavior) and leave the decision to `docs/architecture/`. The root `CLAUDE.md` states the same boundary from the other side: the domain is specified *here*, and its architecture is not designed anywhere yet. Product docs state *what the domain must do*, never *how it's implemented*.
+
+A worked example, because this rule gets tested: in round 4 the user asked for codex entries that are "vector indexed and allowed using tools". Vector indexing and tool exposure are mechanisms — they were routed to `/architect`, and what `docs/product/` records instead is the need underneath (the codex outgrows what can be shown wholesale, so generation must reach entries without the author hand-picking them). No vector / index / embedding / tool / retrieval / storage language belongs in this folder.
 
 ## Who writes, who reads
 
@@ -35,6 +37,8 @@ Large layout (escalation once a file would exceed ~400 lines):
 - `use-cases/<FEAT-###>.<slug>.md` — one file per feature.
 - `stories/<FEAT-###>.<slug>.md` — one file per feature.
 - `quick-reference.md` — the **sole canonical id registry** once large layout is in effect: every id, one-liner, status, owning feature/actor. Exempt from the line limit. `features.md` keeps its FEAT blocks and Relationships section but no longer holds registry tables — registry lookups go to `quick-reference.md` only.
+
+**Unresolved as of 2026-07-20 — decide before the next round writes.** `features.md` is at 393 lines against a ~400 budget, and two rules are about to collide: it must stay under budget, and it never splits. Round 3 bought headroom by moving the registry to `quick-reference.md`; there is no second registry to move. The next round adding features must first settle which rule gives — a raised budget for this one file, a Relationships section extracted to its own doc, or terser FEAT blocks. Do not silently breach either rule mid-write.
 
 Do not add a new top-level doc unilaterally — it must come from the writer's briefing.
 
@@ -102,4 +106,4 @@ Both are inputs the writer reads to produce `docs/product/*`. They are disposabl
 - **Never assert intent** the source material doesn't state — tag `[inferred]` and say why, or leave it out.
 - Keep each file under ~400 lines; `quick-reference.md` is the one exception. Over budget → escalate to the large layout, don't cram.
 - Terse over prose: one requirement per entry, no marketing language, no restating a field label as a sentence.
-- The root `CLAUDE.md` defers the book/document domain model to a later session, repo-wide — that applies here too. Write only what the confirmed spec plan / interview actually cover; don't extrapolate domain entities ahead of what's been confirmed.
+- The domain is **no longer deferred** — it is specified here, across four interview rounds. The narrower rule survives and still binds: write only what the confirmed spec plan / interview actually cover, and don't extrapolate domain entities ahead of what's been confirmed.

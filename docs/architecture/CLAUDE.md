@@ -4,7 +4,17 @@ Finalized architecture and design documentation for BookWriter. This is the auth
 
 ## Scope
 
-BookWriter is a multi-user app for LLM-assisted authoring of long-form texts. These docs cover **technology, structure, and conventions only** — the book/document domain model (entities and the generation pipeline) is deliberately deferred and must **not** be invented here.
+BookWriter is a multi-user app for LLM-assisted authoring of long-form texts. These docs cover **technology, structure, and conventions** — how the system is built.
+
+The book/document domain is **no longer deferred**. It is specified in `docs/product/` (18 features, 198 requirement ids as of 2026-07-20) — but only as requirements: what must be true, never how. Its architecture is still undesigned. **`FEAT-006..018` currently have zero coverage in this folder.**
+
+So the rule changes shape rather than disappearing: don't invent the domain *model* here — derive it from `docs/product/`, and cite what you derived it from. A design doc realizing product requirements carries a header naming them:
+
+```
+**Realizes:** FEAT-013, UC-054, UC-078
+```
+
+Start from `docs/product/quick-reference.md` (the canonical id registry) and `docs/product/features.md` (the spine and its dependency graph — note the recorded build order and the `FEAT-012 → FEAT-017` inversion). Where a requirement carries a `_TBD:`, it is genuinely undecided: raise it, don't resolve it by choosing a design.
 
 ## Contents
 
@@ -26,7 +36,8 @@ BookWriter is a multi-user app for LLM-assisted authoring of long-form texts. Th
 
 - This folder holds **final, approved** documentation only. Drafts and planning live in `docs/plans/`.
 - State decisions **with reasoning** — "we chose X because Y," never a bare assertion.
-- Be explicit about what is **out of scope** (notably: the book/document domain model).
+- Be explicit about what is **out of scope**, and about which product requirements a doc does *not* yet cover.
+- **Cite product ids.** A doc designing for the book domain carries a `**Realizes:** FEAT-###, UC-###` header. `docs/product/` is read-only from here — never edit it to fit a design; if a requirement is wrong or missing, surface it for `/product-spec`.
 - **Line limit: keep each file under ~400 lines.** If a topic outgrows that, split off the largest subsystem into its own cohesive file (e.g. carve a `frontend-*.md` deep-dive out of `frontend.md`) and link it from the parent and from this index. `quick-reference.md`, once it exists, is the one intentional exception — it is dense by design.
 - Never silently overwrite an existing doc — surface changes so the diff is easy to review.
 - Build/test commands are the root `CLAUDE.md`'s job; reference them, don't duplicate them here.

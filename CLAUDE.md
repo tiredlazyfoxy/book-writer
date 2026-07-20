@@ -4,7 +4,9 @@ LLM-assisted authoring of long-form texts (books and other large documents) — 
 
 > This file is the primary guidance for agents and contributors. It covers the tech stack, how to build and test, project layout, and the enforced conventions. Full detail lives in `docs/architecture/`.
 
-This repository documents **technology and conventions only**. The book/document domain model (entities, generation pipeline) is deliberately **not** designed here and is deferred to a later session. Do not invent domain entities.
+The book/document domain is **specified** in `docs/product/` — 18 features and 198 requirement ids as of 2026-07-20. **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
+
+The domain's *architecture* — schema, generation pipeline, how codex entries reach an LLM's context — is **not yet designed**. `docs/product/` states what the domain must do and deliberately says nothing about how. `FEAT-006..018` have no coverage in `docs/architecture/` yet; that is `/architect`'s next job. Until it exists, don't infer a design from the requirements.
 
 ## DEV Environment
 
@@ -58,13 +60,14 @@ BookWriter/
   frontend/           Vite MPA: index.html + admin/index.html + login/index.html;
                       src/{api,types,utils,components,user,admin,login}/, theme.ts, global.css
   nginx/              dev.conf + prod.conf
-  docs/               architecture/ + plans/
+  docs/               product/ + architecture/ + plans/
   docker-compose.dev.yml, docker-compose.prod.yml
   start.ps1, build.ps1
   .env.local          (gitignored)
   CLAUDE.md
 ```
 
+- `docs/product/` — what the system is for and how it must behave (`ACT`/`FEAT`/`UC`/`US` ids). Sits **before or alongside** architecture, never after. Written only by the product-spec pipeline; everyone else reads and cites it.
 - `docs/architecture/` — finalized architecture and design documentation
 - `docs/plans/` — feature planning and the planner/coder pipeline contract (tracked in git)
 - Every project subfolder has its own `CLAUDE.md` for context.
