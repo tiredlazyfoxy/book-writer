@@ -25,6 +25,8 @@ routes ──► services ──► db ──► models
 
 Because the db layer is session-free and DB-agnostic, the entire persistence backend could be swapped without touching services or routes.
 
+`GET /api/health` is the first concrete endpoint and the canonical example of this four-layer flow: `routes/health.py` → `services/health.py` → `db/health.py` → `HealthResponse`, with DB-readiness sourced from `db.health.ping()` rather than a route-level constant. See `quick-reference.md` for its concrete shape.
+
 ### Import style — namespace modules
 
 Import the module, not the symbols:
@@ -77,6 +79,7 @@ The `llm-client` entry is a **shared external library** — keep the git URL and
 
 - Async engine over `sqlite+aiosqlite:///`, sessions managed entirely inside `db/`.
 - Schema is created with `SQLModel.metadata.create_all`. Schema evolution is handled by **in-code `ALTER TABLE` migrations** run at startup — **there is no Alembic**. Keep migrations idempotent and additive.
+- For this greenfield scaffold (no data yet), `create_all` runs in the FastAPI **startup lifespan on boot**. This is an intentional, **temporary seam**, not the end state: feature `003.first-run-bootstrap` (FEAT-001) will amend startup to defer table creation to a first-run wizard.
 - Injectable config so tests can point at a throwaway DB:
 
   ```python
@@ -94,10 +97,11 @@ Every persistent model has gzipped-JSONL (`.jsonl.gz`) import/export, packaged i
 
 - **Export** streams per row: the db layer iterates rows and invokes a `callback(row)`; the service serializes each to JSONL into the gzip stream. No bulk `SELECT *` into memory.
 - **Import** streams line-by-line: the service reads JSONL, accumulates a batch (e.g. 100), and calls an `upsert_batch(items)` on the db layer. Import is **UPSERT** — idempotent, safe to re-run. `init_db()` creates/reshapes tables before import.
+- **Extension point.** A persistent model plugs in by adding its `to_dict`/`from_dict` codec pair plus one ordered `TABLE_REGISTRY` tuple (shape `(zip_filename, model_class, to_dict_fn, from_dict_fn)`) in FK dependency (import) order, in `services/db_import_export.py`. The session-free `db/` primitives (`export_table`, `upsert_batch`) need no per-model change. `TABLE_REGISTRY` is currently empty.
 
 ## Vector storage — LanceDB sidecar
 
-LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated.
+LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated. `db/vector.py` is currently a connect/init **stub**, unused until a vector-backed model exists — the rebuild-on-import contract above still stands as described.
 
 ## LLM client
 

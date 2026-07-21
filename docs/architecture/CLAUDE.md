@@ -25,7 +25,7 @@ The root-level `product.md` is a human-facing business narrative, **not** develo
 - `backend.md` — 4-layer backend rules, dependency direction, typing discipline, the `pyproject.toml` dependency block, DB engine (async SQLite + `create_all` + `ALTER` migrations), LanceDB sidecar, config/secrets, JWT (per-user key) + bcrypt auth, the pytest/httpx harness.
 - `frontend.md` — React/TypeScript/MobX/Mantine/Vite conventions, `src/` structure, the `api/` layer + SSE, theming, and the full MobX hard rules.
 - `dev-environment.md` — ports, the `start.ps1` launcher, the Vite `/api` proxy, Docker Compose dev/prod + nginx, environment variables, DB-path override.
-- `quick-reference.md` — *(not yet created)* a dense agent-first index of concrete endpoints, DTOs, and patterns. Add it once real endpoints and models exist.
+- `quick-reference.md` — a dense agent-first index of concrete endpoints, DTOs, and patterns. Seeded with `GET /api/health` + `HealthResponse`; append new endpoints/DTOs here as they land.
 
 ## Reading order
 
