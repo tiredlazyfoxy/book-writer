@@ -15,3 +15,7 @@ Intended documentation changes to apply at finalization. This scaffold is techno
 ## Notes for the architect
 
 - The JSONL import/export **mechanism** now exists with an empty `TABLE_REGISTRY`. The extension contract — "adding a persistent model = add a `to_dict`/`from_dict` codec pair + one ordered `TABLE_REGISTRY` tuple in FK order" — is worth a one-line pointer wherever the import/export section documents how models plug in.
+
+## Observations
+
+- Step 004: The import/export extension contract is now live — adding a persistent model = add its `to_dict`/`from_dict` codec pair plus one ordered `TABLE_REGISTRY` tuple (element shape `(zip_filename, model_class, to_dict_fn, from_dict_fn)`) in FK dependency (import) order in `backend/app/services/db_import_export.py`; the session-free db primitives in `backend/app/db/import_export_queries.py` need no change per model. Possible impact: document this under the import/export section of `docs/architecture/backend.md` (for the architect).
