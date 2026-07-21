@@ -1,6 +1,6 @@
 # System Architecture Overview
 
-BookWriter is a single FastAPI backend serving two React SPAs (User and Admin) plus a standalone Login page. In production nginx serves the static frontend builds and reverse-proxies API traffic to the backend. This document describes the component topology and the client↔server contract at the technology level; it does not describe any book/document domain.
+BookWriter is a single FastAPI backend serving two React SPAs (User and Admin) plus a standalone Login page. In production nginx serves the static frontend builds and reverse-proxies API traffic to the backend. This document describes the component topology and the client↔server contract at the technology level; it does not describe any book/document domain. That domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how — and its architecture is not yet designed, with FEAT-006..018 uncovered here. See `docs/product/` (start at `quick-reference.md` and `features.md`) for the requirements source of record.
 
 ## High-level topology
 
@@ -45,7 +45,7 @@ The author-facing application: TypeScript + React 19 + MobX, built by Vite. Uses
 
 ### Admin SPA (served at `/admin`)
 
-User management and LLM-provider/server settings. Same tech stack and conventions as the User SPA, but a **separate Vite entry point and build**. Shares only the login/auth flow with the User SPA.
+Its current concerns are user management and LLM-provider/server settings — not an exhaustive list. FEAT-011 (content moderation) requires an admin read-only moderation view over book content with quarantine/destroy; that is a planned admin capability whose architecture is not yet designed. Same tech stack and conventions as the User SPA, but a **separate Vite entry point and build**. Shares only the login/auth flow with the User SPA.
 
 ### Login page (served at `/login`)
 

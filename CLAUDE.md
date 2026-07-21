@@ -8,6 +8,8 @@ The book/document domain is **specified** in `docs/product/` — 18 features and
 
 The domain's *architecture* — schema, generation pipeline, how codex entries reach an LLM's context — is **not yet designed**. `docs/product/` states what the domain must do and deliberately says nothing about how. `FEAT-006..018` have no coverage in `docs/architecture/` yet; that is `/architect`'s next job. Until it exists, don't infer a design from the requirements.
 
+The root-level `product.md` is a human-facing business narrative and is **not** development guidance — agents should ignore it; the canonical product layer is `docs/product/`.
+
 ## DEV Environment
 
 - **OS**: Windows 11

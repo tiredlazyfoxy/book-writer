@@ -1,8 +1,8 @@
 # BookWriter — Architecture
 
-BookWriter is a multi-user web application for **LLM-assisted authoring of long-form texts** — books and other large documents. Authors work in a browser SPA; an admin SPA manages users and LLM-provider settings; a FastAPI backend orchestrates persistence, authentication, and LLM calls.
+BookWriter is a multi-user web application for **LLM-assisted authoring of long-form texts** — books and other large documents. Authors work in a browser SPA; an admin SPA manages users and LLM-provider settings (and, per FEAT-011, will gain a moderation surface whose architecture is not yet designed); a FastAPI backend orchestrates persistence, authentication, and LLM calls.
 
-This documentation set covers **technology, structure, and conventions only**. The book/document domain model — the concrete entities and the generation pipeline — is deliberately **out of scope here** and will be designed in a later session. Nothing in this folder should be read as prescribing domain entities.
+This documentation set covers **technology, structure, and conventions only**. The book/document domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how. Its architecture is **not yet designed**; FEAT-006..018 have no coverage in this folder yet. Nothing here should be read as the domain model.
 
 ## Tech overview
 
@@ -10,6 +10,7 @@ A Python 3.13 FastAPI (async) backend persists data in SQLite through the SQLMod
 
 ## Documents
 
+- `docs/product/` — the requirements source of record that this architecture realizes; start at `quick-reference.md` (the canonical id registry) and `features.md`.
 - `README.md` — this index: project purpose, tech overview, reading order.
 - `system-overview.md` — component topology (backend, User SPA, Admin SPA, Login, nginx), the REST + SSE contract shape, ports, request and streaming flow.
 - `backend.md` — the 4-layer backend rules, dependency direction, typing discipline, the `pyproject.toml` dependency block, DB engine approach, LanceDB sidecar, config/secrets pattern, JWT/bcrypt auth, and the pytest/httpx test harness.

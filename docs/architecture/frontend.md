@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-Two SPAs (User and Admin) plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules. It defines no book/document domain.
+Two SPAs (User and Admin) plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules. It defines no book/document domain: the domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how — and its architecture is not yet designed, with FEAT-006..018 uncovered here.
 
 ## Stack and versions
 

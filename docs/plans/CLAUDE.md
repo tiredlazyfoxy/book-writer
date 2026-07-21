@@ -1,6 +1,51 @@
 # Planning files — layout, lifecycle, and contracts
 
-Every planning and coding agent reads this file first and treats it as authoritative. Two tracks live here: multi-step features and fast features. Bug fixes run against an already-completed plan in either track.
+Every planning and coding agent reads this file first and treats it as authoritative. Two tracks live here: multi-step features and fast features. Bug fixes run against an already-completed plan in either track. Above both tracks sits the **roadmap** layer (`roadmap.md` + per-feature `brief.md`, written by `/roadmap`), which defines *which* features exist and in what order before `/planner` decides *how* one is built — see "Roadmap and briefs" below.
+
+## Roadmap and briefs
+
+Above planning sits the **roadmap** layer, written by `/roadmap` (never by a planner or coder). It decides *which features exist and in what order*; planning decides *how one is built*. `/roadmap` allocates every folder number in both counters — the planner never mints one.
+
+### `roadmap.md`
+
+`docs/plans/roadmap.md` is the **stage index**: the milestone map. It lists each stage (a coherent, shippable stopping point), the features in it, their track/size, the product ids each delivers, and the dependency order. It has **no status column** — status is derived from folder state, never stored here.
+
+### `brief.md`
+
+Each roadmapped feature gets a `brief.md` at the root of its folder — `<NNN>.<feature>/brief.md` (multi-step) or `fast/<NNN>.<name>/brief.md` (fast). A brief is the *definition* of a feature, not its plan: Stage / Track / Size, `Delivers:` (product ids; omitted when there is no product layer), `Depends on:`, a behavioural Definition, Scope In/Out, and Open questions for the planner. It **never** contains steps, a Definition of done, signatures, or file lists — those are the planner's, produced later. The writer edits only inside `<!-- roadmap:start -->` / `<!-- roadmap:end -->` fences; content outside is preserved across re-runs.
+
+Brief shape:
+
+```markdown
+# 003.checkout — Checkout flow
+<!-- roadmap:start -->
+- **Stage:** 001.mvp · **Track:** multi-step · **Size:** M
+- **Delivers:** FEAT-003, US-014, US-015
+- **Depends on:** `002.catalog`
+
+## Definition
+<3–6 sentences, behavioural — what it lets someone do that they couldn't.>
+
+## Scope
+**In:** <bullets>
+**Out:** <bullets>
+
+## Open questions for the planner
+- <what the planner must resolve> — or "None."
+<!-- roadmap:end -->
+```
+
+### The roadmapped state
+
+A feature folder containing **only `brief.md`** — no `status.md` — is **roadmapped**: defined but not yet planned. The **absence of `status.md` is the signal**; `/roadmap` never seeds one. `/planner` (multi-step) or `/fast-feature` (fast) then reads the brief, harvests fresh evidence, and expands it into `context.md`, step files / `plan.md`, `outcome.md`, and a **seeded `status.md`**. Once `status.md` exists, the feature is **planned**. Lifecycle:
+
+```
+/roadmap  → brief.md only             (roadmapped)
+/planner  → + context/steps/status    (planned)
+/coder …  → status rows → done + PASS  (delivered)
+```
+
+An agent listing `docs/plans/` must treat a brief-only folder as **roadmapped, not broken**, and read `brief.md` as the feature definition that `context.md` builds on — never as a missing or malformed plan.
 
 ## Tracks — when to use fast vs multi-step
 
@@ -14,7 +59,9 @@ The two counters are independent: `fast/001` and `001.<feature>/` are unrelated.
 
 ```
 docs/plans/
+  roadmap.md                    # stage index (milestone map) — /roadmap
   <NNN>.<feature>/              # multi-step
+    brief.md                    # roadmapped definition — /roadmap (present before planning)
     context.md                  # feature-wide context
     <SSS>.<name>.md             # one step file per step
     <SSS>.context.md            # one per step (never skipped)
@@ -22,6 +69,7 @@ docs/plans/
     status.md                   # step table + lifecycle sections
   fast/
     <NNN>.<name>/               # fast feature
+      brief.md                  # roadmapped definition — /roadmap
       context.md
       plan.md                   # the single plan (the step file's equivalent)
       outcome.md
@@ -100,12 +148,14 @@ As the pipeline runs, agents append their own sections (below `## Files Changed`
 
 ### Status lifecycle
 
-`pending` → `wip` (coder may set mid-step) → `done` (orchestrator, on verifier PASS) or `blocked` (skeleton/coder escape valve, or Fault: SPEC). Only these four values. A bug fix never un-completes a `done` plan — its record is the `## Bug Fixes` and `## Tests` entries.
+A feature is **roadmapped** (brief only, no `status.md`) → **planned** (planner seeds `status.md`) → then its steps run the status machine below. `pending` → `wip` (coder may set mid-step) → `done` (orchestrator, on verifier PASS) or `blocked` (skeleton/coder escape valve, or Fault: SPEC). Only these four values. A bug fix never un-completes a `done` plan — its record is the `## Bug Fixes` and `## Tests` entries.
 
 ## Ownership summary
 
 | File / section               | Written by                    | Everyone else          |
 |------------------------------|-------------------------------|------------------------|
+| `roadmap.md`                 | `/roadmap` (roadmap-writer)   | read-only              |
+| `brief.md`                   | `/roadmap` (roadmap-writer)   | read-only              |
 | plan / step file             | planner / fast-planner        | read-only              |
 | context.md, `<SSS>.context`  | planner / fast-planner        | read-only              |
 | outcome.md (top)             | planner; applied by architect | read-only              |

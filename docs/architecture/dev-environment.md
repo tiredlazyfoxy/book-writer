@@ -1,6 +1,6 @@
 # Development Environment
 
-How to run BookWriter locally, the ports and launcher, the dev proxy, Docker Compose for dev and prod, and the environment variables. Tech-level only; no domain content.
+How to run BookWriter locally, the ports and launcher, the dev proxy, Docker Compose for dev and prod, and the environment variables. Tech-level only; no domain content — the book/document domain is specified as requirements in `docs/product/` (FEAT-001..018) and its architecture is not yet designed.
 
 ## Prerequisites
 

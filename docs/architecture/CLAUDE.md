@@ -16,6 +16,8 @@ So the rule changes shape rather than disappearing: don't invent the domain *mod
 
 Start from `docs/product/quick-reference.md` (the canonical id registry) and `docs/product/features.md` (the spine and its dependency graph — note the recorded build order and the `FEAT-012 → FEAT-017` inversion). Where a requirement carries a `_TBD:`, it is genuinely undecided: raise it, don't resolve it by choosing a design.
 
+The root-level `product.md` is a human-facing business narrative, **not** development guidance — ignore it; the canonical product layer is `docs/product/`.
+
 ## Contents
 
 - `README.md` — project purpose, tech overview, reading order (the index).

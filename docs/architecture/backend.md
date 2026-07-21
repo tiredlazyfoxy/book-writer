@@ -1,6 +1,6 @@
 # Backend Architecture
 
-FastAPI application (Python 3.13, async) with SQLite storage via SQLModel, a LanceDB sidecar for semantic search, JWT auth, and LLM integration via the `llm-client` dependency. This document defines the enforced structure, typing discipline, persistence approach, config/secrets pattern, auth scheme, and test harness. It does **not** define any book/document domain model — that is deferred.
+FastAPI application (Python 3.13, async) with SQLite storage via SQLModel, a LanceDB sidecar for semantic search, JWT auth, and LLM integration via the `llm-client` dependency. This document defines the enforced structure, typing discipline, persistence approach, config/secrets pattern, auth scheme, and test harness. It does **not** define any book/document domain model. The domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how; its architecture is not yet designed, and FEAT-006..018 have no coverage in this folder yet.
 
 ## Layer separation (enforced)
 
