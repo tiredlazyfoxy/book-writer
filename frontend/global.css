@@ -1,0 +1,35 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Markdown rendered blocks */
+.md-body p { margin: 0 0 0.5em; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3,
+.md-body h4, .md-body h5, .md-body h6 { margin: 0.6em 0 0.3em; font-weight: 600; }
+.md-body h1 { font-size: 1.2em; }
+.md-body h2 { font-size: 1.1em; }
+.md-body h3, .md-body h4, .md-body h5, .md-body h6 { font-size: 1em; }
+.md-body ul, .md-body ol { margin: 0.3em 0 0.5em 1.4em; padding: 0; }
+.md-body li { margin: 0.1em 0; }
+.md-body code { font-family: monospace; background: var(--mantine-color-default-border); padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+.md-body pre { margin: 0.4em 0; background: var(--mantine-color-default-border); padding: 8px; border-radius: 4px; overflow-x: auto; }
+.md-body pre code { background: none; padding: 0; }
+.md-body blockquote { margin: 0.4em 0 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--mantine-color-default-border); color: var(--mantine-color-dimmed); }
