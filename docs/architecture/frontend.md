@@ -99,6 +99,8 @@ frontend/
     login/                # Login entry — main.tsx, Login.tsx (no router, no page state)
 ```
 
+**Scaffold scope (feature 002).** The layout above is the target. What the scaffold actually ships today: the **Login entry is a bare placeholder** ("Login (coming soon)" — real login is feature 004); the cross-SPA **`AppLayout` / `AppHeader` / `AppSidebar` shells are not yet built** — `src/components/` is a seeded-empty folder (`.gitkeep`); routing beyond the User **health page** and an **Admin placeholder** is deferred. The seams (empty `components/`, placeholder entries) are intentional, not missing work.
+
 ## MobX hard rules
 
 These rules work as a system; loosening one breaks the others.
@@ -123,6 +125,8 @@ Three layers, each with a clear lifetime:
 | `<Component>State` | inline or sibling file | component mount → unmount | Local UI state too noisy to lift |
 
 Globals are plain functions (`getToken()`), not reactive stores — auth changes navigate away; settings changes re-read on next use.
+
+**Auth seam (scaffold vs. target).** The row above states the *target*: `auth.ts` will hold both token and current user. The current scaffold (feature 002) ships a **subset** — `auth.ts` exposes only `getToken()` (a localStorage read) plus a minimal `logout()` stub. `getCurrentUser()` / JWT-decode and the `App.tsx` token-gate redirect are **deferred to feature 004**, which expands `auth.ts` and adds the token gate. This is recorded so 004 is read as an expansion, not a rewrite.
 
 ### State is data + computed, never effectful methods
 
@@ -229,5 +233,7 @@ No zod / io-ts / runtypes. `response.json() as Item[]` — the backend (Pydantic
 Streaming endpoints use `streamPost()` in `src/api/sse.ts`: a `fetch`-based reader that issues a `POST` (with `Bearer` auth) and parses `event:` / `data:` frames from the response body. This is **not** the browser `EventSource` API (which supports neither POST bodies nor auth headers). The same `AbortSignal` semantics apply — the stream is cancellable. Frame handlers push updates into observable state via `runInAction`.
 
 ### Testing
+
+**No frontend test runner is configured in the scaffold today.** Scaffold verification is `npm run build` (tsc + vite), `npx tsc --noEmit`, `npm run dev` serving the three entries, and the live `GET /api/health` call. The guidance below is the target for when a runner is added.
 
 When frontend tests exist, they **mock the `api/` module**, not `fetch` — state files never know they're mocked. `client.ts` is tested separately for auth injection, error normalization, and abort behavior.

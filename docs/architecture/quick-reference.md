@@ -15,3 +15,21 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 | DTO | Module | Shape |
 |-----|--------|-------|
 | `HealthResponse` | `app/models/schemas/health.py` | Pydantic `BaseModel`: `status: str`, `db: str` |
+
+## Frontend `src/api/` pattern
+
+- `client.ts` — `request<T>(url, opts?)`: Bearer auth from `auth.ts` `getToken()`, `Content-Type: application/json`, JSON-stringified body, `AbortSignal` pass-through, `204 → undefined`, non-2xx normalized to `ApiError(status, message, details?)` via `throwApiError` (reads `{ detail }`). Also exports `authHeaders()`.
+- `sse.ts` — `streamPost(url, body, handlers): AbortController`: hand-rolled fetch-POST SSE reader (NOT `EventSource`).
+- Resource modules `api/<resource>.ts` namespace-import and call `request<T>`. Example: `api/health.ts` `getHealth(signal?)` → `request<HealthResponse>("/api/health", { signal })`.
+
+## Frontend MobX page-state — reference example
+
+`src/user/pages/HealthPage.tsx` + `healthPageState.ts` is the canonical page-state convention example; mirror it for new page work:
+
+- async-resource **trio**: `health` / `healthStatus` / `healthError`
+- external effectful `loadHealth(state, signal)` using `runInAction`
+- `observer` on the component
+- stable instance via `useState(() => new HealthPageState())`
+- mount `useEffect([])` — loads on mount, aborts on unmount
+
+Full rules live in `frontend.md`.

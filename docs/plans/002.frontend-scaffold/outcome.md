@@ -40,3 +40,17 @@ deltas below; do not restate `frontend.md`.
   Reason: the health page is the canonical bootstrap of the convention; the
   registry should point new frontend work at it. This is a flag for the
   architect, not a change to author now.
+
+---
+Status: Applied 2026-07-21
+Applied items: 4
+
+- frontend.md — auth seam note (after the state-ladder globals row), scaffold
+  scope note (after the Folder layout tree), and the Testing anchor sentence.
+- quick-reference.md — appended `## Frontend src/api/ pattern` and
+  `## Frontend MobX page-state — reference example`. **Applied with
+  modification:** the outcome caption "(not yet created)" was stale — the file
+  already existed (created at feature-001 finalization), so the two sections were
+  appended below the existing Endpoints/DTOs tables rather than authored fresh.
+
+Rejected items: 0
