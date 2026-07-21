@@ -41,6 +41,9 @@ backend/data/
 # Docker
 docker-compose.override.yml
 
+# Pipeline caches (product/roadmap/etc. scratch)
+docs/.cache/
+
 # Claude Code local settings
 .claude/settings.local.json
 
