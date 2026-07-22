@@ -224,6 +224,8 @@ One file per backend resource, exporting typed async functions named by REST ver
 
 Hand-written DTO `.d.ts`, flat, one file per resource. **Grep rule: if a type appears in any `api/` function signature, it lives in `types/`.** DTOs are pure shapes matching wire JSON 1:1 — no methods, no classes, no getters. State and prop interfaces live with their state/component, not here.
 
+**Entity ids are `string`, not `number`.** Backend entity ids are 64-bit snowflakes that exceed JavaScript's `Number.MAX_SAFE_INTEGER` (2^53), so the backend serializes them as strings; type them as `string` in every `.d.ts` DTO. See `backend.md` → Conventions — entity ID strategy.
+
 ### No runtime validation
 
 No zod / io-ts / runtypes. `response.json() as Item[]` — the backend (Pydantic) is the single source of truth for shapes; a mismatch is fixed at source rather than double-bookkept with a client schema. Strict TypeScript plus end-to-end testing is the safety net.

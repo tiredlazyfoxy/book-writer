@@ -32,6 +32,9 @@ class Settings(BaseSettings):
       ``backend/data/bookwriter.db``.
     - ``lancedb_dir`` — LanceDB sidecar index directory (consumed by
       ``db/vector.py`` in step 002); defaults to ``backend/data/vector``.
+    - ``node_id`` — 10-bit snowflake node id (0–1023). Honors the
+      ``BOOKWRITER_NODE_ID`` environment override; defaults to ``0`` for the
+      single-node deployment. Consumed by ``app.ids.generate_id``.
     """
 
     model_config = SettingsConfigDict(
@@ -45,6 +48,12 @@ class Settings(BaseSettings):
         validation_alias="BOOKWRITER_DB_PATH",
     )
     lancedb_dir: Path = Field(default=_DEFAULT_LANCEDB_DIR)
+    node_id: int = Field(
+        default=0,
+        ge=0,
+        le=1023,
+        validation_alias="BOOKWRITER_NODE_ID",
+    )
 
 
 @lru_cache

@@ -5,11 +5,12 @@ This is the format/serialization layer (services). It owns ``TABLE_REGISTRY``
 through gzip; all DB access is delegated to ``db.import_export_queries``, which
 manages its own sessions. See ``docs/architecture/backend.md``.
 
-The registry is **empty for now** (no persistent models exist yet). Adding a
-model later = add its ``to_dict``/``from_dict`` codec pair plus one ordered
-``TABLE_REGISTRY`` tuple, in FK dependency order.
+Adding a model = add its ``to_dict``/``from_dict`` codec pair plus one ordered
+``TABLE_REGISTRY`` tuple, in FK dependency order. ``users`` is the first
+persistent model (step 003).
 
-Skeleton (step 004): signatures are frozen; bodies are UNIMPLEMENTED.
+Skeleton (step 004): mechanism signatures frozen; bodies UNIMPLEMENTED.
+Skeleton (step 003): ``User`` codec signatures frozen; codec bodies UNIMPLEMENTED.
 """
 
 import gzip
@@ -18,10 +19,12 @@ import json
 import logging
 import zipfile
 from collections.abc import Callable
+from datetime import datetime
 
 from sqlmodel import SQLModel
 
 from app.db import engine, import_export_queries
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +37,59 @@ RegistryEntry = tuple[
     Callable[[dict[str, object]], SQLModel],
 ]
 
-# Empty for step 004 — no persistent models yet. The mechanism round-trips an
-# empty archive; real models plug in here as they are introduced.
-TABLE_REGISTRY: list[RegistryEntry] = []
+def _user_to_dict(user: User) -> dict[str, object]:
+    """Serialize a ``User`` row to a JSON-safe dict for export.
+
+    Enum via ``.value``, datetimes via ``.isoformat()``, nullable fields emitted
+    as ``None``. Includes credentials (``pwdhash``, ``jwt_signing_key``) so
+    restored accounts can authenticate (security consideration flagged in
+    ``outcome.md``).
+    """
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "pwdhash": user.pwdhash,
+        "role": user.role.value,
+        "jwt_signing_key": user.jwt_signing_key,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
+        "last_key_update": (
+            user.last_key_update.isoformat() if user.last_key_update else None
+        ),
+    }
+
+
+def _dict_to_user(data: dict[str, object]) -> User:
+    """Restore a ``User`` row from an exported dict (inverse of ``_user_to_dict``).
+
+    Role via ``UserRole(...)``, datetimes parsed from isoformat, nullable fields
+    read with a ``.get``-style lookup. Explicit ``id`` is preserved so the UPSERT
+    is idempotent on re-import (decision 6). ``id`` is accepted as **either** a
+    JSON string (current snowflake serialization) **or** a legacy JSON number
+    (pre-snowflake archives), parsed to ``int`` in both cases.
+    """
+    last_login = data.get("last_login")
+    last_key_update = data.get("last_key_update")
+    raw_id = data.get("id")
+    return User(
+        id=int(raw_id) if raw_id is not None else None,
+        username=data["username"],
+        pwdhash=data.get("pwdhash"),
+        role=UserRole(data["role"]),
+        jwt_signing_key=data.get("jwt_signing_key"),
+        last_login=datetime.fromisoformat(last_login) if last_login else None,
+        last_key_update=(
+            datetime.fromisoformat(last_key_update) if last_key_update else None
+        ),
+    )
+
+
+# One registry entry per persistent table, in FK (import) order. ``users`` is
+# first — it precedes any dependent entity. Real codec functions are referenced
+# here even while their bodies are unimplemented, so the registry is non-empty
+# and importable.
+TABLE_REGISTRY: list[RegistryEntry] = [
+    ("users", User, _user_to_dict, _dict_to_user),
+]
 
 # Max rows accumulated before a streaming UPSERT flush on import.
 BATCH_SIZE = 100

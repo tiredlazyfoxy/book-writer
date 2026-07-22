@@ -83,3 +83,69 @@ for the architect. The coder appends `## Observations` at the bottom.
   leaves the instance unconfigured (`set_db_ready` not called), but does **not**
   transactionally roll back a partially-written import (decision 4). Whether full
   rollback is needed is a possible enhancement for the architect to weigh.
+
+## Observations
+
+- Feature 001 / step 004's `test_db_import_export.py::test_export_all_returns_valid_empty_zip__DoD1`
+  asserted an **empty** `TABLE_REGISTRY` (`list(TABLE_REGISTRY) == []`) and an
+  empty `export_all()` archive (`namelist() == []`). That precondition is
+  **superseded** by feature 003 step 003, which registers the first persistent
+  model (`users`) as the registry's first entry — so the registry is non-empty
+  and `export_all()` now emits a `users` member. The stale assertion and module
+  docstring are reconciled **in-scope** in step 003 (test updated, not deleted;
+  see step 003 DoD-8). The file's other three tests do not depend on emptiness
+  and remain valid.
+
+- Feature 003 step 004 added empty `__init__.py` package markers across the
+  backend `tests/` tree (`tests/`, `tests/db/`, `tests/services/`,
+  `tests/routes/`). Reason: step 004's `tests/routes/test_setup.py` shares the
+  module basename `test_setup` with step 003's `tests/services/test_setup.py`;
+  under the declared full-suite command (`cd backend &&
+  .venv/Scripts/python -m pytest`, pytest default prepend import mode) two
+  same-basename files with no package markers abort collection with `import file
+  mismatch`. The markers make each module fully-qualified
+  (`tests.routes.test_setup` vs `tests.services.test_setup`), so same-basename
+  test modules across directories coexist. Adopting `--import-mode=importlib`
+  project-wide is a possible future alternative, but the chosen fix is package
+  markers.
+
+---
+Status: Applied 2026-07-22 (PARTIAL — backend-only)
+Applied items: 6
+Rejected items: 0
+Deferred items: 2
+
+This was a **partial (backend-only)** finalization. Steps 001–004 are done + PASS;
+frontend step 005 is still pending, so frontend-dependent items were deferred.
+
+Applied to `docs/architecture/`:
+- **backend.md** — new "Domain models" → "User" subsection (`Realizes: FEAT-001,
+  UC-001, UC-002`); Authentication "What feature 003 delivers (minimal subset)"
+  note (bcrypt + per-user key + `create_token`; verification/rotation/logout ⇒
+  feature 004); deferred-schema startup lifecycle (zero tables on boot, admin-
+  existence readiness, cold-instance health still passes, supersedes feature-001
+  eager `create_all`); DB import/export (`users` first `TABLE_REGISTRY` entry,
+  supersedes empty-registry precondition).
+- **system-overview.md** — first-run setup endpoints under `/api/auth` (`status`,
+  `setup/create`, `setup/import`). No frontend-wizard note added (deferred).
+- **quick-reference.md** — three setup endpoints, DTOs (`AuthStatusResponse`,
+  `CreateDBRequest`, `LoginResponse`), `User` table shape, `UserRole` enum.
+
+Three design decisions recorded:
+1. **System-wide Snowflake ID standard** (universal, no permanent exceptions) — new
+   "Conventions — entity ID strategy" note in backend.md + a dated 2026-07-22
+   "Decision history" entry. `User`'s shipped autoincrement PK is documented as a
+   **known deviation / migration debt** (PK type, import-codec explicit-id handling,
+   `user_id` token claim), not as the convention.
+2. **Two-mode export policy** — today's export INCLUDES credentials (secret-grade,
+   "full/backup" mode, required by US-002); a sanitized credential-free mode is the
+   TARGET for feature 007 (not yet built).
+3. **Partial-import rollback = accepted limitation** — streaming idempotent UPSERT;
+   corrupt import raises `SetupError`, leaves instance unconfigured, recovered by
+   retry; no transactional rollback.
+
+Deferred (not applied here):
+- (a) Frontend first-run-wizard / login-entry / `window.location.href` note in
+  system-overview.md — pending step 005; a later finalization applies it.
+- (b) `US-001.AC-3` min-length `_TBD` → 8 back-propagation — routed to
+  `/product-spec`; `docs/product/` left untouched.

@@ -11,17 +11,37 @@ running the app's startup lifespan against a throwaway temp DB so the end-to-end
 
 No `event_loop` override is defined: the suite relies on
 `asyncio_mode = "auto"` (the reference project's deprecated `event_loop`
-override is deliberately not copied). The fixtures are deliberately *not*
-autouse so tests that need a pristine, uninitialized engine (and the settings
-tests from step 001) are unaffected.
+override is deliberately not copied). The temp-DB and `http_client` fixtures are
+deliberately *not* autouse so tests that need a pristine, uninitialized engine
+(and the settings tests from step 001) are unaffected.
+
+Step 002 adds one autouse fixture (`_reset_db_ready`): the process-level
+readiness flag in `db/engine.py` is a module global that would otherwise leak a
+`set_db_ready(True)` from one test into the next within the same process, so it
+is reset to `False` before every test.
 """
 
 from pathlib import Path
 
 import httpx
+import pytest
 import pytest_asyncio
 
-from app.db.engine import DbConfig, init_db, init_engine
+from app.db.engine import DbConfig, init_db, init_engine, set_db_ready
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_ready() -> None:
+    """Reset the process-global readiness flag to `False` before each test.
+
+    The readiness flag lives at module scope in `db/engine.py` (default
+    `False`), so a `set_db_ready(True)` performed by one test would otherwise
+    leak into the next within the same process. Resetting it to `False` here
+    restores the cold-boot default before each test runs. `set_db_ready` is a
+    plain module-global setter and is safe to call whether or not the engine has
+    been initialized.
+    """
+    set_db_ready(False)
 
 
 @pytest_asyncio.fixture

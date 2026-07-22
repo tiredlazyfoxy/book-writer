@@ -62,6 +62,18 @@ In production, nginx serves the three static builds and reverse-proxies `/api` t
 - **Auth**: JWT (HS256) in the `Authorization: Bearer <token>` header. The token is issued at login and carried by both SPAs. See `backend.md` for the per-user signing-key scheme.
 - **Errors**: non-2xx responses carry a JSON body; the frontend normalizes them into a typed `ApiError` (status + message + optional structured field details).
 
+### First-run setup endpoints (feature 003)
+
+The first real endpoints — the **front door of a cold, unconfigured instance** — live under `/api/auth`:
+
+| Method | Path | Request | Success response |
+|--------|------|---------|------------------|
+| `GET` | `/api/auth/status` | — | `AuthStatusResponse{needs_setup: bool}` |
+| `POST` | `/api/auth/setup/create` | JSON `CreateDBRequest{admin_username, password, password_confirm}` | `LoginResponse{token}` (auto sign-in) |
+| `POST` | `/api/auth/setup/import` | multipart, field `file` | `AuthStatusResponse` (no token) |
+
+`create` provisions the schema and the first admin, then returns a token so the caller is signed in immediately; `import` restores an archive and leaves the caller unauthenticated (they log in afterward). See `backend.md` for the deferred-schema startup lifecycle these endpoints drive.
+
 ## Ports
 
 | Service | Dev port | Notes |

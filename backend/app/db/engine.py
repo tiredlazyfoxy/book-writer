@@ -34,17 +34,35 @@ class DbConfig:
 _config: DbConfig | None = None
 _engine: AsyncEngine | None = None
 
+# Process-level readiness flag (feature 003 decision 1). ``needs_setup = not
+# is_db_ready()``. Default ``False`` on a cold instance; initialized at startup
+# from admin-existence and flipped to ``True`` at the end of a successful
+# create/import flow. Because it is process-global, tests reset it between runs.
+_db_ready: bool = False
+
+
+def is_db_ready() -> bool:
+    """Return the current process-level readiness flag."""
+    return _db_ready
+
+
+def set_db_ready(value: bool) -> None:
+    """Set the process-level readiness flag to ``value``."""
+    global _db_ready
+    _db_ready = value
+
 
 def _register_models() -> None:
     """Import every ``app.models.*`` table module so its tables register on
     ``SQLModel.metadata`` before ``create_all``.
 
-    Empty for now — no models exist yet. Future model table modules are
-    imported here (``# noqa: F401``) so they register as a side effect.
+    Future model table modules are imported here (``# noqa: F401``) so they
+    register as a side effect before any ``create_all``.
     """
     # --- MODEL-REGISTRATION SEAM: add ``import app.models.<name>  # noqa: F401``
     #     lines below as table modules are introduced. Do not remove this hook. ---
-    # No models exist yet — nothing to register.
+    import app.models.user  # noqa: F401
+
     return
 
 
