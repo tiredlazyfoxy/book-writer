@@ -27,6 +27,19 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 
 - Non-admin caller on any of the nine → **403**. `server_id` path params are `int` (FastAPI coerces the stringified id). See `backend.md` → LLM server connections.
 
+### `/api/admin/db` (feature 007) — all `Depends(require_role(admin))`
+
+| Method | Path | Success | Body → Response | Notes |
+|--------|------|---------|-----------------|-------|
+| `GET` | `/api/admin/db/report` | `200` | — → `ConsistencyReport` | per-table ok/drift/missing |
+| `GET` | `/api/admin/db/export` | `200` | — → zip download | `Content-Disposition: attachment`, `application/zip`; first non-JSON admin response |
+| `POST` | `/api/admin/db/import` | `204` | multipart, field `file` | pre-validated; `invalid-archive` → 400, DB unmutated; does NOT flip `set_db_ready` |
+| `POST` | `/api/admin/db/vector/rebuild` | `200` | — → `VectorRebuildResponse` | `no-embedding-provider` → 400; empty registry → 0 rows |
+| `POST` | `/api/admin/db/tables/{name}/create` | `204` | — | `not-in-metadata` / `table-not-missing` → 400 |
+| `POST` | `/api/admin/db/tables/{name}/sync` | `204` | — | `unknown-table` → 404 (ALTER ADD/DROP COLUMN) |
+
+- Static routes (`/report`, `/export`, `/import`, `/vector/rebuild`) declared **before** `/tables/{name}/...`; non-admin caller → **403**. See `backend.md` → Database consistency & management.
+
 - `/api/health` — the first concrete endpoint and the canonical four-layer example. Readiness originates from `db.health.ping()` (a `SELECT 1`-style probe), **not** a route-level constant. When the DB is not ready the service maps it to `{"status":"error","db":"unavailable"}`. Passes on a cold instance (zero tables) — `SELECT 1` still succeeds.
 - `/api/auth/setup/*` (feature 003) — the front door of a cold instance; schema creation is deferred to these flows. See `backend.md` startup lifecycle.
 
@@ -46,6 +59,9 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 | `SetEmbeddingRequest` | `app/models/schemas/llm_servers.py` | `model: str` |
 | `EmbeddingConfigResponse` | `app/models/schemas/llm_servers.py` | `server_id: str \| None` (**string**, snowflake), `server_name`, `base_url`, `backend_type`, `model: str \| None`, `has_api_key: bool` — all-`None` when no embedding server |
 | `LlmServersListResponse` | `app/models/schemas/llm_servers.py` | `items: list[LlmServerResponse]` |
+| `ConsistencyReport` | `app/models/schemas/db_admin.py` | `tables: list[TableReportEntry]` |
+| `TableReportEntry` | `app/models/schemas/db_admin.py` | `name: str`, `status: 'ok' \| 'drift' \| 'missing'`, `missing_columns: list[str]`, `extra_columns: list[str]` |
+| `VectorRebuildResponse` | `app/models/schemas/db_admin.py` | `indexed_rows: int` |
 
 ## Tables & enums
 
@@ -64,6 +80,7 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 - `client.ts` — `request<T>(url, opts?)`: Bearer auth from `auth.ts` `getToken()`, `Content-Type: application/json`, JSON-stringified body, `AbortSignal` pass-through, `204 → undefined`, non-2xx normalized to `ApiError(status, message, details?)` via `throwApiError` (reads `{ detail }`). Also exports `authHeaders()`.
 - `sse.ts` — `streamPost(url, body, handlers): AbortController`: hand-rolled fetch-POST SSE reader (NOT `EventSource`).
 - Resource modules `api/<resource>.ts` namespace-import and call `request<T>`. Example: `api/health.ts` `getHealth(signal?)` → `request<HealthResponse>("/api/health", { signal })`.
+- `api/db.ts` (feature 007) adds the first **blob-download** (`exportDatabase()` → `res.blob()` browser save) and **multipart-upload** (`importDatabase(file)` → `FormData` field `file`, no JSON `Content-Type`) helpers, both **bypassing `request<T>`** (JSON-only) while still reading `getToken()` Bearer — the sanctioned exception alongside `sse.ts`.
 
 ## Frontend MobX page-state — reference example
 

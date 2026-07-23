@@ -102,12 +102,12 @@ Every persistent model has gzipped-JSONL (`.jsonl.gz`) import/export, packaged i
 
 Two settled policies govern how credentials cross the import/export boundary:
 
-- **Export credential policy.** The `users` codec (and export) **includes credentials** — `pwdhash` and `jwt_signing_key` — so restored accounts can authenticate, as required by US-002 (restore-and-login). This makes today's export the **"full / backup" mode, and it is secret-grade**: an export archive must be handled as a secret because it carries live credential material. `LlmServer.api_key`, however, is **redacted on export** (feature 004): a `$ENV` token is a *pointer*, not a secret, so `$`-prefixed values (and `None`) are exported verbatim, while a **raw literal key is emitted as `null`** — an operator re-enters it after restore. This is a **scoped early slice** of the feature-007 sanitized-export target, applied to LLM keys only; the broader two-mode split (full vs. sanitized) covering `User` credentials is **still not built** — `pwdhash` / `jwt_signing_key` continue to export verbatim in today's full/backup mode.
+- **Export credential policy.** The `users` codec (and export) **includes credentials** — `pwdhash` and `jwt_signing_key` — so restored accounts can authenticate, as required by US-002 (restore-and-login). This makes today's export the **"full / backup" mode, and it is secret-grade**: an export archive must be handled as a secret because it carries live credential material. `LlmServer.api_key`, however, is **redacted on export** (feature 004): a `$ENV` token is a *pointer*, not a secret, so `$`-prefixed values (and `None`) are exported verbatim, while a **raw literal key is emitted as `null`** — an operator re-enters it after restore. This is a **scoped early slice** of the feature-007 sanitized-export target, applied to LLM keys only; the broader two-mode split (full vs. sanitized) covering `User` credentials is **still not built** — `pwdhash` / `jwt_signing_key` continue to export verbatim in today's full/backup mode. Feature 007's export **download** endpoint (`GET /api/admin/db/export`) now makes that full/backup archive **admin-reachable through a browser**, which **raises the priority** of the still-unbuilt sanitized-export mode for `User` credentials — the archive, which carries live `pwdhash` / `jwt_signing_key`, now leaves the server through an admin's browser. The **only remaining plaintext-export concern is `User.pwdhash` / `jwt_signing_key`**: `LlmServer.api_key` is already redacted on export (a raw literal is emitted as `null`; a `$ENV` pointer is kept), per the feature-006 rewrite.
 - **Partial-import rollback — accepted limitation.** Import is a streaming, idempotent UPSERT. A corrupt or failed import raises `SetupError`, leaves the instance **unconfigured** (`set_db_ready` is **not** called), and is recovered by **retrying with a valid archive** — the idempotent UPSERT overwrites any partial rows. There is **no transactional rollback** of a partially-written import. This is a **deliberately accepted limitation**, justified by the idempotent-UPSERT plus unconfigured-on-failure design: a half-written instance is never treated as ready, and a clean retry converges it.
 
 ## Vector storage — LanceDB sidecar
 
-LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated. `db/vector.py` is currently a connect/init **stub**, unused until a vector-backed model exists — the rebuild-on-import contract above still stands as described.
+LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated. As of feature 007, `db/vector.py` exposes a real **`rebuild_index()`** that connects to the configured LanceDB dir, **drops/recreates the sidecar tables (a full reset)**, and iterates a module-level **`VECTOR_SOURCE_REGISTRY`** — **empty in Stage 1** — so today it resets and indexes **0 rows**. The rebuild-on-import contract stands as described; the sidecar is always regenerated from SQLite source rows and is never exported. See "Database consistency & management" for the rebuild wiring and the deliberately-deferred embed-content bridge.
 
 ## LLM client
 
@@ -227,6 +227,65 @@ Embedding role is per-row (`is_embedding` + `embedding_model`), and **at most on
 
 Nine endpoints, every one behind `Depends(require_role(admin))`. The **static `/embedding` routes are declared before `/{server_id}`** so path capture doesn't swallow them. Error → status taxonomy: missing-field / invalid-backend-type / env-not-set → **400**, not-found → **404**, probe-failed → **502**, delete + clear-embedding → **204**, non-admin → **403**. See `quick-reference.md` for the endpoint and DTO table.
 
+## Database consistency & management
+
+**Realizes:** FEAT-005, UC-015..020
+
+Admin-facing tooling to inspect the live database against the models the code expects, remediate drift, back up / restore the whole DB as an archive, and rebuild the vector sidecar. It spans `db/schema.py`, `services/db_admin.py`, and `routes/admin/db.py`, and reuses the feature-003/004 import/export codecs.
+
+### Schema-drift introspection
+
+`db/schema.py` reads the **actual** structure of the live database: it uses SQLAlchemy `inspect()` over the async engine (via `run_sync`, since the inspector is a sync API) to enumerate tables and their columns as they physically exist. `services/db_admin.py` compares that against the **expected** structure — `SQLModel.metadata`, the models layer's declared tables — to produce a per-table report of **ok / drift / missing**, each entry carrying its **missing-column** and **extra-column** lists (drift = the table exists but its columns diverge; missing = the expected table is absent from the live DB).
+
+This keeps the layer split intact via a **sanctioned exception**: DDL and introspection live in `db/` (the same rule that put 006's raw-SQL `clear_all_embedding` there), while the service reads the *expected* shape straight from `SQLModel.metadata` — a **non-session models-layer read**, not a persistence access, so it does not violate the "no session in services" rule.
+
+### Remediation
+
+Two repair primitives, both in `db/schema.py`:
+
+- **`create_table`** — creates a single missing table from `SQLModel.metadata.tables[name]` via `table.create`. This is used rather than `create_all` because `create_all` offers no **single-table** create; the admin repairs one named table at a time.
+- **`sync_table_schema`** — reconciles a drifting table with `ALTER TABLE … ADD COLUMN` / `DROP COLUMN` to match the metadata.
+
+Two SQLite constraints are recorded because they shape the behavior, with their reasons:
+
+- **ADD COLUMN cannot be `NOT NULL` without a default.** SQLite forbids adding a non-nullable column to a populated table with no default, so added columns are created **nullable regardless of the metadata column's nullability**. Reconciling nullability fully would require a table rebuild, which is out of scope here.
+- **DROP COLUMN requires SQLite ≥ 3.35.** Satisfied by the sqlite bundled with Python 3.13, so no fallback path is built.
+
+### Admin export / import
+
+- **`GET /api/admin/db/export`** returns a downloadable zip archive — `Content-Disposition: attachment`, `application/zip`. This is the **first non-JSON admin response** in the system; every prior admin endpoint returned JSON.
+- **`POST /api/admin/db/import`** accepts a multipart `UploadFile` field `file` and **pre-validates the archive before any mutation**. `validate_archive` opens the upload as a zip and confirms every expected member — named by a `TABLE_REGISTRY` entry, i.e. the bare table name carrying gzipped-JSONL content — is present and gz/JSONL-parseable. Any failure raises `DbAdminError(invalid-archive)` → **400** with the **DB left unmutated**. Only after validation passes does it UPSERT via `import_all` (the shared feature-003 import path).
+
+State explicitly: **the admin import path does NOT flip `set_db_ready`.** Readiness is a first-run concern owned by `services.setup` (feature 003); an admin restoring into an already-configured instance must not re-enter setup state. This is the system's **first admin write-import surface**, distinct from the setup-import front door.
+
+### Typed error → status map
+
+`DbAdminError.case` maps to HTTP status in `routes/admin/db.py`:
+
+- `not-in-metadata` / `table-not-missing` / `invalid-archive` / `no-embedding-provider` → **400**
+- `unknown-table` → **404**
+- non-admin → **403**
+
+All six endpoints are behind `Depends(require_role(admin))`, and the **static routes are declared before `/tables/{name}/...`** so path capture doesn't swallow them (the same ordering rule as the LLM-server routes).
+
+### Vector-rebuild wiring
+
+`POST /api/admin/db/vector/rebuild` and the post-import rebuild share **one path**: `run_vector_rebuild()` → `db.vector.rebuild_index()`. Both the explicit admin trigger and the implicit post-restore refresh converge on the same operation, so there is a single place where the sidecar is regenerated.
+
+### The vector-pipeline boundary (deliberately partial)
+
+Feature 007 delivers the rebuild **operation**, the index **reset**, and the **empty `VECTOR_SOURCE_REGISTRY`** seam — but **not** the embed-content bridge. Concretely:
+
+- `VECTOR_SOURCE_REGISTRY` is a module-level list that Stage-2 vector-backed domain features append `(model_class, text_extractor)` entries to. It is **empty in Stage 1**, so a rebuild today resets the sidecar and indexes **0 rows**.
+- `services/db_admin.py::rebuild_vector_index()` **validates the 006 embedding designation** — `get_embedding_server()` must return a row *and* its `embedding_model` must be set — raising `DbAdminError(no-embedding-provider)` (→ 400) otherwise. With the empty registry it then resets the index and returns **0**.
+- The **embed-content bridge is DEFERRED** to the first vector-backed domain model (the Stage-2 codex, behind the architect gate): **no** `embed_texts`, **no** `services/embedding.py`, **no** vector-dimension detection/cache is built now.
+
+Chosen so that the operation and its real dependency on the 006 embedding designation exist and are exercised, while the large embedding pipeline stays scoped out until there is actual searchable content to embed. Users and llm_servers are configuration, not searchable content — there is nothing to index yet.
+
+### Convergence note — a future refactor (not built)
+
+A shared `validate_archive` could later unify two currently-separate refusal paths: 003's setup-import (`services.setup.import_database` → `SetupError`) and 007's admin-import (`db_admin.import_database` → `DbAdminError(invalid-archive)`). Both wrap the same `import_all` and differ only in the readiness-flip and the error type. Recorded as a deferred refactor, deliberately not built now.
+
 ## Logging
 
 - Python standard `logging`, default output to console.
@@ -244,4 +303,5 @@ Nine endpoints, every one behind `Depends(require_role(admin))`. The **static `/
 - **2026-07-22 — System-wide entity ID strategy = Snowflake ids.** Standardized on node-aware, globally-unique, time-ordered snowflake ids for **all** entities ("anywhere," no permanent exceptions), to keep cross-instance import/export identity unambiguous. This **reverses the implicit choice** made when feature 003 shipped `User` with an **autoincrement integer PK**, and therefore creates known migration debt: `User` must migrate its PK type, its import-codec explicit-id handling, and its `user_id` token claim. Recorded here because the decision overturns a shipped choice and carries follow-up work. See "Conventions — entity ID strategy" and the `User` domain model.
 - **2026-07-22 — Concrete Snowflake design + serialization convention (refines the entry above).** Settled the implementation specifics so the migration can be planned: a **64-bit id** with a **41-bit ms timestamp / 10-bit node id / 12-bit sequence** layout (high bit 0) over a **fixed custom epoch** (fixed once, never changed); the node id from a new **`node_id` setting** via env **`BOOKWRITER_NODE_ID`** (default `0`); a cross-cutting **`app/ids.py` `generate_id()`** generator (the sanctioned exception to one-module-per-entity); and **application-generated ids at entity construction** (locked — not DB-assigned; `default_factory=generate_id` recommended, db-layer-on-None acceptable). Adopted the system-wide rule that **entity ids serialize as strings at every JSON boundary** (JSONL codecs, API DTOs, frontend `.d.ts`) because snowflakes exceed JS's 2^53 and a JSON number would lose precision, with **from_dict accepting number-or-string** for legacy-int-archive back-compat. Set the `User` migration as **fresh-install / model-only** — no in-place PK data migration (none is possible: `create_all` cannot alter a PK, no Alembic), reframing `User` from unscoped debt to a scoped, planned migration. See "Conventions — entity ID strategy" and the `User` domain model.
 - **2026-07-23 — `LlmServer` conformed to the snowflake id standard; literal LLM `api_key` redacted on export (feature 006 + rewrite).** Feature 006 originally shipped `LlmServer` with an autoincrement-int PK and a verbatim `api_key` export; a same-day rewrite brought both into line with the settled conventions. `LlmServer.id` is now `id: int = Field(default_factory=generate_id, primary_key=True)` (mirroring `User`), string-serialized at the DTO/frontend edge — chosen for **consistency with the system-wide snowflake standard** and to keep cross-instance import identity unambiguous. On export, a raw literal `api_key` is now replaced with `null` while `$ENV` pointer tokens are kept — chosen because a **secret-grade literal key should not land in an archive**, whereas an `$ENV` pointer safely can (it names an environment variable, not a secret). `User` credential export is unchanged. See "LLM server connections", the `LlmServer` domain model, and the "DB import/export" export credential policy.
+- **2026-07-23 — Vector-pipeline boundary for the DB-consistency feature (feature 007).** Feature 007 shipped the vector-rebuild **operation** + full index **reset** + the **empty `VECTOR_SOURCE_REGISTRY`** seam (the list Stage-2 vector-backed domain features append `(model_class, text_extractor)` entries to), wired through `run_vector_rebuild()` → `db.vector.rebuild_index()` and validating the 006 embedding designation (`no-embedding-provider` → 400). It **deliberately deferred** the embed-content bridge — no `embed_texts`, no `services/embedding.py`, no vector-dimension detection/cache — to the first vector-backed domain model (the Stage-2 codex, behind the architect gate). Reasoning: with an empty registry a rebuild indexes 0 rows, so building the embedding pipeline now would be dead code; users and llm_servers are configuration, not searchable content, so nothing yet needs embedding. This keeps the operation and its real 006 dependency exercised while the large pipeline stays scoped out until there is content to index. See "Database consistency & management" and "Vector storage — LanceDB sidecar".
 - **2026-07-22 — Snowflake design implemented for `User` (`fast/001.snowflake-ids`).** The settled design above is now **realized in code**. `app/ids.py` ships `generate_id()` (monotonic per-ms snowflake, lock-guarded sequence, spin-wait on overflow, backwards-clock clamp) with the pinned `EPOCH_MS = 1704067200000` and frozen bit-layout constants; the node id comes from `Settings.node_id` (env `BOOKWRITER_NODE_ID`, default 0, range 0–1023). `User`'s PK is `id: int = Field(default_factory=generate_id, primary_key=True)` (the db-layer-on-`None` alternative was not taken), and the `users` import codec emits `id` as a JSON string while accepting a legacy JSON number on import. **One touch-point remains open:** the `user_id` **JWT token claim** is still an int and its int→string serialization is **deferred to feature 004**. This closes the loop from the two design-decision entries above to their realization. See "Conventions — entity ID strategy" and the `User` domain model.

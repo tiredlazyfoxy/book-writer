@@ -68,3 +68,29 @@ these at finalization; the coder appends `## Observations` below.
 
 - **No back-propagation.** FEAT-005 is fully specified and confirmed
   (`[confirmed: user]`, 2026-07-20); no requirement gap was found while planning.
+
+---
+Status: Applied 2026-07-23
+Applied items: 6
+Rejected items: 0
+
+Notes:
+- `backend.md` — added the "Database consistency & management" section (schema-drift
+  introspection, remediation + the two SQLite constraints, admin export/import with
+  no-`set_db_ready` note, typed-error→status map, vector-rebuild wiring, the vector-pipeline
+  boundary, the convergence future-refactor note); refreshed the stale "stub" wording in
+  "Vector storage — LanceDB sidecar" to describe the real `rebuild_index()` + empty
+  `VECTOR_SOURCE_REGISTRY`; added a 2026-07-23 Decision-history entry for the vector-pipeline
+  boundary.
+- The **export-credential-redaction** item was **folded into the existing "Export credential
+  policy" paragraph** (no separate Decision-history entry, as instructed): the 007 export
+  **download** now makes the full/backup archive admin-reachable through a browser, raising the
+  priority of the sanitized-export mode. Reconciled to state the **only** live plaintext-export
+  concern is `User.pwdhash` / `jwt_signing_key` — `LlmServer.api_key` is already redacted per
+  the feature-006 rewrite.
+- `frontend.md` — added the "Admin SPA — Database section (feature 007)" note and the
+  blob-download / multipart-upload sanctioned-exception note in the API layer section.
+- `quick-reference.md` — added the `/api/admin/db` endpoint subsection, the `ConsistencyReport`
+  / `TableReportEntry` / `VectorRebuildResponse` DTO rows, and the `api/db.ts` frontend-pattern
+  bullet.
+- `docs/product/` — no change (outcome confirmed no back-propagation).

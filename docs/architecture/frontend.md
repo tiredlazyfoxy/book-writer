@@ -103,6 +103,8 @@ frontend/
 
 **Admin SPA — LLM servers section (feature 006).** The Admin SPA has grown its **second section** at `/admin/llm-servers`: a list page (`admin/pages/LlmServersPage.tsx` + `llmServersPageState.ts`) plus **three modals** under `admin/components/llm-servers/` — a server form (create/edit), a models modal (probe available models + enable a subset), and an embedding-designation modal. It is backed by the `api/llmServers.ts` resource module and `types/llmServers.d.ts` (which includes the `"llama-swap" | "openai"` backend-type union). `LlmServer.id` is typed **`string`**, per the string-id convention (see "types/" below). Adding this section realized the minimal **`Users | LLM Servers`** nav that feature 005 deferred "until 006 adds pages" — still under the **minimal local Admin layout**; the shared cross-SPA `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred.
 
+**Admin SPA — Database section (feature 007).** The Admin SPA grew a **third section** at `/admin/database`: `admin/pages/DatabasePage.tsx` + `databasePageState.ts` (a report async trio plus external `(state, …, signal)` action functions), rendering a per-table consistency table (an ok / drift / missing badge, the drift column lists, and per-row **Create** / **Sync** actions) plus **Export** / **Import** / **Rebuild** controls. Nav is now **`Users | LLM Servers | Database`**, still under the minimal local Admin layout (the shared `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred). It is backed by `api/db.ts` and `types/db.d.ts`.
+
 ## MobX hard rules
 
 These rules work as a system; loosening one breaks the others.
@@ -205,6 +207,8 @@ No `AsyncValue<T>`, no `isLoading`. Naming is `<name>` / `<name>Status` / `<name
 ## API layer
 
 All HTTP lives in `src/api/`. Direct `fetch()` outside `client.ts` (and `sse.ts`) is a code-review failure.
+
+**Blob-download / multipart-upload exception (feature 007).** `api/db.ts` introduces the frontend's **first blob-download and multipart-upload** helpers, and both **bypass `request<T>`** — which is JSON-only. `exportDatabase()` does a Bearer `fetch` and reads `res.blob()` to trigger a browser save of the archive; `importDatabase(file)` posts a `FormData` field `file` with **no JSON `Content-Type`** (the browser sets the multipart boundary), mirroring 003's `api/auth.ts::setupImport`. Both still read the Bearer token from `auth.ts` `getToken()`. These are **sanctioned exceptions** to "all HTTP goes through `request<T>`," in the same spirit as `sse.ts` — the wrapper handles only JSON, so non-JSON transfers live in their own resource helpers.
 
 ### `client.ts`
 
