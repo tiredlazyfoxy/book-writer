@@ -116,4 +116,37 @@
     that entry.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4: "A
   state note may reference a codex entry."
+
+### US-104 — A member views a chapter's summary
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-089
+- **Status:** proposed
+- **Story:** As a book member, I want to view a closed chapter's approved
+  summary, so that I can catch up on continuity without opening the
+  working page.
+- **Acceptance criteria:**
+  - **US-104.AC-1** — Given a closed chapter with an approved summary,
+    when a member opens the continuity view, then that chapter's summary
+    is shown read-only.
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
+  "SPA pages — the plain surfaces around the working page".
+
+### US-106 — Book state is the working-SPA landing view and shows the book at a glance
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-091
+- **Status:** proposed
+- **Story:** As a book member, I want Book state to be the first thing I
+  see on opening the working SPA, so that I get an at-a-glance continuity
+  picture before I start writing.
+- **Acceptance criteria:**
+  - **US-106.AC-1** — Given the author opens the book's working SPA, when
+    it loads, then Book state is the first view shown.
+  - **US-106.AC-2** — Given a chapter with an approved summary and state
+    notes, when Book state is shown, then that chapter's title, summary
+    and after-chapter notes appear.
+  - **US-106.AC-3** — Given a chapter with an active warning, when Book
+    state is shown, then that warning appears next to the chapter.
+  - **US-106.AC-4** — `_TBD: book-level fields shown on Book state — field
+    list deferred to /architect (book object); not written as a testable
+    AC._`
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
+  "Book state — the landing view".
 <!-- product-spec:end -->

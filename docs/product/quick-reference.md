@@ -2,9 +2,9 @@
 # Quick Reference
 
 Dense id registry — the **sole canonical id registry** for
-`docs/product/`. `features.md` keeps the spine (FEAT blocks +
-relationships) but no longer holds registry tables. This file is exempt
-from the line budget.
+`docs/product/`. `features.md` keeps the spine (FEAT blocks only) and
+`relationships.md` holds feature relationships; neither holds registry
+tables. This file is exempt from the line budget.
 
 ## Actors
 
@@ -33,7 +33,7 @@ from the line budget.
 | FEAT-010 | Proposal mode | should | proposed |
 | FEAT-011 | Content moderation | must | proposed |
 | FEAT-012 | Chapter summaries & state notes | must | proposed |
-| FEAT-013 | Block composition chat | must | proposed |
+| FEAT-013 | AI authoring assistant | must | proposed |
 | FEAT-014 | Chapter variants & fixes | must | proposed |
 | FEAT-015 | Book cloning | must | proposed |
 | FEAT-016 | Consistency check & chapter flags | must | proposed |
@@ -100,7 +100,7 @@ from the line budget.
 | UC-054 | Iterate with the LLM on the next block | FEAT-013 | ACT-004, ACT-005 |
 | UC-055 | Produce a block from a composition chat | FEAT-013 | ACT-004, ACT-005 |
 | UC-056 | Composition request fails | FEAT-013 | ACT-004, ACT-005 |
-| UC-057 | End a composition chat | FEAT-013 | ACT-004, ACT-005 |
+| UC-057 | Leave a composition chat | FEAT-013 | ACT-004, ACT-005 |
 | UC-058 | Edit a reopened chapter, creating a variant | FEAT-014 | ACT-004, ACT-005 |
 | UC-059 | View and compare a chapter's variants | FEAT-014 | ACT-004, ACT-005 |
 | UC-060 | Select the active variant | FEAT-014 | ACT-004 |
@@ -124,6 +124,18 @@ from the line budget.
 | UC-078 | Composition chat draws on the codex | FEAT-013 | ACT-004, ACT-005 |
 | UC-079 | State note references a named codex entry | FEAT-012 | ACT-004, ACT-005 |
 | UC-080 | Consistency check warns about content with no codex entry behind it | FEAT-016 | ACT-004 |
+| UC-081 | Manage and continue stored chats | FEAT-013 | ACT-004, ACT-005 |
+| UC-082 | Archive a chat | FEAT-013 | ACT-004, ACT-005 |
+| UC-083 | Load a chapter or codex entry into the content pane (read-only unless it is the open chapter) | FEAT-013 | ACT-004, ACT-005 |
+| UC-084 | Give the assistant a text selection as focused source | FEAT-013 | ACT-004, ACT-005 |
+| UC-085 | Assistant pulls another chapter into context on request | FEAT-013 | ACT-004, ACT-005 |
+| UC-086 | Assistant searches the book's material by meaning | FEAT-013 | ACT-004, ACT-005 |
+| UC-087 | Assistant consults the web | FEAT-013 | ACT-004, ACT-005 |
+| UC-088 | Assistant runs a scoped consistency check in chat | FEAT-013 | ACT-004, ACT-005 |
+| UC-089 | View a chapter's summary | FEAT-012 | ACT-004, ACT-005 |
+| UC-090 | Browse the book's material from the working-page navigator | FEAT-013 | ACT-004, ACT-005 |
+| UC-091 | View Book state — the working-SPA landing view | FEAT-012 | ACT-004, ACT-005 |
+| UC-092 | Resume unsaved content-pane edits after navigating away | FEAT-013 | ACT-004, ACT-005 |
 
 ## Stories
 
@@ -184,12 +196,12 @@ from the line budget.
 | US-053 | Member edits state notes according to the collaboration mode | FEAT-012 | proposed |
 | US-054 | Member views what a chapter changed in the state notes | FEAT-012 | proposed |
 | US-055 | Reopening a chapter marks its continuity data stale | FEAT-012 | proposed |
-| US-056 | Author starts and ends composition chats freely | FEAT-013 | proposed |
-| US-057 | The four continuity artifacts are available to a composition chat | FEAT-013 | proposed |
+| US-056 | Author starts chats freely; chats persist until archived | FEAT-013 | proposed |
+| US-057 | The mode-dependent baseline is available to a composition chat | FEAT-013 | proposed |
 | US-058 | Author iterates with the LLM to refine the next block | FEAT-013 | proposed |
-| US-059 | A produced block follows the book's collaboration mode | FEAT-013 | proposed |
+| US-059 | The assistant's shared-canvas write follows the book's collaboration mode at save | FEAT-013 | proposed |
 | US-060 | A failed composition shows an error, offers retry, preserves the conversation | FEAT-013 | proposed |
-| US-061 | A composition chat is visible only to its author | FEAT-013 | proposed |
+| US-061 | A composition chat is visible only to its author, even once persisted | FEAT-013 | proposed |
 | US-062 | Editing a closed chapter creates a new variant | FEAT-014 | proposed |
 | US-063 | Member views and compares a chapter's variants | FEAT-014 | proposed |
 | US-064 | Owner selects which variant is the chapter | FEAT-014 | proposed |
@@ -214,8 +226,8 @@ from the line budget.
 | US-083 | Member restores an entry to an earlier version | FEAT-017 | proposed |
 | US-084 | Member copies codex entries from another book they belong to | FEAT-017 | proposed |
 | US-085 | The codex is invisible to readers and non-members | FEAT-017 | proposed |
-| US-086 | Author generates a codex entry from the composition chat | FEAT-018 | proposed |
-| US-087 | Author rewrites an existing entry from the chat | FEAT-018 | proposed |
+| US-086 | Author has the assistant fill a codex entry on the shared canvas | FEAT-018 | proposed |
+| US-087 | Author has the assistant rewrite an existing entry on the shared canvas | FEAT-018 | proposed |
 | US-088 | A chat-authored entry is saved only on explicit request | FEAT-018 | proposed |
 | US-089 | A composition chat can draw on the book's codex | FEAT-013 | proposed |
 | US-090 | A state note names the codex entry it is about | FEAT-012 | proposed |
@@ -223,4 +235,17 @@ from the line budget.
 | US-092 | An archived codex entry does not silently break existing state notes | FEAT-016 | proposed |
 | US-093 | The moderation view includes the codex | FEAT-011 | proposed |
 | US-094 | A clone carries the source book's codex | FEAT-015 | proposed |
+| US-095 | Chats persist and are managed (list, pick, continue) | FEAT-013 | proposed |
+| US-096 | Archive a chat instead of ending it | FEAT-013 | proposed |
+| US-097 | The content pane shows any chapter, read-only unless it is the open one | FEAT-013 | proposed |
+| US-098 | The author hands the assistant a text selection as focused source | FEAT-013 | proposed |
+| US-099 | The assistant reads another chapter on request | FEAT-013 | proposed |
+| US-100 | The assistant searches the book's material by meaning | FEAT-013 | proposed |
+| US-101 | The assistant may consult the web | FEAT-013 | proposed |
+| US-102 | The assistant runs a scoped consistency check in chat and returns a focused result | FEAT-013 | proposed |
+| US-103 | The assistant writes into the open artifact; nothing persists until saved | FEAT-013 | proposed |
+| US-104 | A member views a chapter's summary | FEAT-012 | proposed |
+| US-105 | Author browses the book's material by kind from the working page | FEAT-013 | proposed |
+| US-106 | Book state is the working-SPA landing view and shows the book at a glance | FEAT-012 | proposed |
+| US-107 | Unsaved content-pane edits are retained and restored | FEAT-013 | proposed |
 <!-- product-spec:end -->

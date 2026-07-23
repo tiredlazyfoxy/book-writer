@@ -61,6 +61,12 @@ product to work (challenge C2).
 - An author can correct an earlier chapter and be told what it broke, and
   can explore an alternative storyline without disturbing the original.
   `[confirmed: user]` augment round 3, 2026-07-20, challenge C24.
+- An author can write with an AI assistant side by side with the chapter
+  or codex entry they're working on — directing it to a text selection,
+  another chapter, the book's own material, or the web — and review its
+  writes as a draft before anything is saved. `[confirmed: user]` interview
+  2026-07-23, "Augment round 5 — book-writer SPA layout & the working
+  page", "the working page" / "context model — hybrid push/pull".
 
 `[confirmed: user]` interview 2026-07-20, "features — the four capabilities, in order"
 
@@ -94,6 +100,17 @@ copy of a book), and an LLM consistency check that surfaces contradictions
 as owner-reviewed flags rather than rewriting anything. `[confirmed: user]`
 interview 2026-07-20, "Augment round 3 — variants, cloning & consistency".
 
+The authoring workspace, added in the 2026-07-23 augment round 5
+`[confirmed: user]`: one working surface where an author edits a chapter
+or codex entry by hand or with an AI assistant side by side — the
+assistant reads context that matches what's open (a chapter or a codex
+entry), can be handed a narrower text selection, can pull in another
+chapter, the book's own material, or the web on request, and writes into
+whatever is open as a draft the author must explicitly save. The web
+joins the book's own material as a new source the assistant may consult.
+`[confirmed: user]` interview 2026-07-23, "Augment round 5 — book-writer
+SPA layout & the working page".
+
 ## Non-goals
 
 - **Narrowed, not deleted, by the 2026-07-20 augment round (challenge C1).**
@@ -115,7 +132,9 @@ interview 2026-07-20, "Augment round 3 — variants, cloning & consistency".
   continuity artifacts it's guaranteed, and how a produced block enters a
   chapter. The reversal is deliberate and recorded here, not drift.
   `[confirmed: user]` interview 2026-07-20, "Augment round 2", challenge
-  C10.
+  C10. **Round 5 sharpened this:** the four-artifact guarantee became the
+  mode-dependent hybrid baseline (US-057), and the "produced block" hand-off
+  dissolved into a shared-canvas write.
 - Still deferred within generation, and treated as genuinely open, not
   settled: **prompt design, model-selection strategy, context assembly
   (ordering/truncation), token budgets, and chat storage** — architecture's
@@ -126,4 +145,12 @@ interview 2026-07-20, "Augment round 3 — variants, cloning & consistency".
   state notes" / "deferred / `_TBD:`".
 - Any technical/design decision (schema, storage, library, API shape) — that
   is `docs/architecture/`'s job, not this layer's.
+- The working page's layout mechanics — pane orientation, resize/divider
+  behaviour, ratio persistence — and the AI assistant's tools (retrieval
+  and ranking, web-search wiring, model selection, the agent/sub-agent
+  call loop) are `/architect`'s, not this layer's; this layer records only
+  the observable behaviour they exist to serve. `[confirmed: user]`
+  interview 2026-07-23, "Augment round 5 — book-writer SPA layout & the
+  working page", "/architect notes (parked — NOT written as
+  requirements)".
 <!-- product-spec:end -->

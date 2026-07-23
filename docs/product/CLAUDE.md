@@ -36,9 +36,10 @@ Large layout (escalation once a file would exceed ~400 lines):
 
 - `use-cases/<FEAT-###>.<slug>.md` — one file per feature.
 - `stories/<FEAT-###>.<slug>.md` — one file per feature.
-- `quick-reference.md` — the **sole canonical id registry** once large layout is in effect: every id, one-liner, status, owning feature/actor. Exempt from the line limit. `features.md` keeps its FEAT blocks and Relationships section but no longer holds registry tables — registry lookups go to `quick-reference.md` only.
+- `quick-reference.md` — the **sole canonical id registry** once large layout is in effect: every id, one-liner, status, owning feature/actor. Exempt from the line limit. `features.md` keeps only its FEAT blocks — no registry tables, no Relationships section.
+- `relationships.md` — actor×feature matrix, depends-on edges, build order, accepted overlaps, conflicts. Holds what used to be `features.md`'s Relationships section. Never splits.
 
-**Unresolved as of 2026-07-20 — decide before the next round writes.** `features.md` is at 393 lines against a ~400 budget, and two rules are about to collide: it must stay under budget, and it never splits. Round 3 bought headroom by moving the registry to `quick-reference.md`; there is no second registry to move. The next round adding features must first settle which rule gives — a raised budget for this one file, a Relationships section extracted to its own doc, or terser FEAT blocks. Do not silently breach either rule mid-write.
+**Resolved 2026-07-23 (round 5).** `features.md` was closing on its ~400-line budget while bound by "never splits." Round 5 extracted the Relationships section into `relationships.md`, restoring headroom. `features.md` now holds FEAT blocks only; relationship data (actor×feature, depends-on, overlaps, build order, conflicts) lives solely in `relationships.md`.
 
 Do not add a new top-level doc unilaterally — it must come from the writer's briefing.
 
@@ -50,7 +51,7 @@ Do not add a new top-level doc unilaterally — it must come from the writer's b
 - **Permanent** — never renumbered, never reused. A withdrawn id is tombstoned (`Status: withdrawn` + reason kept in place), not deleted, not recycled for something new.
 - **Gaps stay** — a skipped or withdrawn number is never backfilled.
 - **Allocation** — ids are allocated by the orchestrator (or the confirmed spec plan it hands down), never minted by the writer. The writer transcribes ids it's given; it never invents or renumbers one.
-- **Registry** — the canonical list of every id lives in `features.md` (small layout, before `quick-reference.md` exists) or, once escalated, **solely** in `quick-reference.md` (large layout) — `features.md` then keeps only its FEAT blocks and Relationships, not a registry copy. `docs/.cache/` is never the registry.
+- **Registry** — the canonical list of every id lives in `features.md` (small layout, before `quick-reference.md` exists) or, once escalated, **solely** in `quick-reference.md` (large layout) — `features.md` then keeps only its FEAT blocks, not a registry copy and not the Relationships section (see `relationships.md`). `docs/.cache/` is never the registry.
 
 ## Provenance — every requirement is tagged
 
@@ -106,4 +107,4 @@ Both are inputs the writer reads to produce `docs/product/*`. They are disposabl
 - **Never assert intent** the source material doesn't state — tag `[inferred]` and say why, or leave it out.
 - Keep each file under ~400 lines; `quick-reference.md` is the one exception. Over budget → escalate to the large layout, don't cram.
 - Terse over prose: one requirement per entry, no marketing language, no restating a field label as a sentence.
-- The domain is **no longer deferred** — it is specified here, across four interview rounds. The narrower rule survives and still binds: write only what the confirmed spec plan / interview actually cover, and don't extrapolate domain entities ahead of what's been confirmed.
+- The domain is **no longer deferred** — it is specified here, across five interview rounds. The narrower rule survives and still binds: write only what the confirmed spec plan / interview actually cover, and don't extrapolate domain entities ahead of what's been confirmed.

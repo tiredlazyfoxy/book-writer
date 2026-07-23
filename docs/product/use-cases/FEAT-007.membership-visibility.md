@@ -50,18 +50,32 @@
   a member of the book.
 - **Main flow:**
   1. Reader opens the book.
-  2. System returns its content, read-only. The book's codex (FEAT-017) is
-     never included — members-only, even on a public book.
+  2. System shows the book's table of contents (chapter names with links).
+  3. Reader selects a chapter.
+  4. System returns that chapter's text, read-only.
 - **Exception flow:** Book is private → access refused. Reader is not
   logged in (anonymous) → access refused; no anonymous surface exists.
 - **Postconditions:** None (read-only); reader cannot modify content.
+  Nothing beyond the table of contents and chapter text is shown — no
+  codex (FEAT-017), state notes, flags, book-state view, settings or chat;
+  the book's codex is never included, members-only even on a public book.
   `_TBD: whether public books are discoverable (browsable) or reachable
   only by direct link._`
+- **Note:** "Table of contents" is the domain term for the reader-facing
+  chapter index (chosen 2026-07-23 over "glossary", which collided with
+  this product-spec's own `glossary.md`). `_TBD: whether the table of
+  contents needs its own id, or stays a facet of this use case — flagged
+  to the user; default kept here: a facet of UC-029, no new id._`
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
   membership & visibility"; challenge C4: "public = read-only to any
   logged-in user... not anonymous." Codex exclusion: `[confirmed: user]`
   interview 2026-07-20, "codex" round 4: "Can a Reader (ACT-006) of a
-  public book see the codex? No — members only."
+  public book see the codex? No — members only." Table of contents /
+  scope: `[confirmed: user]` interview 2026-07-23, "Augment round 5", "SPA
+  pages — the plain surfaces around the working page", "Reader mode
+  (ACT-006)": "the book by chapters (read chapter text, read-only) + a
+  chapter index (chapter names with links); nothing more — no codex /
+  notes / flags / book-state / settings / chat."
 
 ### UC-030 — List books shared with me
 - **Feature:** FEAT-007 · **Actor:** ACT-005

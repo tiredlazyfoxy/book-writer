@@ -110,4 +110,51 @@
   note remains free text otherwise — no entity model beyond this reference.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4: "A
   state note may reference a codex entry."; "Identity vs. change."
+
+### UC-089 — View a chapter's summary
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005
+- **Preconditions:** Chapter is closed and its summary is approved
+  (UC-048).
+- **Main flow:**
+  1. Member opens the chapter's summary (e.g., from the continuity view).
+  2. System shows the approved summary, read-only.
+- **Postconditions:** None (read-only); editing the summary is UC-050, not
+  this use case. Fills a gap: until this round, a summary could only be
+  drafted (UC-047) and approved (UC-048), never viewed on its own.
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
+  "SPA pages — the plain surfaces around the working page": "Continuity
+  view (under Book settings) — read-only page listing chapters + their
+  summaries + post-chapter state-note changesets (UC-051 + a NEW
+  view-summary UC — gap: no UC today for viewing a chapter summary, only
+  draft UC-047 / approve UC-048)."
+
+**Note (management location):** All editing of summaries and state notes
+(UC-050) happens on the working SPA; the settings-side continuity view
+(UC-051, UC-089) is a read-only, members-only surface. `[confirmed: user]`
+interview 2026-07-23, "Augment round 5", "RULE (per author only =
+members-only)": "all management/editing of codex, state notes, summaries
+and flags happens ONLY on the working SPA."
+
+### UC-091 — View Book state — the working-SPA landing view
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005
+- **Preconditions:** Author is a member of the book; the working page is
+  open.
+- **Main flow:**
+  1. On opening the book's working SPA, Book state is shown first in the
+     content pane.
+  2. It shows the book's own fields. `_TBD: exact field list — deferred to
+     /architect, book object; do not invent._`
+  3. For each chapter it shows title, its summary (UC-089), its
+     after-chapter state-note changeset (UC-049, UC-051), and any active
+     warnings in context (FEAT-016).
+  4. The author may edit state notes here (UC-050), per the book's
+     collaboration mode.
+- **Postconditions:** Book state is the landing surface; it aggregates
+  existing continuity views plus warnings-in-context plus book fields; a
+  read-only, members-only mirror lives under Book settings (round 5).
+  Distinct from **Chapters** (read/write prose) — Book state is the
+  continuity picture, not a duplicate of it.
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
+  "Book state — the landing view": "A per-chapter continuity overview...
+  Book state is first, the home you see on opening the book to work."
 <!-- product-spec:end -->
