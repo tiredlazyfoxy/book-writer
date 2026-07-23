@@ -62,8 +62,10 @@ async def upsert_batch(items: list[SQLModel]) -> None:
 async def run_vector_rebuild() -> None:
     """Rebuild the LanceDB sidecar index from SQLite source rows after import.
 
-    Stub for now — no models and no vector-backed data exist yet, so this is a
-    no-op hook the import flow calls once after all batches land.
+    Delegates to :func:`app.db.vector.rebuild_index` so the post-import rebuild
+    and the admin rebuild button share one path (D6). The returned indexed-row
+    count is discarded — this hook's signature is ``-> None``.
     """
-    logger.debug("Vector rebuild hook invoked — no vector-backed models yet; no-op.")
-    return
+    from app.db import vector
+
+    await vector.rebuild_index()

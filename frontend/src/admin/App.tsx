@@ -34,6 +34,7 @@ export const App = observer(function App() {
           <Group gap="md">
             <NavLink to="/">Users</NavLink>
             <NavLink to="/llm-servers">LLM Servers</NavLink>
+            <NavLink to="/database">Database</NavLink>
           </Group>
         </Group>
         <AdminRoutes />

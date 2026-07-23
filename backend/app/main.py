@@ -25,6 +25,7 @@ from app.db import users
 from app.db import vector
 from app.routes import auth
 from app.routes import health
+from app.routes.admin import db as admin_db
 from app.routes.admin import llm_servers as admin_llm_servers
 from app.routes.admin import users as admin_users
 from app.settings import get_settings
@@ -75,3 +76,4 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(admin_llm_servers.router)
+app.include_router(admin_db.router)
