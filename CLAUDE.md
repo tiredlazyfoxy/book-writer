@@ -6,7 +6,11 @@ LLM-assisted authoring of long-form texts (books and other large documents) — 
 
 The book/document domain is **specified** in `docs/product/` — 18 features and 198 requirement ids as of 2026-07-20. **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
 
-The domain's *architecture* — schema, generation pipeline, how codex entries reach an LLM's context — is **not yet designed**. `docs/product/` states what the domain must do and deliberately says nothing about how. `FEAT-006..018` have no coverage in `docs/architecture/` yet; that is `/architect`'s next job. Until it exists, don't infer a design from the requirements.
+The domain's *architecture* is **designed as of 2026-07-24** — read it before touching book entities. `docs/architecture/domain-model.md` is the index over `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`; alongside it sit `authorization.md` (book-scoped permissions), `retrieval.md` (the embedding pipeline) and `frontend-workspace.md` (the working page). Entities are drawn for `FEAT-006..018` whole, even though only the Stage-2 tables get built first.
+
+**Still not designed, deliberately:** FEAT-013's assistant *internals* — context assembly, the tool/agent loop, the SSE event protocol for shared-canvas writes, web search, model selection. The `Chat` / `ChatMessage` entities exist in the map; the subsystem gets its own `/architect` session before Stage 5. Don't infer that part from the requirements.
+
+The design knowingly diverges from `docs/product/` in four places, recorded in `domain-model.md` → "Product divergences". Read them before citing FEAT-014, UC-037, UC-060, or the round-6 navigator entry list — `docs/product/` still carries the pre-divergence wording.
 
 The root-level `product.md` is a human-facing business narrative and is **not** development guidance — agents should ignore it; the canonical product layer is `docs/product/`.
 
@@ -61,6 +65,8 @@ BookWriter/
   backend/            FastAPI app: app/{routes,services,db,models}/, tests/, pyproject.toml, .venv
   frontend/           Vite MPA: index.html + admin/index.html + login/index.html;
                       src/{api,types,utils,components,user,admin,login}/, theme.ts, global.css
+                      (the book domain adds work/ and read/ entries — designed, not built:
+                       docs/architecture/frontend-workspace.md)
   nginx/              dev.conf + prod.conf
   docs/               product/ + architecture/ + plans/
   docker-compose.dev.yml, docker-compose.prod.yml

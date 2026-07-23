@@ -1,6 +1,8 @@
 # Frontend Architecture
 
-Two SPAs (User and Admin) plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules. It defines no book/document domain: the domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how — and its architecture is not yet designed, with FEAT-006..018 uncovered here.
+React SPAs plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules, and they bind every entry.
+
+**Book-domain surfaces are in `frontend-workspace.md`** — the five-entry map (Shell, Working page, Reader, Admin, Login), the per-entry route map, the working page's navigator / content pane / chat-pane slot, and the draft-until-saved restore buffer. This document keeps the rules; that one applies them to the book domain. The **internals of the FEAT-013 chat pane** — context assembly, tool protocol, the SSE event protocol for shared-canvas writes — remain undesigned and get their own session before Stage 5.
 
 ## Stack and versions
 
@@ -25,7 +27,7 @@ Strict mode with the extra safety flags on:
 
 ## `vite.config.ts` shape
 
-A multi-page build with three Rollup inputs and a dev proxy:
+A multi-page build with a dev proxy. **Three inputs today; five once the book domain lands** — `work` (`work/index.html`) and `read` (`read/index.html`) join the three below, and the `spaFallback` plugin must cover their deep links too. See `frontend-workspace.md` for why the workspace and the reader get their own bundles.
 
 ```ts
 export default defineConfig({
@@ -48,7 +50,7 @@ export default defineConfig({
 ```
 
 - `appType: "mpa"` disables Vite's built-in single-page history fallback; a custom **`spaFallback`** dev plugin rewrites deep links under `/` and `/admin` back to the right entry `index.html` so client-side routes resolve in dev.
-- The three inputs (`user` / `admin` / `login`) are the only entry points.
+- The three inputs (`user` / `admin` / `login`) are the only entry points **today**; `work` and `read` are added with the book domain.
 - `/api` is proxied to the backend on `:8185` in dev.
 
 ## npm scripts
@@ -72,7 +74,7 @@ export default defineConfig({
 
 ## Folder layout
 
-The build has three entries: `login/` (separate entry, outside React Router), `user/` (User SPA), `admin/` (Admin SPA). Each SPA owns its `pages/` and `components/`; `api/`, `types/`, `utils/`, `components/` (cross-SPA shells), `theme.ts`, and `auth.ts` are shared at `src/` root.
+The build has three entries today: `login/` (separate entry, outside React Router), `user/` (Shell SPA), `admin/` (Admin SPA). The book domain adds two more — `work/` and `read/` — each with the same internal shape (`main.tsx`, `App.tsx`, `routes.tsx`, `pages/`, `components/`); see `frontend-workspace.md`. Each SPA owns its `pages/` and `components/`; `api/`, `types/`, `utils/`, `components/` (cross-SPA shells), `theme.ts`, and `auth.ts` are shared at `src/` root.
 
 ```
 frontend/
@@ -188,6 +190,8 @@ No `AsyncValue<T>`, no `isLoading`. Naming is `<name>` / `<name>Status` / `<name
 - **Each page loads its own data by URL id** — no warm start from a parent's data; every page is deep-linkable.
 - **No upward callbacks across pages.** Save → API → done; returning to a parent route remounts and refetches. The backend is the only cross-page source of truth.
 - **URL query params are the persistence layer** for filter, sort, mode, scroll-anchor — anything that should survive navigation, refresh, or bookmark. Query-param changes are handled in the event handler that changed them, never by a `useEffect` watching the query string.
+
+**Persisted-state exception — the working page's restore buffer.** The rule above is about *view* state: small, shareable, and correct to put in a bookmarkable link. Unsaved **draft content** (UC-092, US-107) is none of those — it is large, private to one author on one device, and must not travel in a URL. It therefore lives in **`localStorage`, keyed per item**, behind plain module-level functions in the `work` entry, in the same tier of the state ladder as `auth.ts` (which already reads `localStorage` for the token). It is a deliberate, single exception, not a general licence to persist state outside the URL; its full design — key shape, quota eviction, and the stale-version reconciliation it feeds — is in `frontend-workspace.md`.
 
 ### Components
 

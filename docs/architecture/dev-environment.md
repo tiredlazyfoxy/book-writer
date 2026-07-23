@@ -1,6 +1,6 @@
 # Development Environment
 
-How to run BookWriter locally, the ports and launcher, the dev proxy, Docker Compose for dev and prod, and the environment variables. Tech-level only; no domain content — the book/document domain is specified as requirements in `docs/product/` (FEAT-001..018) and its architecture is not yet designed.
+How to run BookWriter locally, the ports and launcher, the dev proxy, Docker Compose for dev and prod, and the environment variables. Operational only — no domain content. For the book domain's design see `domain-model.md`, `authorization.md`, `retrieval.md` and `frontend-workspace.md`.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ How to run BookWriter locally, the ports and launcher, the dev proxy, Docker Com
 | Service | Port | URL |
 |---------|------|-----|
 | FastAPI backend (uvicorn) | 8185 | `http://localhost:8185` |
-| Vite dev server (User + Admin + Login) | 8194 | `http://localhost:8194` |
+| Vite dev server (all frontend entries) | 8194 | `http://localhost:8194` |
 
 ## Backend setup
 
@@ -65,6 +65,6 @@ Provider and LLM-server settings themselves are stored **in the database** (mana
 
 - **Dev**: `docker-compose.dev.yml` builds the images from source.
 - **Prod**: `docker-compose.prod.yml` runs pre-built images.
-- **nginx** reverse-proxies in production: it serves the three static frontend builds (`/`, `/admin`, `/login`) and proxies `/api` to the backend, so everything is one origin and CORS is unnecessary. Config lives in `nginx/` (`dev.conf` and `prod.conf`).
+- **nginx** reverse-proxies in production: it serves the static frontend builds — `/`, `/admin`, `/login` today, plus `/work` and `/read` once the book domain lands (`frontend-workspace.md`) — and proxies `/api` to the backend, so everything is one origin and CORS is unnecessary. Config lives in `nginx/` (`dev.conf` and `prod.conf`).
 - The SQLite database is a mounted volume in production so it survives container restarts; `BOOKWRITER_DB_PATH` points at the mounted path.
 - Image names are project-specific; use BookWriter-neutral names (e.g. `bookwriter-api` for the backend and `bookwriter-gate` for the nginx/frontend image), or a placeholder until the registry is decided. *(Left as a placeholder — no registry/image naming was specified.)*

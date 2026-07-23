@@ -1,0 +1,118 @@
+# Domain Model — the book layer (index)
+
+**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018 in full; **FEAT-013 entities only** (UC-053, UC-055, UC-081, UC-082, UC-092 — not the assistant subsystem). Use cases: UC-021..052, UC-058..060, UC-069..075, UC-079, UC-089, UC-091
+
+The first architectural pass over the book domain: every persistent entity behind `FEAT-006..018`, its lifecycle, the single write path into a chapter, and the concurrency contract.
+
+**This file is the entry point.** It holds the scope, the whole-domain shape, the conventions every entity inherits, and the recorded divergences from `docs/product/`. The entities themselves live in the five `domain-*.md` files listed below. Companion docs outside the model: `authorization.md` (who may do what), `retrieval.md` (how codex entries reach an LLM), `frontend-workspace.md` (the surfaces these entities are edited on).
+
+## Scope of this pass
+
+**In:** the entity map for `FEAT-006..018` drawn **whole** — including tables no stage before 5 or 6 will build — plus chapter concurrency and the write path.
+
+**Out, and deliberately so:** the **internals of the FEAT-013 assistant**. Context assembly, the tool/function-call protocol, the agent loop, sub-agent scoped checks (UC-088), the SSE event protocol for shared-canvas writes, prompt design, token budgets, model selection, and web-search wiring (UC-087) all get their own design session before Stage 5. The `Chat` / `ChatMessage` **entities** are in the map below; their **subsystem is not designed anywhere yet**. Do not infer it from those tables — see `domain-chat.md`.
+
+### Why the map is drawn whole when only Stage 2 gets built
+
+There is no Alembic. Schema evolution is hand-written, idempotent, additive `ALTER` run at startup (`backend.md` → "Relational storage"). That makes the two kinds of change asymmetric:
+
+- **Adding a nullable column later is cheap** — one idempotent `ALTER TABLE … ADD COLUMN`, which is exactly what the existing migration path does well.
+- **Adding a table, or changing a key or a relationship later, is expensive** — it means reworking codecs, the `TABLE_REGISTRY` order, and any code that already reads around the missing table.
+
+So the tables and their keys are settled now, while the field lists of the later-stage tables stay open to additive refinement. Drawing a table early costs a `CREATE TABLE` that nothing queries; retrofitting one costs a migration plus a rewrite of everything built on its absence.
+
+This asymmetry is also what decided which open questions got answered in this pass. Anything that would have cost a **table or a key** was settled now; anything that is an **additive nullable column** could safely have waited — and the 2026-07-24 review chose to land those early anyway (see "Recorded gaps"), so that later stages are pure behaviour. What remains open is behavioural, not structural.
+
+## The entity map
+
+```
+User ──owns──────────► Book ◄──────── BookMember ──► User
+                        │  ▲
+                        │  └── active_notes (materialised free text)
+                        │
+        ┌───────────────┼────────────────┬──────────────┬───────────┐
+        ▼               ▼                ▼              ▼           ▼
+     Chapter        CodexEntry          Flag           Chat      (clone: a
+        │               │                                │        new Book,
+        ├─ ChapterChange│                                │        no link)
+        ├─ ChapterTextRevision                           │
+        └─ ChapterNoteChangeset                          │
+                        └─ CodexEntryVersion             └─ ChatMessage
+```
+
+| Entity | Owns | Defined in | First needed | Vector-backed |
+|---|---|---|---|---|
+| `Book` | the book and its book-wide settings | `domain-book.md` | Stage 2 | no |
+| `BookMember` | co-author membership | `domain-book.md` | Stage 2 | no |
+| `Chapter` | one chapter, one main body | `domain-chapter.md` | Stage 2 | later (UC-086) |
+| `ChapterChange` | every write into a chapter body | `domain-chapter.md` | Stage 2 | no |
+| `ChapterTextRevision` | pre-apply body snapshots | `domain-chapter.md` | Stage 3 | no |
+| `ChapterNoteChangeset` | a chapter's note delta | `domain-continuity.md` | Stage 4 *(table at Stage 2)* | later (UC-086) |
+| `Flag` | chapter annotation ("warning") | `domain-continuity.md` | Stage 4 | no |
+| `CodexEntry` | character / location / fact | `domain-codex.md` | Stage 2 | **yes — first** |
+| `CodexEntryVersion` | entry edit history | `domain-codex.md` | Stage 5 | no |
+| `Chat` / `ChatMessage` | assistant conversations | `domain-chat.md` | Stage 5 | no |
+
+"First needed" is when a stage *uses* the entity, not when its table is created — the whole map lands early, per the reasoning above. **The Stage-4 continuity structures go further and land their columns at Stage 2**, nullable and unused (`Chapter.state = closing`, `Chapter.summary_status`, the `ChapterNoteChangeset` table and its `status`), so that Stage 4 is pure behaviour with no DDL at all. See `domain-chapter.md` → "Landing the continuity columns early".
+
+A few relationships cross file boundaries and are cross-linked at both ends:
+
+- `Chapter.summary` is a **chapter field** (`domain-chapter.md`) whose lifecycle is a **continuity** story (`domain-continuity.md`).
+- `Book.active_notes` is a **book field** (`domain-book.md`) materialised from **chapter note changesets** (`domain-continuity.md`).
+- A state note references a codex entry **by name, not by foreign key** (`domain-continuity.md` ↔ `domain-codex.md`, UC-079).
+- A chat's saved output is an ordinary `ChapterChange` or `CodexEntry` (`domain-chat.md` → `domain-chapter.md` / `domain-codex.md`).
+
+## Where to read next
+
+| File | Covers |
+|---|---|
+| **`domain-book.md`** | `Book`, `BookMember`, the book lifecycle state machine (archive vs. quarantine→destroy), visibility, the moderation fields, the system-prompt fields, `active_notes`, and cloning |
+| **`domain-chapter.md`** | `Chapter` and its four-state machine (`planned` → `open` → `closing` → `closed`), **CF1**, `ChapterChange` (the unified write record and the one write path), placement, stale-changes-are-refused, **variants-as-apply**, `ChapterTextRevision`, and the `version` / 409 / CF-r6 concurrency rules |
+| **`domain-continuity.md`** | `ChapterNoteChangeset`, the active note set, the summary lifecycle and the `draft` / `approved` / `stale` continuity status, and `Flag` (author-facing: "warning") |
+| **`domain-codex.md`** | `CodexEntry` and `CodexEntryVersion` — kinds, naming, archival, history, cross-book copy |
+| **`domain-chat.md`** | `Chat` / `ChatMessage` — **entities only**, with the deferred-subsystem boundary stated in full |
+
+## Conventions inherited
+
+Every entity in those files follows the existing system-wide rules — none of them are restated per-entity:
+
+- **Ids** — application-generated 64-bit snowflakes (`app/ids.py` `generate_id()`, `default_factory=generate_id`), **serialized as strings** at every JSON boundary (API DTOs, JSONL codecs, frontend `.d.ts`). See `backend.md` → "Conventions — entity ID strategy".
+- **Layers** — one `db/` module per entity; services per aggregate; `routes/` is HTTP-only. See `backend.md` → "Layer separation".
+- **Timestamps** — `created_at` / `modified_at` on every mutable entity; not listed per-table unless the entity carries only one.
+
+### Two registry obligations
+
+Both are non-optional and both are due **in the same change as the model**, not batched for later:
+
+- **Import/export.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. That is roughly a dozen codec pairs across the domain. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. See `backend.md` → "The book-domain table registry".
+- **Vector sources.** A vector-backed model appends a `VECTOR_SOURCE_REGISTRY` entry — `CodexEntry` is the first, at Stage 2, with chapter text, summaries and notes following for UC-086. See `retrieval.md`.
+
+## Product divergences this design assumes
+
+The design contradicts, exceeds or resolves `docs/product/` in **four** places. `docs/product/` is read-only from here and has **not** been edited; the divergences are recorded so they are written down rather than silent, and so `/product-spec` has a concrete list to reconcile. Item 4 is the one that *resolves* something product left open rather than merely differing from it — it will need a UC-037 rewrite, not just reconciliation.
+
+**1. FEAT-014 — the operation is *apply*, not *select*.** UC-060 ("Select the active variant") and US-064 ("Owner selects which variant *is* the chapter") describe variants as parallel readable texts with a pointer selecting which one is live. This design has **one main `Chapter.text`** plus stored change-suggestions beside it (`domain-chapter.md`). A variant is an **un-applied `ChapterChange`**; it is not selectable as the chapter's text, and making it the text **is applying it** — through the same write path every other change takes. There is no pointer and no switch. UC-059's "view and compare" is served unchanged (revisions are full bodies, so any two diff cleanly), and US-065 holds necessarily rather than by special rule: an apply *is* a change, so it runs the consistency-check path a fix runs. **Merge mechanics are explicitly post-MVP** — a variant whose base version has gone stale is refused, and the author redoes it by hand.
+
+**2. A Variants navigator entry.** Round 6 declared the working-page navigator list final: Characters / Locations / Facts / Chapters / Book state / Chats. This design adds a **Variants** entry (see `frontend-workspace.md`), because `ChapterChange` and `ChapterTextRevision` give it real content from the first chapter written and there is otherwise no surface that reaches revision history.
+
+**3. The system prompts have no requirement behind them.** Neither `Book.system_prompt` (applied to all chats in the book, `domain-book.md`) nor the optional `Chapter.system_prompt` (which appends to the book's, `domain-chapter.md`) is covered by any product requirement. Specifically undecided: **who may edit them** (owner only, or any member), **whether they survive cloning** (FEAT-015), and **whether they reach the FEAT-016 consistency check** as inspected content. They are in the map because they are book-shaping state that has to live somewhere; they are flagged because nothing in `docs/product/` governs them.
+
+**4. CF1 — reopen is refused, not auto-closing.** UC-037 says reopening a closed chapter *auto-closes* whichever chapter is currently open. Once FEAT-012 added the approval gate, that became incoherent: an auto-close either skips the approval the gate exists to require, or strands a chapter mid-close. Product round 5 recorded this as coherence finding **CF1** — *"open-chapter singleton vs. the continuity close-gate — UC-037 reopen silently auto-closes past the UC-036 approval gate"* — and left it unresolved. **This architecture resolves it by refusing the reopen** while any chapter is `open` or `closing`; the owner closes the current chapter properly first (`domain-chapter.md` → "CF1"). That keeps both invariants and replaces a silent side effect with an explainable error — but it is a direction UC-037 does not currently describe, so it is recorded here rather than assumed.
+
+## Recorded gaps
+
+Design questions this pass deliberately leaves open. **Three earlier gaps closed on 2026-07-24 review** — the moderation fields (`domain-book.md`), the continuity status columns and the `closing` state (`domain-chapter.md`, `domain-continuity.md`), and stale pending changes (refused, not rebased). They are design, not gaps, and are no longer listed.
+
+One genuinely open item remains:
+
+| Gap | Lives in | Due at |
+|---|---|---|
+| Whether an **archived book** refuses writes. UC-023 says content and history are preserved and archive is reversible; nothing states whether a member may keep writing into one | `authorization.md` | open |
+
+`authorization.md` carries its own "Not settled" list for questions that are authorization-shaped rather than model-shaped (the moderation view's route surface, proposal review for notes and codex entries).
+
+## Decision history
+
+- **2026-07-24 — First book-domain architecture pass (Stage-2 architect gate).** Drew the `FEAT-006..018` entity map whole, settled the unified `ChapterChange` write record, chose full-snapshot `ChapterTextRevision` over reverse patches, materialised `Book.active_notes`, and closed the parked **CF-r6** concurrency item with the version / 409 / visible-merge rules. Deliberately left FEAT-013's assistant internals undesigned — see "Scope of this pass". Recorded three divergences from `docs/product/` rather than resolving them; a fourth was added by the review below.
+- **2026-07-24 — Six amendments from user review.** (1) The working page's content-pane subject became a **nested route** keyed on `bookId`, replacing the query-param design — the remount collision it was avoiding is not real, because chats are server-persisted and the chat pane re-resolves its own active chat (`frontend-workspace.md`). (2) FEAT-014's operation is **apply**, not select or revert. (3) A stale `pending` change is **refused, not rebased**; merge mechanics are post-MVP. (4) `Book` gained `moderation_reason` / `moderated_by` / `moderated_at`. (5) `Chapter` gained a fourth state, **`closing`**, and the continuity artifacts gained `draft` | `approved` | `stale` status, all landing at Stage 2 nullable and unused. (6) **CF1 resolved** — reopen is refused while another chapter is open, recorded as divergence 4. Gaps 1–3 from the original pass are closed by (4), (5) and (3).
+- **2026-07-24 — Split into `domain-*.md`.** The pass was first written as a single `domain-model.md`; it was split the same day into this index plus `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`, following the folder's `frontend-*.md` split convention and the ~400-line file rule. **Organisational only** — no design decision changed.

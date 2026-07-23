@@ -1,6 +1,8 @@
 # Backend Architecture
 
-FastAPI application (Python 3.13, async) with SQLite storage via SQLModel, a LanceDB sidecar for semantic search, JWT auth, and LLM integration via the `llm-client` dependency. This document defines the enforced structure, typing discipline, persistence approach, config/secrets pattern, auth scheme, and test harness. It does **not** define any book/document domain model. The domain is **specified** in `docs/product/` (18 features, FEAT-001..018) as requirements — what must be true, not how; its architecture is not yet designed, and FEAT-006..018 have no coverage in this folder yet.
+FastAPI application (Python 3.13, async) with SQLite storage via SQLModel, a LanceDB sidecar for semantic search, JWT auth, and LLM integration via the `llm-client` dependency. This document defines the enforced structure, typing discipline, persistence approach, config/secrets pattern, auth scheme, and test harness.
+
+**Book-domain coverage.** The book/document entity model is **not** defined here — it lives in `domain-model.md` (the index) and the five `domain-*.md` area files under it, with `authorization.md` (book-scoped access) and `retrieval.md` (the embedding/vector bridge). This document carries only the backend-side consequences of that design: the module map, the widened registries, and the concurrency contract, all below. **Still uncovered anywhere: the internals of the FEAT-013 assistant** — context assembly, the tool/function-call protocol, the agent loop, sub-agent scoped checks (UC-088), the SSE event protocol for shared-canvas writes, prompt design, token budgets, model selection, and web-search wiring (UC-087). Those get their own design session before Stage 5.
 
 ## Layer separation (enforced)
 
@@ -107,7 +109,9 @@ Two settled policies govern how credentials cross the import/export boundary:
 
 ## Vector storage — LanceDB sidecar
 
-LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated. As of feature 007, `db/vector.py` exposes a real **`rebuild_index()`** that connects to the configured LanceDB dir, **drops/recreates the sidecar tables (a full reset)**, and iterates a module-level **`VECTOR_SOURCE_REGISTRY`** — **empty in Stage 1** — so today it resets and indexes **0 rows**. The rebuild-on-import contract stands as described; the sidecar is always regenerated from SQLite source rows and is never exported. See "Database consistency & management" for the rebuild wiring and the deliberately-deferred embed-content bridge.
+LanceDB (`lancedb>=0.6`) provides semantic search alongside SQLite. It is a **sidecar index**: it is **rebuilt from the SQLite source rows on import, not exported**. Treat SQLite as the source of truth; LanceDB is a derived index that can always be regenerated. As of feature 007, `db/vector.py` exposes a real **`rebuild_index()`** that connects to the configured LanceDB dir, **drops/recreates the sidecar tables (a full reset)**, and iterates a module-level **`VECTOR_SOURCE_REGISTRY`**. The rebuild-on-import contract stands as described; the sidecar is always regenerated from SQLite source rows and is never exported.
+
+**The registry is no longer empty.** `CodexEntry` is the first vector-backed model and registers at Stage 2, closing the embed-content bridge feature 007 deferred. The registry entry shape also **widens** — from `(model_class, text_extractor)` to a typed entry carrying a source-kind discriminator, a row selector and a **chunker** — because one source row now produces many vectors. `services/embedding.py` (the module 007 explicitly did not build) becomes the single point where text becomes vectors, resolving the FEAT-004 designated embedding server. Full design, including chunking, incremental maintenance, dimension handling and failure modes: **`retrieval.md`**.
 
 ## LLM client
 
@@ -272,7 +276,9 @@ All six endpoints are behind `Depends(require_role(admin))`, and the **static ro
 
 `POST /api/admin/db/vector/rebuild` and the post-import rebuild share **one path**: `run_vector_rebuild()` → `db.vector.rebuild_index()`. Both the explicit admin trigger and the implicit post-restore refresh converge on the same operation, so there is a single place where the sidecar is regenerated.
 
-### The vector-pipeline boundary (deliberately partial)
+### The vector-pipeline boundary (deliberately partial — **closed 2026-07-24**)
+
+**Status:** this boundary is the one the 2026-07-24 architect pass closed. The record below describes what feature 007 shipped and why it stopped where it did; `retrieval.md` is now the current design and supersedes the "DEFERRED" bullet.
 
 Feature 007 delivers the rebuild **operation**, the index **reset**, and the **empty `VECTOR_SOURCE_REGISTRY`** seam — but **not** the embed-content bridge. Concretely:
 
@@ -285,6 +291,63 @@ Chosen so that the operation and its real dependency on the 006 embedding design
 ### Convergence note — a future refactor (not built)
 
 A shared `validate_archive` could later unify two currently-separate refusal paths: 003's setup-import (`services.setup.import_database` → `SetupError`) and 007's admin-import (`db_admin.import_database` → `DbAdminError(invalid-archive)`). Both wrap the same `import_all` and differ only in the readiness-flip and the error type. Recorded as a deferred refactor, deliberately not built now.
+
+## Book domain — backend impact
+
+**Realizes:** FEAT-006..018 (backend-side consequences only)
+
+The entity definitions, their reasoning and their lifecycles live in `domain-model.md` (the index) and its area files — `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md`, `domain-chat.md`. This section records what the design costs *this* document's structures.
+
+### Module map
+
+The existing four-layer split absorbs the domain without change — one `db/` module per entity, one service per aggregate, routes under `/api`:
+
+| Layer | Modules |
+|---|---|
+| `models/` | `book.py`, `book_member.py`, `chapter.py`, `chapter_change.py`, `chapter_text_revision.py`, `chapter_notes.py`, `codex_entry.py`, `codex_entry_version.py`, `flag.py`, `chat.py` (+ `models/schemas/` DTOs per resource) |
+| `db/` | one module per table, session-free, same shape as `db/users.py` / `db/llm_servers.py` |
+| `services/` | per aggregate — books (lifecycle, membership, visibility, mode), chapters (skeleton, state machine, the merge path), codex, continuity, flags — plus **`services/authz.py`** (the capability table) and **`services/embedding.py`** (text → vectors) |
+| `routes/` | HTTP only, under `/api`; the book-access dependency resolves a typed `BookAccess`, the service decides the capability |
+
+Two cross-cutting additions worth naming because they are shared rather than per-entity:
+
+- **`services/authz.py`** — one `require(access, capability)` entry point so the capability × role matrix has a single implementation. See `authorization.md` → "Enforcement".
+- **`services/embedding.py`** — the single point where text becomes vectors. See `retrieval.md`.
+
+### The book-domain table registry
+
+`TABLE_REGISTRY` (`services/db_import_export.py`) gains a codec pair per new table, appended **in FK dependency (import) order** after the two existing entries:
+
+```
+users, llm_servers,                       # existing
+books, book_members,
+chapters, chapter_changes, chapter_text_revisions, chapter_note_changesets,
+codex_entries, codex_entry_versions,
+flags,
+chats, chat_messages
+```
+
+**Flag this plainly: that is roughly a dozen new codec pairs.** The rule in the root `CLAUDE.md` is not optional and not deferrable — "update the import/export logic in the **same change** whenever a model is added or altered". Every one of these tables owes its `to_dict` / `from_dict` pair (ids emitted as **strings**, accepted as string-or-legacy-number) and its ordered registry tuple in the change that introduces the model. Batching them up "for later" would leave an instance whose export silently loses a book.
+
+Order matters because import is a streaming UPSERT with no transactional rollback: a child row arriving before its parent has nothing to attach to.
+
+### Vector registry
+
+`VECTOR_SOURCE_REGISTRY` is **no longer empty** — `CodexEntry` registers at Stage 2, with chapter text, summaries and notes following for UC-086. See "Vector storage" above and `retrieval.md`.
+
+### Stage-4 columns land at Stage 2
+
+The book domain's later-stage **columns are created with their tables**, nullable and unused, rather than added when the behaviour ships: `Chapter.state = closing`, `Chapter.summary_status`, `Book.moderation_reason` / `moderated_by` / `moderated_at`, and the `ChapterNoteChangeset` table with its `status`.
+
+The reason is this document's own SQLite constraint, recorded under "Remediation": **`ADD COLUMN` cannot be `NOT NULL` without a default on a populated table**, so a column added later against live book data arrives nullable regardless of what the model declares, and reconciling nullability would need a table rebuild. Landing them now costs a wider `CREATE TABLE` that nothing queries and makes Stage 4 pure behaviour with **no DDL at all**. See `domain-chapter.md` → "Landing the continuity columns early".
+
+### Chapter concurrency — the 409 rule
+
+`Chapter.version` is bumped on every applied change, and a write carrying a stale `base_version` is **refused with 409**, never merged server-side. This is a service-layer rule (the merge is a single transaction: snapshot → apply placement → bump version), and it is what US-041's concurrent-edit warning is built from. Full reasoning, including why a uniform refusal was chosen over a placement-dependent one, is in `domain-chapter.md` → "Concurrency".
+
+### Schema drift — no new code
+
+FEAT-005's consistency report (`db/schema.py` + `services/db_admin.py`) compares the live database against `SQLModel.metadata`. Every table above lands in that metadata by being declared, so **the drift report covers the new tables with no change to the FEAT-005 code at all** — the ok / drift / missing report and the per-table create/sync remediation extend to the book domain for free. This is the payoff of having built drift detection against metadata rather than against a hand-maintained table list.
 
 ## Logging
 
@@ -304,4 +367,5 @@ A shared `validate_archive` could later unify two currently-separate refusal pat
 - **2026-07-22 — Concrete Snowflake design + serialization convention (refines the entry above).** Settled the implementation specifics so the migration can be planned: a **64-bit id** with a **41-bit ms timestamp / 10-bit node id / 12-bit sequence** layout (high bit 0) over a **fixed custom epoch** (fixed once, never changed); the node id from a new **`node_id` setting** via env **`BOOKWRITER_NODE_ID`** (default `0`); a cross-cutting **`app/ids.py` `generate_id()`** generator (the sanctioned exception to one-module-per-entity); and **application-generated ids at entity construction** (locked — not DB-assigned; `default_factory=generate_id` recommended, db-layer-on-None acceptable). Adopted the system-wide rule that **entity ids serialize as strings at every JSON boundary** (JSONL codecs, API DTOs, frontend `.d.ts`) because snowflakes exceed JS's 2^53 and a JSON number would lose precision, with **from_dict accepting number-or-string** for legacy-int-archive back-compat. Set the `User` migration as **fresh-install / model-only** — no in-place PK data migration (none is possible: `create_all` cannot alter a PK, no Alembic), reframing `User` from unscoped debt to a scoped, planned migration. See "Conventions — entity ID strategy" and the `User` domain model.
 - **2026-07-23 — `LlmServer` conformed to the snowflake id standard; literal LLM `api_key` redacted on export (feature 006 + rewrite).** Feature 006 originally shipped `LlmServer` with an autoincrement-int PK and a verbatim `api_key` export; a same-day rewrite brought both into line with the settled conventions. `LlmServer.id` is now `id: int = Field(default_factory=generate_id, primary_key=True)` (mirroring `User`), string-serialized at the DTO/frontend edge — chosen for **consistency with the system-wide snowflake standard** and to keep cross-instance import identity unambiguous. On export, a raw literal `api_key` is now replaced with `null` while `$ENV` pointer tokens are kept — chosen because a **secret-grade literal key should not land in an archive**, whereas an `$ENV` pointer safely can (it names an environment variable, not a secret). `User` credential export is unchanged. See "LLM server connections", the `LlmServer` domain model, and the "DB import/export" export credential policy.
 - **2026-07-23 — Vector-pipeline boundary for the DB-consistency feature (feature 007).** Feature 007 shipped the vector-rebuild **operation** + full index **reset** + the **empty `VECTOR_SOURCE_REGISTRY`** seam (the list Stage-2 vector-backed domain features append `(model_class, text_extractor)` entries to), wired through `run_vector_rebuild()` → `db.vector.rebuild_index()` and validating the 006 embedding designation (`no-embedding-provider` → 400). It **deliberately deferred** the embed-content bridge — no `embed_texts`, no `services/embedding.py`, no vector-dimension detection/cache — to the first vector-backed domain model (the Stage-2 codex, behind the architect gate). Reasoning: with an empty registry a rebuild indexes 0 rows, so building the embedding pipeline now would be dead code; users and llm_servers are configuration, not searchable content, so nothing yet needs embedding. This keeps the operation and its real 006 dependency exercised while the large pipeline stays scoped out until there is content to index. See "Database consistency & management" and "Vector storage — LanceDB sidecar".
+- **2026-07-24 — First book-domain architecture pass; the vector-pipeline boundary closed.** The Stage-2 architect gate settled the `FEAT-006..018` entity map (`domain-model.md` plus the `domain-*.md` area files), book-scoped authorization (`authorization.md`), the embedding/vector bridge (`retrieval.md`) and the frontend workspace (`frontend-workspace.md`). Backend consequences recorded above: one `db/` module per new entity plus two cross-cutting services (`services/authz.py`, `services/embedding.py`); ~12 new `TABLE_REGISTRY` codec pairs in FK order; `VECTOR_SOURCE_REGISTRY` no longer empty (`CodexEntry` first) with its entry shape **widened** from `(model_class, text_extractor)` to carry a source kind, a row selector and a chunker, because one row now yields many vectors; and the `Chapter.version` / 409 concurrency rule. FEAT-005's drift report needed no change — it reads `SQLModel.metadata`, so new tables are covered by declaration alone. **Deliberately still undesigned:** FEAT-013's assistant internals (`domain-chat.md` states the boundary). See the documents named above.
 - **2026-07-22 — Snowflake design implemented for `User` (`fast/001.snowflake-ids`).** The settled design above is now **realized in code**. `app/ids.py` ships `generate_id()` (monotonic per-ms snowflake, lock-guarded sequence, spin-wait on overflow, backwards-clock clamp) with the pinned `EPOCH_MS = 1704067200000` and frozen bit-layout constants; the node id comes from `Settings.node_id` (env `BOOKWRITER_NODE_ID`, default 0, range 0–1023). `User`'s PK is `id: int = Field(default_factory=generate_id, primary_key=True)` (the db-layer-on-`None` alternative was not taken), and the `users` import codec emits `id` as a JSON string while accepting a legacy JSON number on import. **One touch-point remains open:** the `user_id` **JWT token claim** is still an int and its int→string serialization is **deferred to feature 004**. This closes the loop from the two design-decision entries above to their realization. See "Conventions — entity ID strategy" and the `User` domain model.
