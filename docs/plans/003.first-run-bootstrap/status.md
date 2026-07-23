@@ -6,7 +6,7 @@
 | 002  | `002.unconfigured-detection-startup.md`   | done    | PASS     | 2026-07-22 |
 | 003  | `003.setup-service-user-codec.md`         | done    | PASS     | 2026-07-22 |
 | 004  | `004.setup-routes-schemas.md`             | done    | PASS     | 2026-07-22 |
-| 005  | `005.frontend-first-run-wizard.md`        | pending | —        | —    |
+| 005  | `005.frontend-first-run-wizard.md`        | done    | PASS     | 2026-07-22 |
 
 ## Files Changed
 
@@ -27,6 +27,12 @@
 - `backend/app/routes/auth.py` — implemented the three handler bodies: `GET /status` → `AuthStatusResponse(needs_setup=not is_db_ready())`; `POST /setup/create` calls `setup_service.create_database` then mints `auth_service.create_token(admin)` → `LoginResponse`, mapping `SetupError` → HTTP 400; `POST /setup/import` reads the multipart `file` bytes, calls `setup_service.import_database`, returns `AuthStatusResponse`, mapping `SetupError` → HTTP 400. Added `HTTPException` import.
 - `backend/app/models/schemas/auth.py` — verified complete as frozen by skeleton (three BaseModel schemas); no change needed.
 - `backend/app/main.py` — verified the `app.include_router(auth.router)` mount + `from app.routes import auth` import already present (added by skeleton); step-002 lifespan untouched; no change needed.
+
+### Step 005 — Frontend first-run wizard + setup API
+- `frontend/src/api/auth.ts` — filled the three resource bodies: `getAuthStatus`/`setupCreate` via `client.request`; `setupImport` multipart `FormData` (field `file`) bypassing `request` like `sse.ts` (no JSON Content-Type, Authorization only when a token exists), surfacing non-2xx via `throwApiError`. Added `throwApiError` to the `./client` import.
+- `frontend/src/login/loginState.ts` — implemented the four `get` computeds (password-too-short <8, passwords-match, per-tab can-submit) and the three external effect fns (`loadStatus`/`submitCreate`/`submitImport`) using `runInAction`; create success stores the token via `setToken` and navigates to `/` with `window.location.href`; `ApiError` messages recorded into the trios. Added `runInAction` + `ApiError` imports.
+- `frontend/src/login/Login.tsx` — rebuilt the placeholder into the `observer` wizard: mount `useEffect` runs `loadStatus`; renders loading/error, the configured "proceed to login" branch, and the tabbed Create/Import forms (drafts bound to state via `runInAction` onChange, submit gated on the `get` computeds, validation + server errors surfaced). No Mantine `useForm`, no plain-`useState` form fields.
+- `frontend/src/types/auth.d.ts`, `frontend/src/auth.ts` — no change needed; skeleton froze the DTOs and `setToken` fully implemented.
 
 ## Skeleton
 
@@ -105,6 +111,40 @@
 
 - Caller-compile edits (out of Source-files scope): None. All three routes are new/additive; `main.py` is in this step's Source files.
 
+### Step 005 — frozen interface (2026-07-22)
+
+**Path note:** the step file lists the login files as `frontend/login/…`, but the real scaffold places the login entry under `frontend/src/login/` (`login/index.html` → `/src/login/main.tsx`; existing `src/login/Login.tsx`). Froze at the true location `frontend/src/login/`. DTO/api paths (`src/types`, `src/api`) matched the step as written.
+
+`frontend/src/types/auth.d.ts` (new) — pure wire DTOs mirroring `app/models/schemas/auth.py` 1:1:
+- `interface AuthStatusResponse` — `needs_setup: boolean`.
+- `interface CreateDBRequest` — `admin_username: string; password: string; password_confirm: string`.
+- `interface LoginResponse` — `token: string`.
+
+`frontend/src/api/auth.ts` (new) — setup resource module; bodies `throw new Error("not implemented")` (coder fills):
+- `async function getAuthStatus(signal?: AbortSignal): Promise<AuthStatusResponse>` — GET `/api/auth/status` via `client.request`.
+- `async function setupCreate(body: CreateDBRequest, signal?: AbortSignal): Promise<LoginResponse>` — POST `/api/auth/setup/create` via `client.request`.
+- `async function setupImport(file: File, signal?: AbortSignal): Promise<AuthStatusResponse>` — POST `/api/auth/setup/import` as multipart `FormData` field `file`, bypassing `request` (no JSON Content-Type; Authorization from `getToken()` only when present).
+- Imports frozen: `import { request } from "./client"`, `import { getToken } from "../auth"`.
+
+`frontend/src/auth.ts` (amended — 002 file):
+- `function setToken(token: string): void` — new; writes `localStorage["token"]` (counterpart to `getToken`, fully implemented as specified — trivial, no deferred behavior). No `src/api/` import added; one-way `api/ → auth.ts` preserved.
+
+`frontend/src/login/loginState.ts` (new) — `<Component>State` class + external effect fns:
+- Exported type aliases: `type SetupMode = "create" | "import"`; `type LoadStatus = "idle" | "loading" | "ready" | "error"`.
+- `class LoginState` (`makeAutoObservable(this)`), observable fields:
+  - `mode: SetupMode = "create"`
+  - `username = ""`, `password = ""`, `passwordConfirm = ""`
+  - `importFile: File | null = null`
+  - readiness trio: `needsSetup: boolean | null = null`, `needsSetupStatus: LoadStatus = "idle"`, `needsSetupError: string | null = null`
+  - submit pair: `submitStatus: LoadStatus = "idle"`, `submitError: string | null = null`
+- `get` computeds (signatures frozen; stub bodies throw): `get passwordTooShort(): boolean`, `get passwordsMatch(): boolean`, `get canSubmitCreate(): boolean`, `get canSubmitImport(): boolean`.
+- External effect fns (signatures frozen; stub bodies throw): `async function loadStatus(state: LoginState, signal?: AbortSignal): Promise<void>`, `async function submitCreate(state: LoginState, signal?: AbortSignal): Promise<void>`, `async function submitImport(state: LoginState, signal?: AbortSignal): Promise<void>`.
+
+`frontend/src/login/Login.tsx` (rebuilt — 002 placeholder):
+- `export const Login = observer(function Login() {...})` — owns `useState(() => new LoginState())`; mount `useEffect` (empty deps) runs `loadStatus(state, controller.signal)` with abort-on-unmount. Renders a type-checking placeholder inside `MantineProvider defaultColorScheme="dark"`; the full tabbed wizard JSX is the coder's.
+
+- Caller-compile edits (out of Source-files scope): None. `login/main.tsx` still imports `{ Login }` from `./Login` (export name/shape unchanged); all other symbols are new/additive. `npx tsc --noEmit` clean.
+
 ## Tests
 
 ### Step 001 — tests (2026-07-22)
@@ -143,4 +183,4 @@
 
 ## Notes & Issues
 
-_populated by the coder when worth saying_
+- Step 005: all DoD items are `[manual/live]` — they require a live `npm run dev` walkthrough against a cold 001-backend (cold-instance wizard → create sign-in, sub-8/mismatch refusals, corrupt-import error, valid-import → configured). The coder gate (`npm run build` = tsc + vite) is clean; the live checks are not yet run.

@@ -13,6 +13,13 @@ Everything below the `## Observations` marker is the coder's.
   `type=="refresh"`. Reason: user decision this session (recorded as an approved
   override in `context.md`) — short-lived access limits token-theft exposure
   while the refresh token preserves the ~30-day session cap.
+- **Same section.** Change: resolve the deferred token-claim touch-point.
+  backend.md currently states the `user_id` JWT claim "is still an int and
+  **deferred to feature 004**"; feature 004 now **performs** that migration — the
+  `user_id` claim is serialized as a **string** (`str(user.id)`) in both the
+  access and refresh payloads, decoded back via `int(...)`. Reason: the
+  system-wide 64-bit snowflake-id convention — the frontend decodes this claim and
+  a numeric id above 2^53 would silently lose precision.
 - **Same section.** Add: the **refresh endpoint** (`POST /api/auth/refresh`)
   verifies the refresh token, checks the user is enabled, rotates the signing key
   if stale (>30d), and issues a **new access token** (refresh token not rotated);
@@ -34,7 +41,8 @@ Everything below the `## Observations` marker is the coder's.
   per-IP (not just per-username), persistence across restarts, and cross-worker
   coordination (currently per-worker in-memory). Reason: decision 3.
 - **Same section.** Add the guarded-route surface: `GET /api/auth/me`
-  (behind `get_current_user`, returns `{id, username, role}`). Reason: `/me` is
+  (behind `get_current_user`, returns `{id, username, role}`; `id` serialized as
+  a **string** on the wire per the snowflake-id convention). Reason: `/me` is
   the first real guarded endpoint and the server-validated identity probe. The
   `require_role` admin-role ladder is **deferred to feature 005** (its first real
   consumer) — 005 documents the ladder when it lands its first admin-only route.
@@ -49,9 +57,10 @@ Everything below the `## Observations` marker is the coder's.
   decision (approved override recorded in `context.md`).
 - **Section "The state ladder → Module-level globals" / `auth.ts`.** Change:
   `auth.ts` holds **two** tokens (access + refresh), exposes `getToken` (access),
-  `getRefreshToken`, `getCurrentUser` (client-side JWT decode for display), and a
-  real `logout` (clears both + redirects to `/login/`). Reason: the access+refresh
-  model.
+  `getRefreshToken`, `getCurrentUser` (client-side JWT decode for display; the
+  decoded `user_id` claim is kept as a **string**, never `Number()`-coerced), and
+  a real `logout` (clears both + redirects to `/login/`). Reason: the
+  access+refresh model plus the entity-ids-are-`string` rule.
 
 ## `docs/architecture/system-overview.md`
 
@@ -72,7 +81,8 @@ Everything below the `## Observations` marker is the coder's.
 
 - Add endpoints `POST /api/auth/login`, `POST /api/auth/refresh`,
   `GET /api/auth/me`, and DTOs `TokenResponse{access_token, refresh_token}`,
-  `RefreshRequest{refresh_token}`, `MeResponse{id, username, role}`; note the
+  `RefreshRequest{refresh_token}`, `MeResponse{id, username, role}` (`id`
+  serialized as a **string** on the wire — snowflake id); note the
   retirement of `LoginResponse{token}` in favor of `TokenResponse` (also on
   `POST /api/auth/setup/create`).
 

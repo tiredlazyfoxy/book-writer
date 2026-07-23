@@ -8,14 +8,15 @@ creation was removed from the lifespan, so a freshly-booted instance is
 setup flow runs. The autouse `_reset_db_ready` fixture (conftest, step 002)
 guarantees the cold-boot readiness default before each test.
 
-Bound to the frozen skeleton (status.md -> Skeleton -> Step 004):
+Bound to the frozen skeleton (status.md -> Skeleton -> Step 004, amended by
+feature 004 Step 003 which retired LoginResponse for the TokenResponse pair):
     class AuthStatusResponse(BaseModel): needs_setup: bool     (models/schemas/auth.py)
     class CreateDBRequest(BaseModel):
         admin_username: str; password: str; password_confirm: str
-    class LoginResponse(BaseModel): token: str
+    class TokenResponse(BaseModel): access_token: str; refresh_token: str
     router = APIRouter(prefix="/api/auth")                     (routes/auth.py)
       GET  /api/auth/status         -> AuthStatusResponse
-      POST /api/auth/setup/create   (body CreateDBRequest) -> LoginResponse
+      POST /api/auth/setup/create   (body CreateDBRequest) -> TokenResponse
       POST /api/auth/setup/import   (multipart, field `file`: UploadFile)
                                     -> AuthStatusResponse
 
@@ -24,9 +25,11 @@ Interface intent + 004.context.md + feature context / confirmed decisions),
 never from implementation internals:
     - DoD-1: GET /status is `needs_setup: true` on a cold instance and
       `needs_setup: false` after a successful create.
-    - DoD-2 (US-001.AC-1): POST /setup/create with valid creds (password >= 8,
-      matching confirm) -> HTTP 200 + LoginResponse with a non-empty token
-      (operator auto-signed-in, decision 8).
+    - DoD-2 (US-001.AC-1) / feature-004 Step-003 DoD-9: POST /setup/create with
+      valid creds (password >= 8, matching confirm) -> HTTP 200 + a TokenResponse
+      carrying a non-empty access_token AND refresh_token (operator auto-signed-in
+      yields the token pair, decision 8; the return shape changed from
+      LoginResponse{token} to TokenResponse in feature 004).
     - DoD-3 (US-001.AC-2): POST /setup/create on an already-configured instance
       -> HTTP 4xx (not 200).
     - DoD-4 (US-001.AC-3): POST /setup/create with a password < 8 chars ->
@@ -46,7 +49,7 @@ seeding a user and calling `export_all()` (test-land helper, sanctioned by the
 step brief) on the same process-global engine the app uses.
 """
 
-from app.models.schemas.auth import AuthStatusResponse, LoginResponse
+from app.models.schemas.auth import AuthStatusResponse, TokenResponse
 
 CREATE_URL = "/api/auth/setup/create"
 IMPORT_URL = "/api/auth/setup/import"
@@ -78,10 +81,12 @@ async def test_status_cold_true_then_false_after_create__DoD1(http_client):
     assert warm.json() == {"needs_setup": False}
 
 
-# DoD-2 (US-001.AC-1): POST /api/auth/setup/create with valid credentials
-# (password >= 8, matching confirm) returns HTTP 200 and a LoginResponse
-# carrying a non-empty token (operator auto-signed-in).
-async def test_create_valid_returns_200_and_token__DoD2(http_client):
+# DoD-2 (US-001.AC-1) / feature-004 Step-003 DoD-9: POST /api/auth/setup/create
+# with valid credentials (password >= 8, matching confirm) returns HTTP 200 and a
+# TokenResponse carrying a non-empty access_token AND refresh_token — the
+# auto-sign-in now yields the token pair (return shape changed from
+# LoginResponse{token} to TokenResponse in feature 004).
+async def test_create_valid_returns_token_pair__DoD2_US001_AC1(http_client):
     resp = await http_client.post(
         CREATE_URL,
         json={
@@ -93,10 +98,12 @@ async def test_create_valid_returns_200_and_token__DoD2(http_client):
 
     assert resp.status_code == 200
     body = resp.json()
-    # Response conforms to LoginResponse and the minted token is present + non-empty.
-    model = LoginResponse.model_validate(body)
-    assert isinstance(model.token, str)
-    assert model.token != ""
+    # Response conforms to TokenResponse; both minted tokens are present + non-empty.
+    model = TokenResponse.model_validate(body)
+    assert isinstance(model.access_token, str)
+    assert model.access_token != ""
+    assert isinstance(model.refresh_token, str)
+    assert model.refresh_token != ""
 
 
 # DoD-3 (US-001.AC-2): POST /api/auth/setup/create on an already-configured

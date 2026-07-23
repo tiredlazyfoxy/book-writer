@@ -50,7 +50,7 @@ deltas only. Keep to real deltas.
   `PUT /{user_id}/password`, `PUT /{user_id}/role`, `PUT /{user_id}/disable`
   (all `require_role(admin)`; statuses 200 / 201 / 204 / 204 / 204 with the
   refusal taxonomy above).
-- Add the DTOs: `AdminUserResponse{id:int, username, role, last_login, active}`,
+- Add the DTOs: `AdminUserResponse{id:int (string on the wire), username, role, last_login, active}`,
   `AdminCreateUserRequest{username, password, password_confirm, role}`,
   `AdminSetPasswordRequest{password, password_confirm}`, `AdminSetRoleRequest{role}`.
 

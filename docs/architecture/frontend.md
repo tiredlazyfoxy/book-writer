@@ -101,6 +101,8 @@ frontend/
 
 **Scaffold scope (feature 002).** The layout above is the target. What the scaffold actually ships today: the **Login entry is a bare placeholder** ("Login (coming soon)" — real login is feature 004); the cross-SPA **`AppLayout` / `AppHeader` / `AppSidebar` shells are not yet built** — `src/components/` is a seeded-empty folder (`.gitkeep`); routing beyond the User **health page** and an **Admin placeholder** is deferred. The seams (empty `components/`, placeholder entries) are intentional, not missing work.
 
+**Admin SPA — LLM servers section (feature 006).** The Admin SPA has grown its **second section** at `/admin/llm-servers`: a list page (`admin/pages/LlmServersPage.tsx` + `llmServersPageState.ts`) plus **three modals** under `admin/components/llm-servers/` — a server form (create/edit), a models modal (probe available models + enable a subset), and an embedding-designation modal. It is backed by the `api/llmServers.ts` resource module and `types/llmServers.d.ts` (which includes the `"llama-swap" | "openai"` backend-type union). `LlmServer.id` is typed **`string`**, per the string-id convention (see "types/" below). Adding this section realized the minimal **`Users | LLM Servers`** nav that feature 005 deferred "until 006 adds pages" — still under the **minimal local Admin layout**; the shared cross-SPA `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred.
+
 ## MobX hard rules
 
 These rules work as a system; loosening one breaks the others.

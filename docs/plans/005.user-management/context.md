@@ -54,7 +54,9 @@ cross-feature amendment, **not** scope drift; per-step context files flag each.
 Backend, treat as given:
 
 - `app/models/user.py` (003) — `UserRole {admin, author}`; `User` table:
-  autoincrement **int** `id`; unique indexed `username`; **nullable** `pwdhash`
+  application-generated 64-bit **snowflake** `id` (`default_factory=generate_id`
+  from `app/ids.py`, generated at construction — **not** DB autoincrement; still
+  an `int` column in Python); unique indexed `username`; **nullable** `pwdhash`
   (**null == account disabled** — no separate `disabled` flag); `role`;
   **nullable** `jwt_signing_key`; nullable `last_login` and `last_key_update`.
   **No `salt`.**
@@ -109,8 +111,9 @@ Confirmed by the user; do not re-open.
    computed in the hand-built response mapping (not the ORM). **It is NOT a
    `User`-table column** — derived at response time only, so **no `User`-table
    change and no import/export codec change**. `AdminUserResponse` =
-   `{id (int), username, role, last_login, active}`; still secret-excluding
-   (US-005.AC-2). The UI reads `active` directly.
+   `{id (int in Python, serialized as a string on the wire per the system-wide
+   snowflake convention), username, role, last_login, active}`; still
+   secret-excluding (US-005.AC-2). The UI reads `active` directly.
 4. **Password validation in the SERVICE, not routes** — min length **8** +
    confirm-match, consistent with 003's policy. Reuse 003's setup password
    policy rather than writing a third copy (see step 001 context for placement);
@@ -143,13 +146,15 @@ Confirmed by the user; do not re-open.
 
 `D:/GitRoot/_TextGens/LLMRPTextOnlyProject` implements the same capability with
 the same stack — **adapt, don't copy**. Decisions 1–10 override several reference
-choices: admin/author roles (not admin/editor/player), an **int** id (not the
-reference's snowflake string), a derived `active` field (replacing the reference's
-fragile `last_login===null && role!=="admin"` frontend heuristic), password
-validation **in the service** (the reference leaks match/length checks into route
-handlers — move them down), disable nulls **no** `salt`, and a **minimal** admin
-layout (not the reference's full shared shell). Per-step context files cite the
-reference file paths the briefing harvested.
+choices: admin/author roles (not admin/editor/player), a derived `active` field
+(replacing the reference's fragile `last_login===null && role!=="admin"` frontend
+heuristic), password validation **in the service** (the reference leaks
+match/length checks into route handlers — move them down), disable nulls **no**
+`salt`, and a **minimal** admin layout (not the reference's full shared shell). On
+entity ids, feature 005 now **follows** the reference's approach —
+application-generated snowflake ids serialized as strings on the wire — per the
+finalized system-wide convention. Per-step context files cite the reference file
+paths the briefing harvested.
 
 ## Files touched across the feature
 

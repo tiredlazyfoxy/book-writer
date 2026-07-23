@@ -62,6 +62,7 @@ def _register_models() -> None:
     # --- MODEL-REGISTRATION SEAM: add ``import app.models.<name>  # noqa: F401``
     #     lines below as table modules are introduced. Do not remove this hook. ---
     import app.models.user  # noqa: F401
+    import app.models.llm_server  # noqa: F401
 
     return
 

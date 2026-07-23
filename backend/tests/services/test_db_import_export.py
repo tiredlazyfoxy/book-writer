@@ -69,9 +69,12 @@ async def test_export_all_includes_registered_users_member__F003_DoD8(db: DbConf
 
     # ...and those bytes open as a genuine zip archive (ZipFile raises
     # BadZipFile on invalid input) whose members reflect the registered tables.
-    # With no user rows seeded, the archive contains exactly the `users` member.
+    # Per F003 DoD-8 the `users` member must be present and first (FK-order);
+    # other features may append further members, so this is not an exact match.
     with zipfile.ZipFile(io.BytesIO(bytes(archive_bytes))) as zf:
-        assert zf.namelist() == ["users"]
+        members = zf.namelist()
+        assert "users" in members
+        assert members[0] == "users"
 
 
 # DoD-2: import_all(export_all()) completes without error as an idempotent

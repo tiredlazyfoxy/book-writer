@@ -11,14 +11,18 @@ signatures (incl. ``response_model`` via return annotations) are frozen; the
 handler bodies are UNIMPLEMENTED.
 """
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.db.engine import is_db_ready
 from app.models.schemas.auth import (
     AuthStatusResponse,
     CreateDBRequest,
-    LoginResponse,
+    LoginRequest,
+    MeResponse,
+    RefreshRequest,
+    TokenResponse,
 )
+from app.models.user import User
 from app.services import auth as auth_service
 from app.services import setup as setup_service
 
@@ -35,12 +39,14 @@ async def get_status() -> AuthStatusResponse:
 
 
 @router.post("/setup/create")
-async def create_db(payload: CreateDBRequest) -> LoginResponse:
+async def create_db(payload: CreateDBRequest) -> TokenResponse:
     """Create the DB + first admin, then auto-sign-in (decision 8).
 
-    Calls :func:`app.services.setup.create_database`, mints the first token via
-    :func:`app.services.auth.create_token`, and returns the ``LoginResponse``.
-    A ``SetupError`` from the service maps to HTTP 400 with its message.
+    Calls :func:`app.services.setup.create_database`, mints the token pair via
+    :func:`app.services.auth.create_access_token` +
+    :func:`app.services.auth.create_refresh_token`, and returns the
+    ``TokenResponse``. A ``SetupError`` from the service maps to HTTP 400 with
+    its message.
     """
     try:
         admin = await setup_service.create_database(
@@ -48,7 +54,55 @@ async def create_db(payload: CreateDBRequest) -> LoginResponse:
         )
     except setup_service.SetupError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
-    return LoginResponse(token=auth_service.create_token(admin))
+    return TokenResponse(
+        access_token=auth_service.create_access_token(admin),
+        refresh_token=auth_service.create_refresh_token(admin),
+    )
+
+
+@router.post("/login")
+async def login(payload: LoginRequest) -> TokenResponse:
+    """Authenticate credentials and issue a token pair (decision 4).
+
+    Calls :func:`app.services.auth.authenticate_user`, then mints
+    :func:`app.services.auth.create_access_token` +
+    :func:`app.services.auth.create_refresh_token`, returning ``TokenResponse``.
+    An ``AuthError`` (bad creds / unknown / disabled / rate-limited) maps to a
+    single generic HTTP 401.
+    """
+    try:
+        user = await auth_service.authenticate_user(payload.username, payload.password)
+    except auth_service.AuthError as err:
+        raise HTTPException(status_code=401, detail="Invalid credentials") from err
+    return TokenResponse(
+        access_token=auth_service.create_access_token(user),
+        refresh_token=auth_service.create_refresh_token(user),
+    )
+
+
+@router.post("/refresh")
+async def refresh(payload: RefreshRequest) -> TokenResponse:
+    """Exchange a refresh token for a fresh access token (decision 4).
+
+    Calls :func:`app.services.auth.refresh_access_token`, returning a
+    ``TokenResponse`` whose ``access_token`` is new and whose ``refresh_token``
+    echoes the incoming one. An ``AuthError`` maps to HTTP 401.
+    """
+    try:
+        access = await auth_service.refresh_access_token(payload.refresh_token)
+    except auth_service.AuthError as err:
+        raise HTTPException(status_code=401, detail="Invalid credentials") from err
+    return TokenResponse(access_token=access, refresh_token=payload.refresh_token)
+
+
+@router.get("/me")
+async def me(user: User = Depends(auth_service.get_current_user)) -> MeResponse:
+    """Return the authenticated caller's identity.
+
+    The ``get_current_user`` dependency resolves the ``User`` (401 on missing /
+    expired / invalid access token). ``id`` is serialized as a string.
+    """
+    return MeResponse(id=str(user.id), username=user.username, role=user.role)
 
 
 @router.post("/setup/import")

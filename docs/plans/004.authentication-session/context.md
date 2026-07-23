@@ -60,6 +60,12 @@ conscious, approved overrides, not drift:
   `{user_id, username, role, type:"access", exp:+30min}`.
 - **Refresh token** — HS256, signed with the **same** per-user key; payload
   `{user_id, type:"refresh", exp:+30days}`.
+- **`user_id` claim serialization** — in both payloads the `user_id` claim is
+  written as a **string** (`str(user.id)`), never a JSON number, per the
+  system-wide 64-bit **snowflake** id convention: the frontend decodes this claim
+  and a numeric id above 2^53 would silently lose precision. In Python `user.id`
+  stays an `int`; it is stringified into the JWT payload and parsed back via
+  `int(...)` on decode, so downstream `users.get_by_id` still receives an int.
 - `get_current_user` requires `type=="access"`; the refresh path requires
   `type=="refresh"`. A refresh token must never authenticate as an access
   token, and vice-versa.
@@ -123,10 +129,13 @@ cross-feature amendment, **not** scope drift; per-step context files flag each.
 
 Backend, delivered by 003 (treat as given):
 
-- `app/models/user.py` — `UserRole {admin, author}`; `User` table: autoincrement
-  int `id`; unique indexed `username`; **nullable** `pwdhash` (**null == account
-  disabled** — no separate `disabled` flag); `role`; **nullable**
-  `jwt_signing_key`; nullable `last_login` and `last_key_update`. No `salt`.
+- `app/models/user.py` — `UserRole {admin, author}`; `User` table:
+  application-generated 64-bit **snowflake** `id` (`default_factory=generate_id`
+  from `app/ids.py`, generated at construction — **not** DB autoincrement; still
+  an `int` column in Python); unique indexed `username`; **nullable** `pwdhash`
+  (**null == account disabled** — no separate `disabled` flag); `role`;
+  **nullable** `jwt_signing_key`; nullable `last_login` and `last_key_update`.
+  No `salt`.
 - `app/db/users.py` — session-free: `create`, `get_by_username`, `get_by_id`,
   `admin_exists`. **No `update` yet — step 002 adds it.**
 - `app/services/auth.py` — `hash_password`, `verify_password`,

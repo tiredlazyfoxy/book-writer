@@ -8,6 +8,8 @@ names/types are frozen by the skeleton (step 004).
 
 from pydantic import BaseModel
 
+from app.models.user import UserRole
+
 
 class AuthStatusResponse(BaseModel):
     """First-run readiness surfaced by ``GET /api/auth/status`` and returned by
@@ -33,10 +35,52 @@ class CreateDBRequest(BaseModel):
     password_confirm: str
 
 
-class LoginResponse(BaseModel):
-    """Auto-sign-in result of ``POST /api/auth/setup/create`` (decision 8).
+class LoginRequest(BaseModel):
+    """Body of ``POST /api/auth/login`` — a user's login credentials.
 
-    - ``token`` — the minted per-user HS256 JWT for the freshly created admin.
+    - ``username`` — the login handle.
+    - ``password`` — plaintext password (verified service-side; bcrypt).
     """
 
-    token: str
+    username: str
+    password: str
+
+
+class RefreshRequest(BaseModel):
+    """Body of ``POST /api/auth/refresh`` — the refresh-token exchange request.
+
+    - ``refresh_token`` — the per-user HS256 refresh JWT to exchange for a fresh
+      access token.
+    """
+
+    refresh_token: str
+
+
+class TokenResponse(BaseModel):
+    """Token pair returned by ``POST /api/auth/login``, ``POST /api/auth/refresh``,
+    and the auto-sign-in of ``POST /api/auth/setup/create`` (decision 8).
+
+    Replaces the retired single-token ``LoginResponse``.
+
+    - ``access_token`` — short-lived per-user HS256 access JWT.
+    - ``refresh_token`` — long-lived per-user HS256 refresh JWT. On refresh this
+      echoes the incoming refresh token (see ``context.md`` → Token model).
+    """
+
+    access_token: str
+    refresh_token: str
+
+
+class MeResponse(BaseModel):
+    """Identity of the authenticated caller — returned by ``GET /api/auth/me``.
+
+    - ``id`` — the caller's 64-bit snowflake id, serialized as a **string** on
+      the wire (per the system-wide snowflake convention; ``User.id`` is an
+      ``int`` in Python, so the coder must build ``MeResponse(id=str(user.id), …)``).
+    - ``username`` — the caller's login handle.
+    - ``role`` — the caller's ``UserRole`` (serializes to its string value).
+    """
+
+    id: str
+    username: str
+    role: UserRole

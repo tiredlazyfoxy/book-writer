@@ -63,3 +63,22 @@ These are architecture + quick-ref deltas only. Keep to real deltas.
 ## Observations
 
 _populated by the coder / fixer as steps complete_
+
+- Review R1/R2 (2026-07-23) superseded two "Pending" items above. `LlmServer` now uses **snowflake ids** (`default_factory=generate_id`, DTO edge stringified) — the "Pending system-wide ID-strategy item" bullet is resolved for `LlmServer`, and its premise ("006 chose autoincrement int … consistent with User") was inaccurate (`User` is snowflake). Possible impact: rewrite/remove that outcome bullet at finalization; the ID strategy is now uniformly snowflake-as-string. And `LlmServer.api_key` now **exports redacted** (raw literals → `None`, `$ENV` tokens kept verbatim), so the "Pending export-credential-redaction item" is partly solved for `LlmServer` (user `pwdhash`/`jwt_signing_key` still export verbatim). Possible impact: update that outcome bullet to note the LlmServer redaction landed and only the user-credential redaction remains deferred.
+
+---
+Status: Applied 2026-07-23
+Applied items: 8 (backend.md ×4, frontend.md ×1, quick-reference.md ×3)
+Rejected items: 0 — items 9 & 10 applied-with-modification (see notes)
+
+Landed in the architecture docs, reflecting the **post-rewrite** delivered state (review.md R1+R2 DONE/PASS):
+
+- **`backend.md`** — new **"LLM server connections"** section (`Realizes: FEAT-004, UC-010..014`): table+db module, `$ENV` resolver + `has_api_key` masking, probe wiring + failure taxonomy (502), embedding clear-all-then-set, first DELETE pattern, route surface + error→status taxonomy + static-`/embedding` ordering. Added the **`LlmServer`** field table under "Domain models" (snowflake `id`, conformant). Registered `llm_servers` as the **2nd `TABLE_REGISTRY` entry** and rewrote the "Export credential policy" paragraph (literal LLM `api_key` → `null` on export, `$ENV` tokens kept; `User` credentials unchanged; framed as a scoped early slice of the feature-007 target). Added a dated **Decision history** entry (2026-07-23).
+- **`frontend.md`** — recorded the Admin SPA's second section (`/admin/llm-servers` page + 3 modals, `api/llmServers.ts`, `types/llmServers.d.ts` with the backend-type union, `Users | LLM Servers` nav; `LlmServer.id` typed `string`; shared shells still deferred).
+- **`quick-reference.md`** — added the 9 `/api/admin/llm-servers` endpoint rows, all the LLM-server DTOs (`LlmServerResponse.id: str`, `EmbeddingConfigResponse.server_id: str | null`, no `api_key`), and the `LlmServer` table row.
+
+**Items 9 & 10 (the two "Pending …" bullets above) — applied with modification, not as written.** Both were stale after the R1/R2 rewrite:
+- Item 9 ("Pending system-wide ID-strategy item"): the snowflake standard is already settled (per `backend.md`) and was never a pending decision; its premise ("006 chose autoincrement int, consistent with `User`") was inaccurate (`User` is snowflake). Recorded instead that **`LlmServer` now conforms** to the standard — no "pending" framing created.
+- Item 10 ("Pending export-credential-redaction item — api_key exports verbatim"): post-rewrite the export does the **opposite**. Recorded the **actual** policy — literal LLM `api_key` redacted to `null` on export, `$ENV` tokens preserved, `User` credentials unchanged — with the feature-007 two-mode split noted as the remaining broader target.
+
+No `docs/product/` back-propagation (FEAT-004 fully specified). No arch doc exceeds the ~400-line limit.

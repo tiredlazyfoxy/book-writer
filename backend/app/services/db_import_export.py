@@ -24,6 +24,7 @@ from datetime import datetime
 from sqlmodel import SQLModel
 
 from app.db import engine, import_export_queries
+from app.models.llm_server import LlmServer
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -83,12 +84,73 @@ def _dict_to_user(data: dict[str, object]) -> User:
     )
 
 
+def _llm_server_to_dict(server: LlmServer) -> dict[str, object]:
+    """Serialize an ``LlmServer`` row to a JSON-safe dict for export.
+
+    ``enabled_models`` is kept as its stored JSON string; datetimes via
+    ``.isoformat()`` inline; nullable fields emitted as ``None``.
+
+    ``api_key`` is **redacted** on export: a ``$ENV_VAR`` token is a *pointer*,
+    not a secret, so it is preserved verbatim; ``None`` stays ``None``; a raw
+    literal key (anything not ``$``-prefixed) is replaced with ``None`` so no
+    cleartext secret lands in the export file. (Reuses the ``$``-prefix
+    distinction that ``services/secrets.py`` relies on, inlined here to avoid
+    importing the resolver into the codec.) This supersedes the earlier
+    verbatim-export behaviour (step-001 DoD-5 / D6).
+    """
+    api_key = server.api_key
+    exported_api_key = api_key if (api_key is None or api_key.startswith("$")) else None
+    return {
+        "id": str(server.id),
+        "name": server.name,
+        "backend_type": server.backend_type,
+        "base_url": server.base_url,
+        "api_key": exported_api_key,
+        "enabled_models": server.enabled_models,
+        "is_active": server.is_active,
+        "is_embedding": server.is_embedding,
+        "embedding_model": server.embedding_model,
+        "created_at": server.created_at.isoformat() if server.created_at else None,
+        "modified_at": server.modified_at.isoformat() if server.modified_at else None,
+    }
+
+
+def _dict_to_llm_server(data: dict[str, object]) -> LlmServer:
+    """Restore an ``LlmServer`` row from an exported dict (inverse of
+    ``_llm_server_to_dict``; D6).
+
+    ``is_active`` / ``is_embedding`` / ``enabled_models`` are read with
+    ``.get(...)`` defaults; datetimes parsed from isoformat; explicit ``id``
+    preserved so the UPSERT stays idempotent on re-import.
+
+    Skeleton (step 001): signature frozen; body UNIMPLEMENTED.
+    """
+    created_at = data.get("created_at")
+    modified_at = data.get("modified_at")
+    raw_id = data.get("id")
+    return LlmServer(
+        id=int(raw_id) if raw_id is not None else None,
+        name=data["name"],
+        backend_type=data["backend_type"],
+        base_url=data["base_url"],
+        api_key=data.get("api_key"),
+        enabled_models=data.get("enabled_models", "[]"),
+        is_active=data.get("is_active", True),
+        is_embedding=data.get("is_embedding", False),
+        embedding_model=data.get("embedding_model"),
+        created_at=datetime.fromisoformat(created_at) if created_at else None,
+        modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
+    )
+
+
 # One registry entry per persistent table, in FK (import) order. ``users`` is
-# first — it precedes any dependent entity. Real codec functions are referenced
-# here even while their bodies are unimplemented, so the registry is non-empty
-# and importable.
+# first — it precedes any dependent entity. ``llm_servers`` follows (no FK to
+# users; order just needs to be deterministic, D6). Real codec functions are
+# referenced here even while their bodies are unimplemented, so the registry is
+# non-empty and importable.
 TABLE_REGISTRY: list[RegistryEntry] = [
     ("users", User, _user_to_dict, _dict_to_user),
+    ("llm_servers", LlmServer, _llm_server_to_dict, _dict_to_llm_server),
 ]
 
 # Max rows accumulated before a streaming UPSERT flush on import.

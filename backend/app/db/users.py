@@ -32,6 +32,24 @@ async def create(user: User) -> User:
         return user
 
 
+async def update(user: User) -> User:
+    """Persist mutable fields of an already-existing ``user`` (e.g.
+    ``jwt_signing_key``, ``last_key_update``, ``last_login``) and return the
+    refreshed row.
+
+    Session-free like the rest of this module: opens and closes its own session
+    via ``get_standalone_session()``; the ``AsyncSession`` never leaks out. The
+    ``id`` is stable (application-generated snowflake), so this is an update of
+    the existing row, not an insert.
+    """
+    session = await get_standalone_session()
+    async with session:
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
 async def get_by_username(username: str) -> User | None:
     """Return the ``User`` with ``username``, or ``None`` if none exists."""
     session = await get_standalone_session()
@@ -46,6 +64,20 @@ async def get_by_id(user_id: int) -> User | None:
     async with session:
         result = await session.exec(select(User).where(User.id == user_id))
         return result.one_or_none()
+
+
+async def get_all() -> list[User]:
+    """Return every ``User`` row, ordered by ``username`` (feature 005, step 001).
+
+    Session-free like the rest of this module: opens and closes its own session
+    via ``get_standalone_session()``; the ``AsyncSession`` and ORM row types
+    never leak out. Backs ``services.admin.list_users`` (US-005.AC-1); all
+    mutations continue to go through ``update(user)`` — no per-field db funcs.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(select(User).order_by(User.username))
+        return list(result.all())
 
 
 async def admin_exists() -> bool:

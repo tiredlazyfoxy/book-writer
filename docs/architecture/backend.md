@@ -97,12 +97,12 @@ Every persistent model has gzipped-JSONL (`.jsonl.gz`) import/export, packaged i
 
 - **Export** streams per row: the db layer iterates rows and invokes a `callback(row)`; the service serializes each to JSONL into the gzip stream. No bulk `SELECT *` into memory.
 - **Import** streams line-by-line: the service reads JSONL, accumulates a batch (e.g. 100), and calls an `upsert_batch(items)` on the db layer. Import is **UPSERT** — idempotent, safe to re-run. `init_db()` creates/reshapes tables before import.
-- **Extension point.** A persistent model plugs in by adding its `to_dict`/`from_dict` codec pair plus one ordered `TABLE_REGISTRY` tuple (shape `(zip_filename, model_class, to_dict_fn, from_dict_fn)`) in FK dependency (import) order, in `services/db_import_export.py`. The session-free `db/` primitives (`export_table`, `upsert_batch`) need no per-model change. **`users` is the first `TABLE_REGISTRY` entry** (feature 003), carrying the first `to_dict`/`from_dict` codec; feature 001's "empty `TABLE_REGISTRY`" precondition is **superseded** now that a model is registered.
+- **Extension point.** A persistent model plugs in by adding its `to_dict`/`from_dict` codec pair plus one ordered `TABLE_REGISTRY` tuple (shape `(zip_filename, model_class, to_dict_fn, from_dict_fn)`) in FK dependency (import) order, in `services/db_import_export.py`. The session-free `db/` primitives (`export_table`, `upsert_batch`) need no per-model change. **`users` is the first `TABLE_REGISTRY` entry** (feature 003), carrying the first `to_dict`/`from_dict` codec; feature 001's "empty `TABLE_REGISTRY`" precondition is **superseded** now that a model is registered. **`llm_servers` is the second entry** (feature 004), registered after `users`.
 - **Entity id serialization.** Entity ids serialize as **strings** in JSONL — the `to_dict` codec emits `id` as a JSON string, and `from_dict` accepts **either a string or a legacy JSON number** (parsing via `int(...)`). This is the system-wide 64-bit id rule (snowflake ids exceed JS's 2^53, so a number would lose precision); the number-or-string acceptance keeps pre-snowflake archives importable. **Realized in code for the `users` codec** (`_user_to_dict` emits `str(user.id)`; `_dict_to_user` parses string-or-number) by `fast/001.snowflake-ids`. See "Conventions — entity ID strategy".
 
 Two settled policies govern how credentials cross the import/export boundary:
 
-- **Export credential policy.** The `users` codec (and export) **includes credentials** — `pwdhash` and `jwt_signing_key` — so restored accounts can authenticate, as required by US-002 (restore-and-login). This makes today's export the **"full / backup" mode, and it is secret-grade**: an export archive must be handled as a secret because it carries live credential material. A **sanitized (credential-free) export mode** is the target for **feature 007** (the export side) — a planned two-mode split (full vs. sanitized), **not yet built**.
+- **Export credential policy.** The `users` codec (and export) **includes credentials** — `pwdhash` and `jwt_signing_key` — so restored accounts can authenticate, as required by US-002 (restore-and-login). This makes today's export the **"full / backup" mode, and it is secret-grade**: an export archive must be handled as a secret because it carries live credential material. `LlmServer.api_key`, however, is **redacted on export** (feature 004): a `$ENV` token is a *pointer*, not a secret, so `$`-prefixed values (and `None`) are exported verbatim, while a **raw literal key is emitted as `null`** — an operator re-enters it after restore. This is a **scoped early slice** of the feature-007 sanitized-export target, applied to LLM keys only; the broader two-mode split (full vs. sanitized) covering `User` credentials is **still not built** — `pwdhash` / `jwt_signing_key` continue to export verbatim in today's full/backup mode.
 - **Partial-import rollback — accepted limitation.** Import is a streaming, idempotent UPSERT. A corrupt or failed import raises `SetupError`, leaves the instance **unconfigured** (`set_db_ready` is **not** called), and is recovered by **retrying with a valid archive** — the idempotent UPSERT overwrites any partial rows. There is **no transactional rollback** of a partially-written import. This is a **deliberately accepted limitation**, justified by the idempotent-UPSERT plus unconfigured-on-failure design: a half-written instance is never treated as ready, and a clean retry converges it.
 
 ## Vector storage — LanceDB sidecar
@@ -182,6 +182,51 @@ There is **no `salt` column** — bcrypt embeds its own salt in the hash.
 
 Deliberate divergences from the reference project: **no `salt` column**, and **admin/author roles only** (the reference's role set is not mirrored). The former id-type divergence is **resolved** — `User.id` is now the app-generated snowflake standard (`fast/001.snowflake-ids`); only the `user_id` token-claim serialization remains, deferred to feature 004.
 
+### LlmServer
+
+**Realizes:** FEAT-004, UC-010..014
+
+`LlmServer` is the second persistent entity — one row per configured LLM/embedding backend. SQLModel table (`models/llm_server.py`), one `db/` module (`db/llm_servers.py`). Fields:
+
+| Field | Type / notes |
+|-------|--------------|
+| `id` | **Application-generated 64-bit snowflake**, serialized as a **string** at JSON boundaries. Declared `id: int = Field(default_factory=generate_id, primary_key=True)` (imports `from app.ids import generate_id`) — **conformant** to the system-wide standard (see "Conventions — entity ID strategy"), not an exception. |
+| `name` | display name |
+| `backend_type` | bare `str`, **validated at the service** against `{"llama-swap", "openai"}` (not a DB enum) |
+| `base_url` | server base URL; must include `/v1` (the `llm` client appends `/models` raw — see below) |
+| `api_key` | nullable; a raw literal key **or** a `$ENV_VAR` indirection token; **never returned raw** (see `has_api_key` masking below) |
+| `enabled_models` | JSON-encoded `list[str]` stored in a **TEXT** column; decoded to `list[str]` only at the **service edge**, never in db/ or the table |
+| `is_active` | soft on/off |
+| `is_embedding` | at most one row true — enforced by clear-all-then-set (below) |
+| `embedding_model` | nullable; the model name used when `is_embedding` is true |
+| `created_at` / `modified_at` | timestamps |
+
+## LLM server connections
+
+**Realizes:** FEAT-004, UC-010..014
+
+The first LLM-backed subsystem: admin-managed CRUD over `LlmServer` rows plus a live connection probe. It spans all four layers — `models/llm_server.py`, session-free `db/llm_servers.py`, `services/{llm_servers,secrets}.py`, and `routes/admin/llm_servers.py`.
+
+### Secret handling — `$ENV` resolver + `has_api_key` masking
+
+`services/secrets.py::resolve_env_ref` is the **single shared indirection point** for the `$ENV_VAR` pattern described under "Configuration & secrets": `None → None`, a `$VAR` token → `os.environ[VAR]` (raising a typed `env_not_set` error when unset), a literal → verbatim. It is resolved **only at use time** (probe / embed), never at rest. On the wire, `LlmServerResponse` carries **no `api_key`** — only a computed `has_api_key: bool` (`api_key is not None and api_key != ""`). The stored token/literal never leaves the service edge.
+
+### Probe / test-connection
+
+The first wiring of the `llm` client. `probe_models` is fused and synchronous: it resolves the key, constructs the backend-typed client, and calls `list_models()`, returning a **sorted `list[str]`**. Failure taxonomy — `aiohttp.ClientError` (unreachable host), `llm.LLMError` (HTTP / auth failure), and `ValueError` (keyless OpenAI) — all funnel to a typed **probe-failed** error, surfaced at the route as **502**. `base_url` **must** include `/v1`: the client appends `/models` raw with no auto-append.
+
+### Embedding designation — clear-all-then-set
+
+Embedding role is per-row (`is_embedding` + `embedding_model`), and **at most one row** may hold it. Designation is enforced **clear-all-then-set**: `db.clear_all_embedding()` clears the flag on every row before the target row is set. That function is the **one sanctioned raw `sqlalchemy.update()`** inside `db/` — justified because a single bulk clear is the correct primitive and per-row iteration would be wasteful and racier.
+
+### First DELETE pattern
+
+`db.delete(id) -> bool` returns whether a row matched; the route maps a match to **204** and a miss to **404**. This is the codebase's first delete and the pattern later deletes follow.
+
+### Route surface — `/api/admin/llm-servers`
+
+Nine endpoints, every one behind `Depends(require_role(admin))`. The **static `/embedding` routes are declared before `/{server_id}`** so path capture doesn't swallow them. Error → status taxonomy: missing-field / invalid-backend-type / env-not-set → **400**, not-found → **404**, probe-failed → **502**, delete + clear-embedding → **204**, non-admin → **403**. See `quick-reference.md` for the endpoint and DTO table.
+
 ## Logging
 
 - Python standard `logging`, default output to console.
@@ -198,4 +243,5 @@ Deliberate divergences from the reference project: **no `salt` column**, and **a
 
 - **2026-07-22 — System-wide entity ID strategy = Snowflake ids.** Standardized on node-aware, globally-unique, time-ordered snowflake ids for **all** entities ("anywhere," no permanent exceptions), to keep cross-instance import/export identity unambiguous. This **reverses the implicit choice** made when feature 003 shipped `User` with an **autoincrement integer PK**, and therefore creates known migration debt: `User` must migrate its PK type, its import-codec explicit-id handling, and its `user_id` token claim. Recorded here because the decision overturns a shipped choice and carries follow-up work. See "Conventions — entity ID strategy" and the `User` domain model.
 - **2026-07-22 — Concrete Snowflake design + serialization convention (refines the entry above).** Settled the implementation specifics so the migration can be planned: a **64-bit id** with a **41-bit ms timestamp / 10-bit node id / 12-bit sequence** layout (high bit 0) over a **fixed custom epoch** (fixed once, never changed); the node id from a new **`node_id` setting** via env **`BOOKWRITER_NODE_ID`** (default `0`); a cross-cutting **`app/ids.py` `generate_id()`** generator (the sanctioned exception to one-module-per-entity); and **application-generated ids at entity construction** (locked — not DB-assigned; `default_factory=generate_id` recommended, db-layer-on-None acceptable). Adopted the system-wide rule that **entity ids serialize as strings at every JSON boundary** (JSONL codecs, API DTOs, frontend `.d.ts`) because snowflakes exceed JS's 2^53 and a JSON number would lose precision, with **from_dict accepting number-or-string** for legacy-int-archive back-compat. Set the `User` migration as **fresh-install / model-only** — no in-place PK data migration (none is possible: `create_all` cannot alter a PK, no Alembic), reframing `User` from unscoped debt to a scoped, planned migration. See "Conventions — entity ID strategy" and the `User` domain model.
+- **2026-07-23 — `LlmServer` conformed to the snowflake id standard; literal LLM `api_key` redacted on export (feature 006 + rewrite).** Feature 006 originally shipped `LlmServer` with an autoincrement-int PK and a verbatim `api_key` export; a same-day rewrite brought both into line with the settled conventions. `LlmServer.id` is now `id: int = Field(default_factory=generate_id, primary_key=True)` (mirroring `User`), string-serialized at the DTO/frontend edge — chosen for **consistency with the system-wide snowflake standard** and to keep cross-instance import identity unambiguous. On export, a raw literal `api_key` is now replaced with `null` while `$ENV` pointer tokens are kept — chosen because a **secret-grade literal key should not land in an archive**, whereas an `$ENV` pointer safely can (it names an environment variable, not a secret). `User` credential export is unchanged. See "LLM server connections", the `LlmServer` domain model, and the "DB import/export" export credential policy.
 - **2026-07-22 — Snowflake design implemented for `User` (`fast/001.snowflake-ids`).** The settled design above is now **realized in code**. `app/ids.py` ships `generate_id()` (monotonic per-ms snowflake, lock-guarded sequence, spin-wait on overflow, backwards-clock clamp) with the pinned `EPOCH_MS = 1704067200000` and frozen bit-layout constants; the node id comes from `Settings.node_id` (env `BOOKWRITER_NODE_ID`, default 0, range 0–1023). `User`'s PK is `id: int = Field(default_factory=generate_id, primary_key=True)` (the db-layer-on-`None` alternative was not taken), and the `users` import codec emits `id` as a JSON string while accepting a legacy JSON number on import. **One touch-point remains open:** the `user_id` **JWT token claim** is still an int and its int→string serialization is **deferred to feature 004**. This closes the loop from the two design-decision entries above to their realization. See "Conventions — entity ID strategy" and the `User` domain model.
