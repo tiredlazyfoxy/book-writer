@@ -34,14 +34,24 @@
 - **Main flow:**
   1. Owner selects the book.
   2. Owner requests archive.
-  3. System marks the book archived.
-- **Exception flow:** Book has an open chapter at the time of archive →
-  `_TBD: whether archiving force-closes the open chapter or is refused —
-  not stated_`.
-- **Postconditions:** Book status is archived; content and history
-  preserved; never destroyed (see FEAT-011 for the sole exception).
+  3. System marks the book archived; the book becomes read-only to all
+     members until unarchived.
+- **Exception flow:** Book has an open (or closing) chapter at the time of
+  archive → the archive **proceeds**; the chapter is **left in place,
+  frozen** — not force-closed. Unarchiving resumes it exactly as it was,
+  still holding the book's one-open-chapter slot. Closes the prior
+  `_TBD:`. Force-closing would skip the FEAT-012 continuity gate, the same
+  incoherence CF1 avoids; freezing preserves the state instead of
+  re-deriving it.
+- **Postconditions:** Book status is archived; read-only to all members;
+  content and history preserved; archiving stays reversible; never
+  destroyed (see FEAT-011 for the sole exception).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility": "Archive only, no hard delete."
+  membership & visibility": "Archive only, no hard delete." Read-only +
+  freeze behaviour: `[confirmed: user]` interview 2026-07-24, "augment
+  round 7 — archive+open-chapter follow-up": "Archive proceeds; the
+  chapter stays open but frozen... unarchiving resumes exactly where it
+  left off."
 
 ### UC-024 — Transfer ownership
 - **Feature:** FEAT-006 · **Actor:** ACT-004

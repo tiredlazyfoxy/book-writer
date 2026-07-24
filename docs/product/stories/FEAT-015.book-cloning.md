@@ -78,9 +78,15 @@
     then it has the same collaboration mode as the source.
   - **US-071.AC-4** — Given a book is cloned, when the clone is created,
     then it has the same visibility setting as the source.
+  - **US-071.AC-5** — Given a book with a book system prompt and its
+    chapters have chapter system prompts, when the book is cloned, then
+    the clone carries the book's system prompt and its chapters carry
+    their chapter system prompts.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book cloning":
   "Chapters, blocks and sketches · state notes and summaries · membership
-  · collaboration mode and visibility."
+  · collaboration mode and visibility." AC-5: `[confirmed: user]` interview
+  2026-07-24, "augment round 7": "Do the system prompts carry over on
+  clone (FEAT-015)? Yes, both."
 
 ### US-094 — A clone carries the source book's codex
 - **Feature:** FEAT-015 · **Actor:** ACT-004 · **Realizes:** UC-061

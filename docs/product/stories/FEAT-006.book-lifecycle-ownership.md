@@ -37,10 +37,17 @@
     archives it, then its status becomes archived.
   - **US-024.AC-2** — Given a book that is not archived, when the owner
     archives it, then its content is preserved.
-  - `_TBD: outcome when a book with an open chapter is archived — not
-    stated_`
+  - **US-024.AC-3** — Given an archived book, when a member attempts to
+    write into it, then the write is refused.
+  - **US-024.AC-4** — Given a book with an open chapter, when the owner
+    archives it, then the chapter stays open but frozen; when the book is
+    later unarchived, then that chapter is restored as the book's one
+    open chapter.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility": "Archive only, no hard delete."
+  membership & visibility": "Archive only, no hard delete." AC-3/AC-4:
+  `[confirmed: user]` interview 2026-07-24, "augment round 7" / "archive+
+  open-chapter follow-up" — closes the prior `_TBD:` on an open chapter
+  at archive time.
 
 ### US-025 — Owner transfers a book to a co-author
 - **Feature:** FEAT-006 · **Actor:** ACT-004 · **Realizes:** UC-024

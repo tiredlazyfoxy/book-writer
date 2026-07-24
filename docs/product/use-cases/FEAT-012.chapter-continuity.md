@@ -3,7 +3,7 @@
 
 ### UC-047 — System drafts a chapter's summary and state-note changes on close
 - **Feature:** FEAT-012 · **Actor:** ACT-004
-- **Preconditions:** Owner has initiated closing the open chapter (UC-036).
+- **Preconditions:** Chapter has entered the **closing** state (UC-036).
 - **Main flow:**
   1. Owner initiates closing the chapter.
   2. System drafts a summary of the chapter's content.
@@ -11,10 +11,13 @@
      deleted).
   4. Draft is presented to the owner for review (UC-048).
 - **Postconditions:** Chapter has a draft summary and draft state-note
-  changeset, pending owner approval; chapter is not yet closed.
+  changeset, pending owner approval; chapter is in the closing state, not
+  yet closed.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "summaries & state notes": "LLM proposes, owner approves. On closing a
-  chapter the system drafts them."
+  chapter the system drafts them." Precondition named:
+  `[confirmed: user]` interview 2026-07-24, "augment round 7", divergence
+  6 (C-r7-4).
 
 ### UC-048 — Owner reviews and approves a chapter's continuity data
 - **Feature:** FEAT-012 · **Actor:** ACT-004
@@ -24,15 +27,16 @@
   1. Owner reviews the drafted summary and state-note changeset.
   2. Owner edits either as needed.
   3. Owner approves.
-  4. System marks the chapter's continuity data approved; closing (UC-036)
-     may proceed.
+  4. System transitions the chapter **closing → closed**.
 - **Exception flow:** Owner approves with the summary left empty →
   `_TBD: whether an empty summary blocks approval is not stated in the
   interview._`
-- **Postconditions:** Chapter's continuity data is approved.
+- **Postconditions:** Chapter's continuity data is approved; chapter is
+  closed.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "summaries & state notes": "LLM proposes, owner approves... the owner
-  reviews, edits and accepts."
+  reviews, edits and accepts." Step 4: `[confirmed: user]` interview
+  2026-07-24, "augment round 7", divergence 6.
 
 ### UC-049 — View the book's current state notes
 - **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005
@@ -88,7 +92,9 @@
   2. System flags the chapter's summary and state-note changeset stale.
   3. Chapter returns to the open state (per UC-037).
 - **Exception flow:** Chapter being reopened has no approved continuity
-  data on record → `_TBD: not addressed in the interview._`
+  data on record — **unreachable**: a chapter can only be closed once its
+  continuity is approved (US-038.AC-3), so a closed chapter always has
+  approved data on record.
 - **Postconditions:** Chapter's continuity data is marked stale; re-closing
   requires re-approval (UC-048). Whether later chapters' changesets built
   on this chapter's deltas are consistent is checked by FEAT-016's
@@ -96,7 +102,8 @@
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "summaries & state notes": "Flagged stale, owner must re-confirm." /
   "The cascade — not decided yet"; challenge C12, closed by FEAT-016
-  (round 3).
+  (round 3). Exception flow closed as unreachable: `[confirmed: user]`
+  interview 2026-07-24, "augment round 7", divergence 6.
 
 ### UC-079 — State note references a named codex entry
 - **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005

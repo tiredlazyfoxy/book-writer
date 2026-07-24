@@ -9,35 +9,43 @@
   1. Owner selects a planned chapter.
   2. Owner opens it.
   3. System transitions the chapter planned → open.
-- **Exception flow:** Another chapter is already open →
-  `_TBD: whether opening a planned chapter while another is open is
-  refused or auto-closes the other — not stated; only reopen (UC-037) was
-  confirmed to auto-close_`. Non-owner attempts to open → refused.
+- **Exception flow:** Another chapter is currently open or closing →
+  opening is **refused**; the owner closes that chapter through the
+  continuity gate first (same rule as reopen, UC-037, by symmetry). Closes
+  the prior `_TBD:` on this flow. Non-owner attempts to open → refused.
 - **Postconditions:** Selected chapter is open; at most one chapter open
   across the book.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "writing — blocks &
   concurrency" / "book structure — chapters, states, sketches": "Owner
-  only... At most one open chapter per book."
+  only... At most one open chapter per book." Exception flow:
+  `[confirmed: user]` interview 2026-07-24, "augment round 7", divergence
+  4 — closes CF1 by symmetry with UC-037's reopen refusal.
 
 ### UC-036 — Close the open chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004
-- **Preconditions:** A chapter is currently open; its summary and
-  state-note changes are approved (UC-048).
+- **Preconditions:** A chapter is currently open.
 - **Main flow:**
   1. Owner selects the open chapter.
-  2. Owner closes it.
-  3. System transitions the chapter open → closed.
-- **Exception flow:** Non-owner attempts to close → refused. Chapter's
-  continuity data (summary, state-note changeset) is not yet approved →
-  closing is refused.
-- **Postconditions:** Chapter is closed (not editable); no chapter open
-  until another is opened.
+  2. Owner requests it closed.
+  3. System transitions the chapter open → **closing**.
+  4. System drafts the chapter's continuity data (UC-047).
+  5. On the owner's approval (UC-048), system transitions the chapter
+     closing → closed.
+- **Exception flow:** Non-owner attempts to close → refused. Continuity is
+  not approved → the chapter **stays in closing** — not open, not closed —
+  and continues to refuse writes and hold the book's one-open-chapter slot
+  until the owner approves or the close is abandoned.
+- **Postconditions:** Chapter is closed (not editable); no chapter open or
+  closing until another is opened.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "closed (written, not editable)."
   Continuity precondition — `[confirmed: user]` interview 2026-07-20,
   "Augment round 2", "summaries & state notes": "Approval required to
   close... Closing means continuity is complete."; challenge C17
-  (FEAT-012).
+  (FEAT-012). **Closing state:** `[confirmed: user]` interview 2026-07-24,
+  "augment round 7", divergence 6 (C-r7-4) — a fourth chapter state that
+  holds the one-open-chapter slot and refuses writes while continuity
+  awaits approval.
 
 ### UC-037 — Reopen a closed chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004
@@ -45,46 +53,67 @@
 - **Main flow:**
   1. Owner selects a closed chapter.
   2. Owner reopens it.
-  3. System closes whichever chapter is currently open, if any.
+  3. System checks that no chapter in the book is currently open or
+     closing.
   4. System transitions the selected chapter closed → open.
-- **Exception flow:** Non-owner attempts to reopen → refused.
-- **Postconditions:** Selected chapter is open; any previously open chapter
-  is now closed. Editing it now produces a variant — see FEAT-014.
+- **Exception flow:** Another chapter is currently open or closing → the
+  reopen is **refused**, with the reason; the owner closes that chapter
+  through the continuity gate (UC-036) first. This closes **CF1**,
+  product's own round-5 coherence finding (the reopen no longer
+  auto-closes past the FEAT-012 approval gate). Non-owner attempts to
+  reopen → refused.
+- **Postconditions:** Selected chapter is open. Editing it now produces a
+  variant — see FEAT-014.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "Reopening a chapter implies closing the
-  currently-open one."
+  currently-open one." Superseded by `[confirmed: user]` interview
+  2026-07-24, "augment round 7", divergence 4: "a reopen is refused while
+  any chapter in the book is open or closing. The owner closes the
+  current chapter properly, through the continuity gate, first."
 
 ### UC-038 — Add a block to the open chapter (free mode)
 - **Feature:** FEAT-009 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** A chapter is open; book is in free mode.
 - **Main flow:**
-  1. Member writes a block.
+  1. Member writes a block — free text, any length, no internal structure.
   2. Member saves it.
-  3. System adds the block to the open chapter immediately.
-- **Alternate flow:** Two members add different blocks to the open chapter
-  at the same time → both blocks land; no conflict.
+  3. System appends the block to the end of the open chapter's body.
+- **Alternate flow:** Two members compose blocks concurrently and the
+  chapter's body moved between one member composing and saving → that
+  save is **refused**; the member re-issues it against the current body.
+  Both members' blocks end up in the chapter once each save lands.
 - **Exception flow:** No chapter is open → add refused.
-- **Postconditions:** New block exists in the open chapter, attributed to
-  its author.
+- **Postconditions:** New block's text is appended to the open chapter's
+  body, attributed to its author; the block is not separately addressable
+  once appended.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "writing — blocks &
   concurrency": "the process of the chapter writing is... by some blocks."
+  Rewritten: `[confirmed: user]` interview 2026-07-24, "augment round 7",
+  divergence 5 (C-r7-2) — "a block is a change that merges into the
+  chapter's single body and stops existing as an object. Concurrency is
+  per chapter, on a chapter version." Closes the block-contents `_TBD:`.
 
-### UC-039 — Edit a block that changed underneath
+### UC-039 — Save an edit to a chapter whose body changed underneath
 - **Feature:** FEAT-009 · **Actor:** ACT-004, ACT-005
-- **Preconditions:** A chapter is open; a block exists in it.
+- **Preconditions:** A chapter is open.
 - **Main flow:**
-  1. Member A begins editing a block.
-  2. Member B saves a change to that same block first.
+  1. Member A composes an edit against the chapter's current body.
+  2. Member B's edit to the same chapter applies first.
   3. Member A attempts to save.
-  4. System warns member A the block changed underneath them.
-  5. Member A chooses to overwrite or abandon their edit.
-- **Exception flow:** Member A abandons → their edit is discarded, the
-  block keeps member B's version. Member A overwrites → their save applies
-  and becomes the block's current version (later write wins).
-- **Postconditions:** Block holds exactly one current version — whichever
-  of the two writes was applied last.
+  4. System refuses the save because it was composed against an older
+     body; member A is shown the current body against their own text.
+  5. Member A reconciles the two manually and saves again.
+  6. Member A's reconciled text becomes the chapter's next applied change.
+- **Exception flow:** The system never merges automatically and never
+  silently discards either member's text.
+- **Postconditions:** The chapter's body reflects member B's change and,
+  once reconciled, member A's change; nothing either member wrote is
+  silently lost.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "writing — blocks &
   concurrency": "warn-then-later-write-wins rule applies only when two
-  co-authors edit the same block." `_TBD: what a block contains (format,
-  length, structure)._`
+  co-authors edit the same block." Retitled and rewritten:
+  `[confirmed: user]` interview 2026-07-24, "augment round 7", divergence
+  5 (C-r7-2) — concurrency is per chapter body and version, not per block;
+  a stale save is refused and reconciled by hand, never auto-merged or
+  discarded.
 <!-- product-spec:end -->

@@ -39,6 +39,7 @@ tables. This file is exempt from the line budget.
 | FEAT-016 | Consistency check & chapter flags | must | proposed |
 | FEAT-017 | Codex | must | proposed |
 | FEAT-018 | Codex authoring from the composition chat | should | proposed |
+| FEAT-019 | Book & chapter system prompts | must | proposed |
 
 ## Use cases
 
@@ -82,7 +83,7 @@ tables. This file is exempt from the line budget.
 | UC-036 | Close the open chapter | FEAT-009 | ACT-004 |
 | UC-037 | Reopen a closed chapter | FEAT-009 | ACT-004 |
 | UC-038 | Add a block to the open chapter (free mode) | FEAT-009 | ACT-004, ACT-005 |
-| UC-039 | Edit a block that changed underneath | FEAT-009 | ACT-004, ACT-005 |
+| UC-039 | Save an edit to a chapter whose body changed underneath | FEAT-009 | ACT-004, ACT-005 |
 | UC-040 | Submit proposed blocks | FEAT-010 | ACT-005 |
 | UC-041 | Owner reviews and applies proposals | FEAT-010 | ACT-004 |
 | UC-042 | Change the book's collaboration mode | FEAT-010 | ACT-004 |
@@ -103,7 +104,7 @@ tables. This file is exempt from the line budget.
 | UC-057 | Leave a composition chat | FEAT-013 | ACT-004, ACT-005 |
 | UC-058 | Edit a reopened chapter, creating a variant | FEAT-014 | ACT-004, ACT-005 |
 | UC-059 | View and compare a chapter's variants | FEAT-014 | ACT-004, ACT-005 |
-| UC-060 | Select the active variant | FEAT-014 | ACT-004 |
+| UC-060 | Apply a variant to the chapter | FEAT-014 | ACT-004 |
 | UC-061 | Owner clones a book | FEAT-015 | ACT-004 |
 | UC-062 | Co-author clones a public book | FEAT-015 | ACT-005 |
 | UC-063 | Choose which members carry over to a clone | FEAT-015 | ACT-004, ACT-005 |
@@ -136,6 +137,8 @@ tables. This file is exempt from the line budget.
 | UC-090 | Browse the book's material from the working-page navigator | FEAT-013 | ACT-004, ACT-005 |
 | UC-091 | View Book state — the working-SPA landing view | FEAT-012 | ACT-004, ACT-005 |
 | UC-092 | Resume unsaved content-pane edits after navigating away | FEAT-013 | ACT-004, ACT-005 |
+| UC-093 | Set the book's system prompt | FEAT-019 | ACT-004 |
+| UC-094 | Set a chapter's system prompt | FEAT-019 | ACT-004, ACT-005 |
 
 ## Stories
 
@@ -181,7 +184,7 @@ tables. This file is exempt from the line budget.
 | US-038 | Owner closes the open chapter | FEAT-009 | proposed |
 | US-039 | Owner reopens a closed chapter | FEAT-009 | proposed |
 | US-040 | Co-author adds a block in free mode | FEAT-009 | proposed |
-| US-041 | Concurrent edits to the same block warn the second author | FEAT-009 | proposed |
+| US-041 | A save against a changed chapter body warns the author | FEAT-009 | proposed |
 | US-042 | Co-author submits proposed blocks | FEAT-010 | proposed |
 | US-043 | Owner applies proposals selectively | FEAT-010 | proposed |
 | US-044 | Owner changes the collaboration mode | FEAT-010 | proposed |
@@ -204,8 +207,8 @@ tables. This file is exempt from the line budget.
 | US-061 | A composition chat is visible only to its author, even once persisted | FEAT-013 | proposed |
 | US-062 | Editing a closed chapter creates a new variant | FEAT-014 | proposed |
 | US-063 | Member views and compares a chapter's variants | FEAT-014 | proposed |
-| US-064 | Owner selects which variant is the chapter | FEAT-014 | proposed |
-| US-065 | Switching the active variant is treated as a fix | FEAT-014 | proposed |
+| US-064 | Owner applies a variant to the chapter | FEAT-014 | proposed |
+| US-065 | Applying a variant runs the chapter's consistency check | FEAT-014 | proposed |
 | US-066 | Owner clones a book | FEAT-015 | proposed |
 | US-067 | A clone is fully independent of its source | FEAT-015 | proposed |
 | US-068 | Co-author clones a public book and becomes its owner | FEAT-015 | proposed |
@@ -248,4 +251,6 @@ tables. This file is exempt from the line budget.
 | US-105 | Author browses the book's material by kind from the working page | FEAT-013 | proposed |
 | US-106 | Book state is the working-SPA landing view and shows the book at a glance | FEAT-012 | proposed |
 | US-107 | Unsaved content-pane edits are retained and restored | FEAT-013 | proposed |
+| US-108 | Owner sets the book's system prompt, applied to every chat in the book | FEAT-019 | proposed |
+| US-109 | Member sets a chapter's system prompt, narrowing the book's | FEAT-019 | proposed |
 <!-- product-spec:end -->

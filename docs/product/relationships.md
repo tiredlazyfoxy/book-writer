@@ -12,8 +12,8 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 | ACT-001 | FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-011 |
 | ACT-002 | FEAT-002, FEAT-006 |
 | ACT-003 | FEAT-001 |
-| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018 |
-| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018 |
+| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019 |
+| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019 |
 | ACT-006 | FEAT-007 |
 
 **Depends on:**
@@ -60,11 +60,20 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-012 → book-object — **new, round 6, `_TBD:` deferred:** Book state
   surfaces the book's own fields; the book object itself is not yet
   designed — routed to `/architect`.
+- FEAT-019 → FEAT-006 — **new, round 7:** a book must exist to carry a
+  book-wide system prompt.
+- FEAT-019 → FEAT-008 — **new, round 7:** a chapter must exist to carry a
+  chapter system prompt.
 
 **Hosting (round 6, not a dependency edge):** the FEAT-013 navigator
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
 FEAT-012 (Book state) surfaces in the content pane — a UI hosting
 relationship, recorded as a note only, not a build-order dependency.
+
+**Note (round 7, not a dependency edge):** FEAT-013 *consumes* FEAT-019's
+system prompts when present but does not require them — an empty prompt
+is valid — so this is recorded as a note only, not an edge, and does not
+distort build order.
 
 Build order: FEAT-006 → FEAT-007 → FEAT-008 → FEAT-009 → FEAT-011 → FEAT-010
 (FEAT-010 last per challenge C6; FEAT-011 may move earlier). No cycles.
@@ -109,11 +118,21 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-012 (Book state) aggregates UC-049, UC-050, UC-089 — **round 6:**
   cross-reference within the same feature's existing continuity data, not
   duplicated capability.
+- FEAT-019 / FEAT-013 — **round 7:** 019 stores the standing system
+  prompt, 013 applies it in a chat. Storage vs. use of one artifact.
+- FEAT-019 / FEAT-008 — **round 7:** the chapter system prompt sits
+  beside the sketch and is edited by the same people; distinct — the
+  sketch is *what happens*, the prompt is *how it should be written*.
 
 **Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
 place to gate closing on approved continuity data (FEAT-012). C21 — only
 the owner may clone a private book (FEAT-015, FEAT-007). C22 — moderation
 does not reach clones, stated as a limitation (FEAT-011). R4-2 —
 members-only codex vs. cloning a public book: no conflict; UC-062's actor
-is ACT-005, a member; ACT-006 has no clone use case.
+is ACT-005, a member; ACT-006 has no clone use case. **CF1 (round 7,
+resolved):** product's own round-5 finding — UC-037 reopen silently
+auto-closed past the FEAT-012 approval gate. Resolved by refusing the
+reopen while another chapter is open or closing: an auto-close either
+skips the approval gate or strands a chapter mid-close; refusing keeps
+both the one-open-chapter singleton and the approval gate (FEAT-009).
 <!-- product-spec:end -->

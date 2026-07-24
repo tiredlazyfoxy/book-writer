@@ -275,7 +275,7 @@ renumbered.)
   open.
 - **Main flow:**
   1. Author opens a navigator entry — **Characters / Locations / Facts /
-     Chapters / Book state / Chats**.
+     Chapters / Variants / Book state / Chats**.
   2. System renders that entry in the content pane as a list (or, for Book
      state, its landing view, UC-091).
   3. Author picks an item.
@@ -287,12 +287,18 @@ renumbered.)
   route to the chat pane; the navigator choice does not bind the active
   chat (independence, seam S1).
 - **Note:** The codex entries split three ways (Characters / Locations /
-  Facts) is the round-4 fixed taxonomy, not a new entity.
+  Facts) is the round-4 fixed taxonomy, not a new entity. The **Variants**
+  entry, added round 7 to reconcile the architecture pass, renders the
+  chapter's variant-and-revision view (UC-059) — not a new capability, the
+  surface UC-059 lives on.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
   "the working-page navigator": "Browse the book's material by kind. Final
   entries: Characters, Locations, Facts, Chapters, Book state, Chats." /
   "In the content pane — the pane holds either a list... or a single
   item." / "A chat opens in the chat pane, not the content pane."
+  **Variants entry:** `[confirmed: user]` interview 2026-07-24, "augment
+  round 7", divergence 2 — a chapter has revision history from the first
+  chapter written and no other entry reaches it.
 
 ### UC-092 — Resume unsaved content-pane edits after navigating away
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005

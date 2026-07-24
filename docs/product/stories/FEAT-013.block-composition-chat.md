@@ -303,8 +303,12 @@ renumbered.)
     item, then it opens in the content pane.
   - **US-105.AC-3** — Given the navigator, when the author picks a chat,
     then it opens in the chat pane, not the content pane.
+  - **US-105.AC-4** — Given the navigator, when the author picks
+    **Variants**, then the chapter's variants and revisions render in the
+    content pane.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
-  "the working-page navigator".
+  "the working-page navigator". AC-4: `[confirmed: user]` interview
+  2026-07-24, "augment round 7", divergence 2.
 
 ### US-107 — Unsaved content-pane edits are retained and restored
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-092

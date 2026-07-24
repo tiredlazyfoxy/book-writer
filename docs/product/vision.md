@@ -121,9 +121,16 @@ SPA layout & the working page".
   set doesn't silently contradict itself. `docs/architecture/CLAUDE.md` and
   root `CLAUDE.md` still describe the domain as deferred repo-wide — flagged
   to the user as stale outside this layer's write scope.
-- Still deferred: what a chapter **block** contains (text format, length,
-  internal structure). `[confirmed: user]` augment round, 2026-07-20,
-  "deferred / `_TBD:`"
+- **Reversed by the 2026-07-24 augment round 7 (challenge C-r7-1) — the
+  fourth non-goal reversal in this doc set's life, after C1, C10 and the
+  round-1 chapter-substrate widening.** This non-goal previously read
+  "still deferred: what a chapter block contains (text format, length,
+  internal structure)." Enforcing the architecture pass onto the spec
+  closes it: a block is free text, any length, no internal structure,
+  appended to the chapter's body when applied, and not separately
+  addressable afterwards. Recorded here so the reversal is visible, not
+  drift. `[confirmed: user]` interview 2026-07-24, "augment round 7 —
+  enforcing the architecture pass onto the spec", divergence 5.
 - **Narrowed a second time by the 2026-07-20 augment round 2 (challenge
   C10) — the third non-goal reversal in one session, after C1 (domain) and
   the round-1 chapter-substrate widening.** The LLM generation pipeline was
