@@ -10,7 +10,8 @@ applies to every chat in the book) and a chapter's system prompt (any
 member, narrows the book's). This is a placeholder brief — its detailed
 spec and architecture are not yet produced; the roadmap reserves the slot
 before codex so the prompt fields have an editing surface before the
-assistant/codex features consume them.
+assistant/codex features consume them. Author-facing FEAT-019 only — the
+admin FEAT-020 mode/sub-agent editor is `020.assistant-config-editor`.
 
 ## Scope
 **In (provisional):** UC-093/094, US-108/109 — book + chapter
