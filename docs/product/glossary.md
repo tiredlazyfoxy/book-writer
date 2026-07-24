@@ -132,6 +132,17 @@
   reference and is name-addressable, unlike a fact.
 - **Edit history (codex)** — an entry's past versions; a member can view
   and restore from it.
+- **Assistant mode** — one of a fixed system set of five working
+  contexts the assistant runs "in" (edit-character, edit-location,
+  edit-fact, write-chapter, close-chapter); each carries an optional
+  system prompt, available tools and accessible sub-agents, set by the
+  admin (FEAT-020).
+- **Sub-agent** — an admin-created delegated worker: a unique name,
+  system prompt, available tools, and the modes that may invoke it.
+  Disabled, never deleted; disabling detaches it from every mode.
+- **Tool (MCP)** — a system-registered backend function exposed to the
+  assistant; not external web MCP. The admin selects a subset per mode
+  or sub-agent (FEAT-020).
 
 **Distinctions** — each pair is confusable, kept separate deliberately:
 - *Archive* (owner, reversible, never destroys) vs *quarantine* (admin,
@@ -168,4 +179,7 @@
 - *Codex entry* (the stable thing — who a character is) vs *state note*
   (what a chapter changed about the world) — identity vs. change; a
   state note may name the codex entry it is about.
+- *Mode/sub-agent system prompt* (FEAT-020, admin-set, system-wide) vs
+  *book/chapter system prompt* (FEAT-019, author-set, per-book) — two
+  independent prompt layers feeding the same assistant.
 <!-- product-spec:end -->

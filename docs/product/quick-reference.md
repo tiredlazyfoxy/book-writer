@@ -40,6 +40,7 @@ tables. This file is exempt from the line budget.
 | FEAT-017 | Codex | must | proposed |
 | FEAT-018 | Codex authoring from the composition chat | should | proposed |
 | FEAT-019 | Book & chapter system prompts | must | proposed |
+| FEAT-020 | Assistant modes & sub-agents | must | proposed |
 
 ## Use cases
 
@@ -139,6 +140,9 @@ tables. This file is exempt from the line budget.
 | UC-092 | Resume unsaved content-pane edits after navigating away | FEAT-013 | ACT-004, ACT-005 |
 | UC-093 | Set the book's system prompt | FEAT-019 | ACT-004 |
 | UC-094 | Set a chapter's system prompt | FEAT-019 | ACT-004, ACT-005 |
+| UC-095 | Configure a working mode | FEAT-020 | ACT-001 |
+| UC-096 | Create a sub-agent | FEAT-020 | ACT-001 |
+| UC-097 | Edit or disable a sub-agent | FEAT-020 | ACT-001 |
 
 ## Stories
 
@@ -253,4 +257,9 @@ tables. This file is exempt from the line budget.
 | US-107 | Unsaved content-pane edits are retained and restored | FEAT-013 | proposed |
 | US-108 | Owner sets the book's system prompt, applied to every chat in the book | FEAT-019 | proposed |
 | US-109 | Member sets a chapter's system prompt, narrowing the book's | FEAT-019 | proposed |
+| US-110 | Admin sets a mode's optional system prompt | FEAT-020 | proposed |
+| US-111 | Admin sets which tools a mode may use | FEAT-020 | proposed |
+| US-112 | Admin sets which sub-agents a mode may delegate to | FEAT-020 | proposed |
+| US-113 | Admin creates a sub-agent | FEAT-020 | proposed |
+| US-114 | Admin edits or disables a sub-agent | FEAT-020 | proposed |
 <!-- product-spec:end -->

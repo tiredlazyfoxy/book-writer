@@ -257,8 +257,11 @@ conflicts) live in `relationships.md`.
   this feature — accepted overlap: manual edit is 009/017, assistant-
   assisted is 013, same content-pane surface. Chats stay private to their
   author; only saved output is shared, even with the owner. `_TBD: which
-  enabled model a chat uses (may resolve as architecture's)._` Generating
-  or rewriting codex entries from the same assistant is FEAT-018 —
+  enabled model a chat uses (may resolve as architecture's)._`
+  **Round 9:** resolved for sub-agents (FEAT-020: assigned a specific
+  model, or inherit the main chat's) — still open for how the main chat
+  itself picks a model. Generating or rewriting codex entries from the
+  same assistant is FEAT-018 —
   accepted overlap: same surface, different output. **Round 6:** the
   working page carries a navigator — browse by kind: Characters /
   Locations / Facts / Chapters / Book state / Chats (UC-090); the content
@@ -269,6 +272,9 @@ conflicts) live in `relationships.md`.
   pass — Characters / Locations / Facts / Chapters / Variants / Book
   state / Chats — rendering the chapter's variant-and-revision view
   (FEAT-014, UC-059); not a new capability, the surface UC-059 lives on.
+  **Round 8:** its assistant modes, per-mode tools and sub-agents are
+  configured by FEAT-020, whose five granular modes are what this
+  feature's coarser "chapter mode / codex-entry mode" language maps onto.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "block composition chat" / "generation
   context"; codex round 4; interview 2026-07-23, "Augment round 5 —
@@ -276,7 +282,8 @@ conflicts) live in `relationships.md`.
   chat + content" / "context model — hybrid push/pull" / "boundaries
   recorded"; interview 2026-07-23, "Augment round 6", "the working-page
   navigator" / "the restore buffer — unsaved per-item edits"; interview
-  2026-07-24, "augment round 7", divergence 2
+  2026-07-24, "augment round 7", divergence 2; interview 2026-07-24,
+  "FEAT-020 — sub-agent model assignment (augment round 9)"
 
 ### FEAT-014 — Chapter variants & fixes
 - **Purpose:** Let an owner correct a chapter after reopening while
@@ -438,5 +445,52 @@ conflicts) live in `relationships.md`.
   setting, distinct from the assistant feature that consumes it.
 - **Source:** `[confirmed: user]` interview 2026-07-24, "augment round 7 —
   enforcing the architecture pass onto the spec", divergence 3
+
+### FEAT-020 — Assistant modes & sub-agents
+- **Purpose:** Let the admin configure how the AI assistant behaves per
+  working mode and via reusable sub-agents — for each mode a system
+  prompt, a set of available tools, and which sub-agents it may delegate
+  to; and admin-created sub-agents (delegated workers) each with a name,
+  prompt, tools and the modes that may invoke them.
+- **Actors:** ACT-001 · **Priority:** must
+- **Status:** proposed
+- **Realized by:** UC-095, UC-096, UC-097, US-110, US-111, US-112, US-113,
+  US-114
+- **Note:** Modes are a **fixed system set of five** — edit-character,
+  edit-location, edit-fact, write-chapter, close-chapter — extended only
+  by the system, not at runtime; each maps to a working-page activity the
+  assistant runs "in". Per mode the admin sets: an **optional system
+  prompt** (empty → nothing added), the **available tools**, and the
+  **accessible sub-agents**. A **sub-agent** is a delegated worker the
+  admin creates freely: a **unique name**, system prompt, available
+  tools, and which modes may invoke it — the mode↔sub-agent link is
+  stored on the sub-agent but **editable from either view**. Sub-agents
+  are **disabled, never deleted** (same pattern as user accounts,
+  FEAT-003): disabling **detaches it from every mode** and stops it
+  being invoked; reversible, and a re-enabled sub-agent stays unattached
+  until modes select it again. **Tools ("MCPs")** are system-registered
+  backend functions exposed to the assistant; the admin selects a subset
+  per mode/sub-agent — the registry itself is code-defined
+  (`/architect`). **Admin-only, system-wide** — the same configuration
+  class as LLM servers (FEAT-004), distinct from configuring a specific
+  book; authors never view this configuration, the same
+  admin-interface-only pattern as FEAT-011's moderation view — not a
+  breach of FEAT-011's "admin never participates in a book", since this
+  is global assistant config, not book participation. **Accepted
+  overlap:** FEAT-020 stores the mode/sub-agent configuration, FEAT-013
+  applies it at runtime, FEAT-019 supplies the orthogonal per-book/
+  per-chapter prompts; how the prompts combine and how tools/sub-agents
+  are invoked is the deferred FEAT-013 assistant subsystem
+  (`/architect`). `_TBD: whether a mode's tools default on or off before
+  the admin configures it._` **Round 9:** a sub-agent may be **assigned a
+  specific model** (one the configured LLM servers, FEAT-004, expose) or
+  **re-use the main chat's model** (the default) — modes carry no model
+  field. This partially resolves the model-selection `_TBD:` on
+  FEAT-013: resolved for sub-agents, still open for the main chat's own
+  model.
+- **Source:** `[confirmed: user]` interview 2026-07-24, "FEAT-020 —
+  assistant modes & sub-agents (augment round 8)"; challenges C-r8-1..
+  C-r8-5; interview 2026-07-24, "FEAT-020 — sub-agent model assignment
+  (augment round 9)"
 
 <!-- product-spec:end -->

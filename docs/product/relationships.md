@@ -9,7 +9,7 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 
 | Actor | Features |
 |---|---|
-| ACT-001 | FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-011 |
+| ACT-001 | FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-011, FEAT-020 |
 | ACT-002 | FEAT-002, FEAT-006 |
 | ACT-003 | FEAT-001 |
 | ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019 |
@@ -64,6 +64,14 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
   book-wide system prompt.
 - FEAT-019 → FEAT-008 — **new, round 7:** a chapter must exist to carry a
   chapter system prompt.
+- FEAT-020 → FEAT-013 — **new, round 8:** configures the assistant it
+  depends on.
+- FEAT-020 → FEAT-004 — **new, round 8:** same admin-config class as LLM
+  servers — sibling admin configuration.
+- FEAT-020 → FEAT-017 — **new, round 8:** mode taxonomy — edit-character
+  / edit-location / edit-fact mirror the codex kinds.
+- FEAT-020 → FEAT-012 — **new, round 8:** mode taxonomy — close-chapter
+  mode aligns with the continuity gate.
 
 **Hosting (round 6, not a dependency edge):** the FEAT-013 navigator
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
@@ -123,6 +131,12 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-019 / FEAT-008 — **round 7:** the chapter system prompt sits
   beside the sketch and is edited by the same people; distinct — the
   sketch is *what happens*, the prompt is *how it should be written*.
+- FEAT-020 / FEAT-013 — **round 8:** 020 stores the mode/sub-agent
+  configuration, 013 applies it at runtime — storage vs. use, the same
+  shape as the FEAT-019/FEAT-013 overlap above.
+- FEAT-020 / FEAT-019 — **round 8:** orthogonal prompt layers feeding
+  the same assistant — 020 is admin-set and system-wide, 019 is
+  author-set and per-book.
 
 **Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
 place to gate closing on approved continuity data (FEAT-012). C21 — only
@@ -135,4 +149,8 @@ auto-closed past the FEAT-012 approval gate. Resolved by refusing the
 reopen while another chapter is open or closing: an auto-close either
 skips the approval gate or strands a chapter mid-close; refusing keeps
 both the one-open-chapter singleton and the approval gate (FEAT-009).
+**C-r8-3 (round 8, resolved):** FEAT-011's "admin never participates in a
+book" vs. FEAT-020's admin configuring the assistant — no conflict:
+configuring global assistant behaviour is system config, the same class
+as managing LLM servers (FEAT-004), not participating in a specific book.
 <!-- product-spec:end -->
