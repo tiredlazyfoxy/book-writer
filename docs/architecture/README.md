@@ -4,7 +4,9 @@ BookWriter is a multi-user web application for **LLM-assisted authoring of long-
 
 **What this folder covers, as of 2026-07-24.** Technology, structure and conventions — *and*, since the Stage-2 architect gate, a **first design pass over the book domain**: the entity map for `FEAT-006..018`, book-scoped authorization, the retrieval/embedding pipeline, and the frontend workspace topology.
 
-**What is still uncovered: the internals of the FEAT-013 assistant.** Context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection and web search are undesigned and get their own session before Stage 5 — see `domain-chat.md` for the full boundary. The `Chat` / `ChatMessage` entities are in the map; their subsystem is not. Do not infer it.
+**One slice of the FEAT-013 assistant is now designed (2026-07-24): FEAT-020.** The admin-configured assistant **modes**, **sub-agents** and **tool** registry, and the runtime that consumes them — prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation and model resolution — are in `assistant-config.md`.
+
+**What is still uncovered: the rest of the FEAT-013 assistant.** Context/content assembly, the shared-canvas SSE protocol, the main-chat model selection, web search and token budgets are undesigned and get their own session before Stage 5 — see `domain-chat.md` for the full boundary. The `Chat` / `ChatMessage` entities are in the map; the rest of their subsystem is not. Do not infer it.
 
 `docs/product/` remains the requirements source of record — what must be true, never how.
 
@@ -31,8 +33,9 @@ A Python 3.13 FastAPI (async) backend persists data in SQLite through the SQLMod
   - `domain-chapter.md` — `Chapter` and its four-state machine (`planned` → `open` → `closing` → `closed`), `ChapterChange` (the one write path), variants-as-apply, `ChapterTextRevision`, the `version` / 409 concurrency rules.
   - `domain-continuity.md` — note changesets, the active note set, summaries and their `draft` / `approved` / `stale` status, flags ("warnings").
   - `domain-codex.md` — `CodexEntry` and its version history.
-  - `domain-chat.md` — `Chat` / `ChatMessage`, **entities only**, with the deferred-subsystem boundary.
-- `authorization.md` — roles, the book-access enforcement point, and the capability × role matrix.
+  - `domain-chat.md` — `Chat` / `ChatMessage`, **entities only**, with the deferred-subsystem boundary (points at `assistant-config.md` for the slice now designed).
+  - `assistant-config.md` — **FEAT-020**: the assistant config model (`AssistantMode`, `SubAgent`, the code-defined `TOOL_REGISTRY`, the selection tables) and the runtime slice that consumes it (mode determination, prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation, model resolution). Instance-global admin config, not `Book`-rooted.
+- `authorization.md` — roles, the book-access enforcement point, the capability × role matrix, and the admin-only global assistant config (FEAT-020).
 - `retrieval.md` — the embedding/vector pipeline: which corpora are indexed when, chunking, incremental maintenance, dimension handling, failure modes.
 - `frontend-workspace.md` — the five-entry map, the per-entry route map, the working page, and the restore buffer.
 

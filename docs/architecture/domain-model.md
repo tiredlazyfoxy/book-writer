@@ -10,7 +10,7 @@ The first architectural pass over the book domain: every persistent entity behin
 
 **In:** the entity map for `FEAT-006..018` drawn **whole** — including tables no stage before 5 or 6 will build — plus chapter concurrency and the write path.
 
-**Out, and deliberately so:** the **internals of the FEAT-013 assistant** (context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection, web search). It all gets its own design session before Stage 5. The `Chat` / `ChatMessage` **entities** are in the map below; their **subsystem is not designed anywhere yet**. Do not infer it from those tables — see `domain-chat.md` for the full boundary.
+**Out, and deliberately so:** the **internals of the FEAT-013 assistant** (context assembly, the shared-canvas SSE protocol, the main-chat model selection, web search, token budgets). It gets its own design session before Stage 5. The `Chat` / `ChatMessage` **entities** are in the map below; the rest of their subsystem is undesigned. **One slice is now designed** — the FEAT-020 admin config (assistant **modes**, **sub-agents**, the code-defined **tool** registry and their selection tables) **and** the runtime that consumes it (prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation, sub-agent model resolution): see **`assistant-config.md`** (2026-07-24). Do not infer the *rest* of the subsystem from those tables — see `domain-chat.md` for the full boundary.
 
 ### Why the map is drawn whole when only Stage 2 gets built
 
@@ -40,6 +40,18 @@ User ──owns──────────► Book ◄───────�
                         └─ CodexEntryVersion             └─ ChatMessage
 ```
 
+The book-rooted entities above are not the whole schema: a small **instance-global / admin-config** cluster hangs off the admin layer (like `User` and `LlmServer`), **not** off any `Book`. The FEAT-020 assistant configuration lives here:
+
+```
+LlmServer ◄──(nullable model assignment)── SubAgent
+                                             │   │
+                                subagent_tool┘   └mode_subagent── AssistantMode (seeded, keyed)
+                                     │                                  │
+                                     ▼                                  ▼
+                            TOOL_REGISTRY  ◄──────── mode_tool ─────────┘
+                          (code, not a row; referenced by string name)
+```
+
 | Entity | Owns | Defined in | First needed | Vector-backed |
 |---|---|---|---|---|
 | `Book` | the book and its book-wide settings | `domain-book.md` | Stage 2 | no |
@@ -52,6 +64,11 @@ User ──owns──────────► Book ◄───────�
 | `CodexEntry` | character / location / fact | `domain-codex.md` | Stage 2 | **yes — first** |
 | `CodexEntryVersion` | entry edit history | `domain-codex.md` | Stage 5 | no |
 | `Chat` / `ChatMessage` | assistant conversations | `domain-chat.md` | Stage 5 | no |
+| `AssistantMode` | one of the fixed five modes + its prompt (admin config) | `assistant-config.md` | Stage 5 | no |
+| `SubAgent` | an admin-created delegated worker | `assistant-config.md` | Stage 5 | no |
+| `mode_tool` / `subagent_tool` / `mode_subagent` | admin selections wiring modes, sub-agents and tools | `assistant-config.md` | Stage 5 | no |
+
+The last three entity rows are **instance-global admin config**, not `Book`-rooted — they sit on the admin/instance layer alongside `LlmServer`, and are exported with the global config rather than inside any book (`assistant-config.md` → "Persistence and registry obligations"). Tools themselves are **not a table** — a code-defined `TOOL_REGISTRY`, referenced by string name.
 
 "First needed" is when a stage *uses* the entity, not when its table is created — the whole map lands early, per the reasoning above. **The Stage-4 continuity structures go further and land their columns at Stage 2**, nullable and unused (`Chapter.state = closing`, `Chapter.summary_status`, the `ChapterNoteChangeset` table and its `status`), so that Stage 4 is pure behaviour with no DDL at all. See `domain-chapter.md` → "Landing the continuity columns early".
 
@@ -71,6 +88,7 @@ A few relationships cross file boundaries and are cross-linked at both ends:
 | **`domain-continuity.md`** | `ChapterNoteChangeset`, the active note set, the summary lifecycle and the `draft` / `approved` / `stale` continuity status, and `Flag` (author-facing: "warning") |
 | **`domain-codex.md`** | `CodexEntry` and `CodexEntryVersion` — kinds, naming, archival, history, cross-book copy |
 | **`domain-chat.md`** | `Chat` / `ChatMessage` — **entities only**, with the deferred-subsystem boundary stated in full |
+| **`assistant-config.md`** | FEAT-020 — the assistant config model (`AssistantMode`, `SubAgent`, the `TOOL_REGISTRY`, the selection tables) **and** the runtime slice that consumes it (mode determination, prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation, model resolution) |
 
 ## Conventions inherited
 
@@ -126,4 +144,5 @@ One genuinely open item remains:
 - **2026-07-24 — First book-domain architecture pass (Stage-2 architect gate).** Drew the `FEAT-006..018` entity map whole, settled the unified `ChapterChange` write record, chose full-snapshot `ChapterTextRevision` over reverse patches, materialised `Book.active_notes`, and closed the parked **CF-r6** concurrency item with the version / 409 / visible-merge rules. Deliberately left FEAT-013's assistant internals undesigned — see "Scope of this pass". Recorded three divergences from `docs/product/` rather than resolving them; a fourth was added by the review below.
 - **2026-07-24 — Six amendments from user review.** (1) The working page's content-pane subject became a **nested route** keyed on `bookId`, replacing the query-param design — the remount collision it was avoiding is not real, because chats are server-persisted and the chat pane re-resolves its own active chat (`frontend-workspace.md`). (2) FEAT-014's operation is **apply**, not select or revert. (3) A stale `pending` change is **refused, not rebased**; merge mechanics are post-MVP. (4) `Book` gained `moderation_reason` / `moderated_by` / `moderated_at`. (5) `Chapter` gained a fourth state, **`closing`**, and the continuity artifacts gained `draft` | `approved` | `stale` status, all landing at Stage 2 nullable and unused. (6) **CF1 resolved** — reopen is refused while another chapter is open, recorded as divergence 4. Gaps 1–3 from the original pass are closed by (4), (5) and (3).
 - **2026-07-24 — Product reconciled (round 7).** `/product-spec` enforced this pass's decisions onto `docs/product/` (commit `987a75a`): all four recorded divergences are reconciled, plus the **block-as-`ChapterChange`** and **`closing`-state** decisions this pass had not flagged as divergences, and a **new product feature FEAT-019** was allocated to give the `Book` / `Chapter` system-prompt fields a requirement. Deferred follow-up: FEAT-019's authorization rule and the `**Realizes:** FEAT-019` headers are **not yet** recorded in `authorization.md` / `domain-book.md` / `domain-chapter.md`.
+- **2026-07-24 — FEAT-020 assistant config + its runtime slice designed (`assistant-config.md`).** A new linked doc designs the FEAT-020 configuration model — the fixed five `AssistantMode` rows (seeded, keyed by a stable natural string rather than a snowflake, a **deliberate narrow exception** to the id convention so the seeded rows and their links survive cross-instance export/import), admin-created `SubAgent` (disable-not-delete, nullable `(llm_server_id, model_name)` model assignment), the **code-defined `TOOL_REGISTRY`** (not a table, referenced by string name, not exported), and the three selection tables (`mode_tool`, `subagent_tool`, `mode_subagent` — the last stored canonically on the sub-agent side, edited from both views). It also designs the **runtime slice** that consumes them: mode determination from the workspace activity, composition of the named system prompts (base → mode → book → chapter), tool gating, the tool/function-call protocol on the `llm` client's built-in `chat_with_tools` loop (with the SSE-manual-loop seam recorded), sub-agent delegation as synthetic tools, and sub-agent model resolution. This **narrows the previously-deferred FEAT-013 assistant subsystem** — context assembly, the SSE shared-canvas protocol, the main-chat model selection, web search and token budgets remain deferred (`domain-chat.md`). **This is scope expansion / decision history, not a product divergence** — product FEAT-020 already specifies this material; the design realizes it.
 - **2026-07-24 — Split into `domain-*.md`.** The pass was first written as a single `domain-model.md`; it was split the same day into this index plus `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`, following the folder's `frontend-*.md` split convention and the ~400-line file rule. **Organisational only** — no design decision changed.

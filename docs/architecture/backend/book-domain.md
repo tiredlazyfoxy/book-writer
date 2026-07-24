@@ -28,6 +28,8 @@ Two cross-cutting additions worth naming because they are shared rather than per
 
 ```
 users, llm_servers,                       # existing
+assistant_modes, sub_agents,              # FEAT-020 instance-global config (assistant-config.md)
+mode_tools, subagent_tools, mode_subagents,
 books, book_members,
 chapters, chapter_changes, chapter_text_revisions, chapter_note_changesets,
 codex_entries, codex_entry_versions,
@@ -35,7 +37,9 @@ flags,
 chats, chat_messages
 ```
 
-**Flag this plainly: that is roughly a dozen new codec pairs.** The rule in the root `CLAUDE.md` is not optional and not deferrable — "update the import/export logic in the **same change** whenever a model is added or altered". Every one of these tables owes its `to_dict` / `from_dict` pair (ids emitted as **strings**, accepted as string-or-legacy-number) and its ordered registry tuple in the change that introduces the model. Batching them up "for later" would leave an instance whose export silently loses a book.
+The five **`FEAT-020` config tables are instance-global** (the same class as `users` / `llm_servers`), so they append **before `books`** in the global-config block, not inside the book domain — a sub-agent's `to_dict` references an `LlmServer`, and the link tables reference modes and sub-agents. `TOOL_REGISTRY` is **code, not a table** and is not registered or exported (like `VECTOR_SOURCE_REGISTRY`). Full reasoning and the codec obligations are in `assistant-config.md` → "Persistence and registry obligations"; the ordering is repeated here because this file is the canonical home of the registry order.
+
+**Flag this plainly: that is roughly a dozen new book-domain codec pairs, plus five for the FEAT-020 config.** The rule in the root `CLAUDE.md` is not optional and not deferrable — "update the import/export logic in the **same change** whenever a model is added or altered". Every one of these tables owes its `to_dict` / `from_dict` pair (ids emitted as **strings**, accepted as string-or-legacy-number) and its ordered registry tuple in the change that introduces the model. Batching them up "for later" would leave an instance whose export silently loses a book.
 
 Order matters because import is a streaming UPSERT with no transactional rollback: a child row arriving before its parent has nothing to attach to.
 

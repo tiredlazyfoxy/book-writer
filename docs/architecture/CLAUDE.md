@@ -8,7 +8,9 @@ BookWriter is a multi-user app for LLM-assisted authoring of long-form texts. Th
 
 **Covered now** (the Stage-2 architect gate, 2026-07-24): the entity map for `FEAT-006..018` drawn whole (`domain-model.md` — the index — plus the five `domain-*.md` area files), book-scoped authorization (`authorization.md`), the retrieval/embedding pipeline (`retrieval.md`), and the frontend workspace topology (`frontend-workspace.md`).
 
-**Not covered — do not infer it:** the **internals of the FEAT-013 assistant** (context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection, web search). It is undesigned and gets its own session before Stage 5 — see `domain-chat.md` for the full boundary. `Chat` / `ChatMessage` appear in the entity map; their subsystem does not exist on paper.
+**One FEAT-013 slice now covered (2026-07-24): FEAT-020** — the admin assistant config (modes, sub-agents, the code-defined tool registry, the selection tables) **and** the runtime that consumes it (prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation, model resolution). It lives in `assistant-config.md`.
+
+**Not covered — do not infer it:** the **rest of the FEAT-013 assistant** (context/content assembly, the shared-canvas SSE protocol, the main-chat model selection, web search, token budgets). It is undesigned and gets its own session before Stage 5 — see `domain-chat.md` for the full boundary. `Chat` / `ChatMessage` appear in the entity map; the rest of their subsystem does not exist on paper.
 
 The standing rule survives: don't invent the domain *model* here — derive it from `docs/product/`, and cite what you derived it from. A design doc realizing product requirements carries a header naming them:
 

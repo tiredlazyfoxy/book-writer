@@ -1,6 +1,6 @@
 # Authorization — the book-scoped permission model
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075
+**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017, FEAT-020; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075, UC-095..097
 
 Every book-domain capability is gated on the caller's relationship to **one specific book**. This document defines the roles, the enforcement point, and the capability × role matrix. It assumes the book-domain entities — start at `domain-model.md` (the index), with `domain-book.md` for `Book` / `BookMember` and `domain-chapter.md` for the write path.
 
@@ -132,6 +132,14 @@ The one place an admin reaches book content is the **FEAT-011 moderation read vi
 **Why structural rather than "admins can do anything":** the product rule is not a courtesy, it is the point of the role split — an admin is a platform operator, not a co-author, and an admin who could write into a book would make authorship attribution (US-040.AC-2) unreliable. A single "admin bypasses all checks" branch would silently undo that everywhere at once.
 
 UC-025 (reassigning a disabled owner's book) is an admin capability over the book's *ownership record*, not over its content, and lives on the moderation/admin side for the same reason.
+
+## Global assistant configuration (FEAT-020) — admin only
+
+**The FEAT-020 assistant configuration — modes, sub-agents, the tool selections and the mode↔sub-agent links — is admin-only, system-global, and never enters the book-access model.** It sits behind the existing `require_role(admin)` dependency, the **same configuration class as LLM servers** (FEAT-004): a platform-wide setting, not a per-book one. It is **not** a `BookAccess` capability and appears in no row of the matrix above — there is no book to resolve a role against.
+
+**Authors never view or configure it**, in any collaboration mode, at any visibility. This is the **same admin-interface-only pattern as FEAT-011's moderation view**, and it is **not a breach of "an admin never participates in a book"** (above): configuring how the assistant behaves is **global assistant config, not book participation**. The admin is not writing into, moderating, or reading any specific book by editing a mode's prompt or creating a sub-agent — they are configuring a platform capability that authors then use inside their own books. Attribution (US-040.AC-2) is untouched, because the admin never becomes an author of any book's content.
+
+The runtime *consumption* of this config (the assistant composing prompts, gating tools, delegating to sub-agents) happens **inside an author's own chat**, gated by the ordinary chat ownership rule (`Chat.author_id`, below) — the author runs the assistant on their own material; the admin only shaped how it behaves. Full model and runtime: `assistant-config.md`.
 
 ## Book state and visibility gates
 
