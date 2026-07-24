@@ -18,7 +18,7 @@ The standing rule survives: don't invent the domain *model* here — derive it f
 
 Start from `docs/product/quick-reference.md` (the canonical id registry) and `docs/product/relationships.md` (the dependency graph, build order, accepted overlaps and conflicts — note the `FEAT-012 → FEAT-017` inversion). `features.md` holds the FEAT blocks only; **the dependency graph moved to `relationships.md` in product round 5.** Where a requirement carries a `_TBD:`, it is genuinely undecided: raise it, don't resolve it by choosing a design.
 
-Where this architecture **diverges from** `docs/product/`, the divergence is recorded in `domain-model.md` → "Product divergences" — **four items**, awaiting `/product-spec` reconciliation. One of them (CF1) resolves a coherence finding product left open. Never edit `docs/product/` to close one.
+Where this architecture **diverged from** `docs/product/`, the divergence is recorded in `domain-model.md` → "Product divergences" — **four items**, all **reconciled by `/product-spec` round 7 (2026-07-24)** and retained there as decision history. One of them (CF1) resolves a coherence finding product left open. Never edit `docs/product/` to close one.
 
 The root-level `product.md` is a human-facing business narrative, **not** development guidance — ignore it; the canonical product layer is `docs/product/`.
 

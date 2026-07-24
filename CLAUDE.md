@@ -10,7 +10,7 @@ The domain's *architecture* is **designed as of 2026-07-24** — read it before 
 
 **Still not designed, deliberately:** FEAT-013's assistant *internals* — context assembly, the tool/agent loop, the SSE event protocol for shared-canvas writes, web search, model selection. The `Chat` / `ChatMessage` entities exist in the map; the subsystem gets its own `/architect` session before Stage 5. Don't infer that part from the requirements.
 
-The design knowingly diverges from `docs/product/` in four places, recorded in `domain-model.md` → "Product divergences". Read them before citing FEAT-014, UC-037, UC-060, or the round-6 navigator entry list — `docs/product/` still carries the pre-divergence wording.
+The design knowingly diverged from `docs/product/` in four places; **`/product-spec` round 7 (2026-07-24) reconciled all four** — `docs/product/` now carries the enforced wording, and `domain-model.md` → "Product divergences" retains them as decision history. Read that section for the *why* behind the FEAT-014, UC-037, UC-060 and round-6 navigator decisions.
 
 The root-level `product.md` is a human-facing business narrative and is **not** development guidance — agents should ignore it; the canonical product layer is `docs/product/`.
 
