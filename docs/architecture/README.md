@@ -4,7 +4,7 @@ BookWriter is a multi-user web application for **LLM-assisted authoring of long-
 
 **What this folder covers, as of 2026-07-24.** Technology, structure and conventions — *and*, since the Stage-2 architect gate, a **first design pass over the book domain**: the entity map for `FEAT-006..018`, book-scoped authorization, the retrieval/embedding pipeline, and the frontend workspace topology.
 
-**What is still uncovered: the internals of the FEAT-013 assistant.** Context assembly, the tool/function-call protocol, the agent loop, sub-agent scoped checks (UC-088), the SSE event protocol for shared-canvas writes, prompt design, token budgets, model selection, and web-search wiring (UC-087) are undesigned and get their own session before Stage 5. The `Chat` / `ChatMessage` entities are in the map; their subsystem is not. Do not infer it.
+**What is still uncovered: the internals of the FEAT-013 assistant.** Context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection and web search are undesigned and get their own session before Stage 5 — see `domain-chat.md` for the full boundary. The `Chat` / `ChatMessage` entities are in the map; their subsystem is not. Do not infer it.
 
 `docs/product/` remains the requirements source of record — what must be true, never how.
 
@@ -17,7 +17,11 @@ A Python 3.13 FastAPI (async) backend persists data in SQLite through the SQLMod
 - `docs/product/` — the requirements source of record that this architecture realizes; start at `quick-reference.md` (the canonical id registry) and `relationships.md` (the dependency graph and build order).
 - `README.md` — this index: project purpose, tech overview, reading order.
 - `system-overview.md` — component topology (backend, the four SPAs, Login, nginx), the frontend route map, the REST + SSE contract shape, ports, request and streaming flow.
-- `backend.md` — the 4-layer backend rules, dependency direction, typing discipline, the `pyproject.toml` dependency block, DB engine approach, LanceDB sidecar, config/secrets pattern, JWT/bcrypt auth, the pytest/httpx test harness, and the book domain's backend impact (module map, registries, the 409 concurrency rule).
+- `backend.md` — the backend **index**: the 4-layer rules, dependency direction, typing discipline, the `pyproject.toml` dependency block, the LLM-client rule, logging, the pytest/httpx test harness, and the backend decision history. The detail lives in four area files under `backend/`:
+  - `backend/persistence.md` — relational storage & the deferred-schema startup lifecycle, gzip-JSONL import/export (codecs, `TABLE_REGISTRY`, credential policy), the LanceDB vector sidecar, and config/secrets.
+  - `backend/auth-ids.md` — the per-user-key JWT + bcrypt auth scheme and the system-wide snowflake entity-ID strategy (spec, string-at-JSON-boundary serialization, migration stance).
+  - `backend/features.md` — the as-shipped records for `User`/`LlmServer`, LLM-server connections (FEAT-004), and database consistency & management (FEAT-005).
+  - `backend/book-domain.md` — the book domain's backend impact: module map, the ~12-codec table registry, Stage-4-columns-at-Stage-2, and the 409 concurrency rule.
 - `frontend.md` — React/TypeScript/MobX/Mantine/Vite conventions, the `src/` structure, the `api/` layer and SSE pattern, theming, and the full MobX hard rules.
 
 **Book domain (2026-07-24):**
@@ -40,7 +44,7 @@ A Python 3.13 FastAPI (async) backend persists data in SQLite through the SQLMod
 
 1. `README.md` — this file, for the shape of the system.
 2. `system-overview.md` — how the pieces fit and talk to each other.
-3. `backend.md` and `frontend.md` — the enforced conventions for each side; read the one you're working in first.
+3. `backend.md` (the backend index, with its `backend/*.md` area files) and `frontend.md` — the enforced conventions for each side; read the one you're working in first.
 4. **Working in the book domain?** `domain-model.md` first — it is the index and holds the shape everything else assumes — then the `domain-*.md` file for the area you're touching, then `authorization.md`, then `retrieval.md` or `frontend-workspace.md` depending on the side you're on.
 5. `dev-environment.md` — when you need to run, configure, or deploy the app.
 

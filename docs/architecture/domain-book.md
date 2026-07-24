@@ -81,7 +81,7 @@ What a reader actually gets is deliberately narrow — the table of contents and
 | `role` | co-author role marker |
 | `created_at` | timestamp |
 
-A snowflake PK plus a **unique `(book_id, user_id)`** constraint, rather than a composite natural key, because the id convention is system-wide with no permanent exceptions (`backend.md`) and a surrogate id keeps the import/export codec identical in shape to every other table. The unique constraint carries the "one membership per user per book" semantics.
+A snowflake PK plus a **unique `(book_id, user_id)`** constraint, rather than a composite natural key, because the id convention is system-wide with no permanent exceptions (`backend/auth-ids.md`) and a surrogate id keeps the import/export codec identical in shape to every other table. The unique constraint carries the "one membership per user per book" semantics.
 
 **The owner is not a `BookMember` row.** Ownership lives in `Book.owner_id`; membership is co-authorship. This keeps UC-024 (transfer) a single-field update and makes "exactly one owner" a structural guarantee rather than a rule some query must enforce. *Member*, across all the domain docs, means owner **or** co-author.
 

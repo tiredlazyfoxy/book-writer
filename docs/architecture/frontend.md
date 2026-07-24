@@ -2,7 +2,7 @@
 
 React SPAs plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules, and they bind every entry.
 
-**Book-domain surfaces are in `frontend-workspace.md`** — the five-entry map (Shell, Working page, Reader, Admin, Login), the per-entry route map, the working page's navigator / content pane / chat-pane slot, and the draft-until-saved restore buffer. This document keeps the rules; that one applies them to the book domain. The **internals of the FEAT-013 chat pane** — context assembly, tool protocol, the SSE event protocol for shared-canvas writes — remain undesigned and get their own session before Stage 5.
+**Book-domain surfaces are in `frontend-workspace.md`** — the five-entry map (Shell, Working page, Reader, Admin, Login), the per-entry route map, the working page's navigator / content pane / chat-pane slot, and the draft-until-saved restore buffer. This document keeps the rules; that one applies them to the book domain. The **internals of the FEAT-013 chat pane** — context assembly, tool protocol, the SSE event protocol for shared-canvas writes — remain undesigned and get their own session before Stage 5; `domain-chat.md` carries the full boundary.
 
 ## Stack and versions
 
@@ -234,7 +234,7 @@ One file per backend resource, exporting typed async functions named by REST ver
 
 Hand-written DTO `.d.ts`, flat, one file per resource. **Grep rule: if a type appears in any `api/` function signature, it lives in `types/`.** DTOs are pure shapes matching wire JSON 1:1 — no methods, no classes, no getters. State and prop interfaces live with their state/component, not here.
 
-**Entity ids are `string`, not `number`.** Backend entity ids are 64-bit snowflakes that exceed JavaScript's `Number.MAX_SAFE_INTEGER` (2^53), so the backend serializes them as strings; type them as `string` in every `.d.ts` DTO. See `backend.md` → Conventions — entity ID strategy.
+**Entity ids are `string`, not `number`.** Backend entity ids are 64-bit snowflakes that exceed JavaScript's `Number.MAX_SAFE_INTEGER` (2^53), so the backend serializes them as strings; type them as `string` in every `.d.ts` DTO. See `backend/auth-ids.md` → Conventions — entity ID strategy.
 
 ### No runtime validation
 

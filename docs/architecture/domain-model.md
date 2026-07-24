@@ -10,11 +10,11 @@ The first architectural pass over the book domain: every persistent entity behin
 
 **In:** the entity map for `FEAT-006..018` drawn **whole** — including tables no stage before 5 or 6 will build — plus chapter concurrency and the write path.
 
-**Out, and deliberately so:** the **internals of the FEAT-013 assistant**. Context assembly, the tool/function-call protocol, the agent loop, sub-agent scoped checks (UC-088), the SSE event protocol for shared-canvas writes, prompt design, token budgets, model selection, and web-search wiring (UC-087) all get their own design session before Stage 5. The `Chat` / `ChatMessage` **entities** are in the map below; their **subsystem is not designed anywhere yet**. Do not infer it from those tables — see `domain-chat.md`.
+**Out, and deliberately so:** the **internals of the FEAT-013 assistant** (context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection, web search). It all gets its own design session before Stage 5. The `Chat` / `ChatMessage` **entities** are in the map below; their **subsystem is not designed anywhere yet**. Do not infer it from those tables — see `domain-chat.md` for the full boundary.
 
 ### Why the map is drawn whole when only Stage 2 gets built
 
-There is no Alembic. Schema evolution is hand-written, idempotent, additive `ALTER` run at startup (`backend.md` → "Relational storage"). That makes the two kinds of change asymmetric:
+There is no Alembic. Schema evolution is hand-written, idempotent, additive `ALTER` run at startup (`backend/persistence.md` → "Relational storage"). That makes the two kinds of change asymmetric:
 
 - **Adding a nullable column later is cheap** — one idempotent `ALTER TABLE … ADD COLUMN`, which is exactly what the existing migration path does well.
 - **Adding a table, or changing a key or a relationship later, is expensive** — it means reworking codecs, the `TABLE_REGISTRY` order, and any code that already reads around the missing table.
@@ -76,7 +76,7 @@ A few relationships cross file boundaries and are cross-linked at both ends:
 
 Every entity in those files follows the existing system-wide rules — none of them are restated per-entity:
 
-- **Ids** — application-generated 64-bit snowflakes (`app/ids.py` `generate_id()`, `default_factory=generate_id`), **serialized as strings** at every JSON boundary (API DTOs, JSONL codecs, frontend `.d.ts`). See `backend.md` → "Conventions — entity ID strategy".
+- **Ids** — application-generated 64-bit snowflakes (`app/ids.py` `generate_id()`, `default_factory=generate_id`), **serialized as strings** at every JSON boundary (API DTOs, JSONL codecs, frontend `.d.ts`). See `backend/auth-ids.md` → "Conventions — entity ID strategy".
 - **Layers** — one `db/` module per entity; services per aggregate; `routes/` is HTTP-only. See `backend.md` → "Layer separation".
 - **Timestamps** — `created_at` / `modified_at` on every mutable entity; not listed per-table unless the entity carries only one.
 
@@ -84,7 +84,7 @@ Every entity in those files follows the existing system-wide rules — none of t
 
 Both are non-optional and both are due **in the same change as the model**, not batched for later:
 
-- **Import/export.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. That is roughly a dozen codec pairs across the domain. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. See `backend.md` → "The book-domain table registry".
+- **Import/export.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. That is roughly a dozen codec pairs across the domain. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. See `backend/book-domain.md` → "The book-domain table registry".
 - **Vector sources.** A vector-backed model appends a `VECTOR_SOURCE_REGISTRY` entry — `CodexEntry` is the first, at Stage 2, with chapter text, summaries and notes following for UC-086. See `retrieval.md`.
 
 ## Product divergences this design assumes

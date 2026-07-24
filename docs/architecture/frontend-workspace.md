@@ -202,5 +202,5 @@ Everything in `frontend.md` still binds — they are listed because a page this 
 ## Out of scope
 
 - **Pane orientation, resize/divider behaviour and ratio persistence.** Product routes these to `/architect` but this pass does not settle them; they are layout mechanics with no dependency on anything above.
-- **Everything inside the chat pane.** The FEAT-013 assistant — context assembly, tool protocol, the agent loop, the SSE event protocol for shared-canvas writes, scoped checks (UC-088), web search (UC-087) — is undesigned and gets its own session before Stage 5. This document fixes only that the slot exists, that chats open in it, and that a chat is independent of the content-pane subject.
+- **Everything inside the chat pane.** The FEAT-013 assistant — context assembly, tool protocol, the agent loop, the SSE event protocol for shared-canvas writes, scoped checks (UC-088), web search (UC-087) — is undesigned and gets its own session before Stage 5 (`domain-chat.md` carries the full boundary). This document fixes only that the slot exists, that chats open in it, and that a chat is independent of the content-pane subject.
 - **The admin moderation view** (FEAT-011, Stage 6) — an Admin SPA surface, not one of these entries.

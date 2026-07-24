@@ -4,7 +4,7 @@
 
 Every book-domain capability is gated on the caller's relationship to **one specific book**. This document defines the roles, the enforcement point, and the capability × role matrix. It assumes the book-domain entities — start at `domain-model.md` (the index), with `domain-book.md` for `Book` / `BookMember` and `domain-chapter.md` for the write path.
 
-Authentication itself — JWT, per-user signing key, bcrypt, the `require_role(admin)` dependency — is unchanged and lives in `backend.md`. This document is only about *authorization within a book*.
+Authentication itself — JWT, per-user signing key, bcrypt, the `require_role(admin)` dependency — is unchanged and lives in `backend/auth-ids.md`. This document is only about *authorization within a book*.
 
 ## Roles
 
@@ -156,7 +156,7 @@ Failure behaviour is part of the design, not an afterthought:
 - **Quarantined or destroyed → the removal notice**, not a bare refusal, for the owner (UC-046). This is a distinct response shape, not a status code alone.
 - **A stale `base_version` on a chapter write → `409`**, independent of authorization. See `domain-chapter.md` → "Concurrency".
 
-The `401` / `404` / `403` split is the same taxonomy the existing admin routes use (`backend.md` → LLM server connections, Database consistency), extended with the existence-hiding rule.
+The `401` / `404` / `403` split is the same taxonomy the existing admin routes use (`backend/features.md` → LLM server connections, Database consistency & management), extended with the existence-hiding rule.
 
 ## Not settled by this pass
 

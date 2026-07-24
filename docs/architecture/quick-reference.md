@@ -25,7 +25,7 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 | `PUT` | `/api/admin/llm-servers/{server_id}/enabled-models` | `200` | `EnabledModelsRequest` → `LlmServerResponse` | not-found → 404 |
 | `PUT` | `/api/admin/llm-servers/{server_id}/embedding` | `204` | `SetEmbeddingRequest` | clear-all-then-set; env-not-set → 400, not-found → 404 |
 
-- Non-admin caller on any of the nine → **403**. `server_id` path params are `int` (FastAPI coerces the stringified id). See `backend.md` → LLM server connections.
+- Non-admin caller on any of the nine → **403**. `server_id` path params are `int` (FastAPI coerces the stringified id). See `backend/features.md` → LLM server connections.
 
 ### `/api/admin/db` (feature 007) — all `Depends(require_role(admin))`
 
@@ -38,10 +38,10 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 | `POST` | `/api/admin/db/tables/{name}/create` | `204` | — | `not-in-metadata` / `table-not-missing` → 400 |
 | `POST` | `/api/admin/db/tables/{name}/sync` | `204` | — | `unknown-table` → 404 (ALTER ADD/DROP COLUMN) |
 
-- Static routes (`/report`, `/export`, `/import`, `/vector/rebuild`) declared **before** `/tables/{name}/...`; non-admin caller → **403**. See `backend.md` → Database consistency & management.
+- Static routes (`/report`, `/export`, `/import`, `/vector/rebuild`) declared **before** `/tables/{name}/...`; non-admin caller → **403**. See `backend/features.md` → Database consistency & management.
 
 - `/api/health` — the first concrete endpoint and the canonical four-layer example. Readiness originates from `db.health.ping()` (a `SELECT 1`-style probe), **not** a route-level constant. When the DB is not ready the service maps it to `{"status":"error","db":"unavailable"}`. Passes on a cold instance (zero tables) — `SELECT 1` still succeeds.
-- `/api/auth/setup/*` (feature 003) — the front door of a cold instance; schema creation is deferred to these flows. See `backend.md` startup lifecycle.
+- `/api/auth/setup/*` (feature 003) — the front door of a cold instance; schema creation is deferred to these flows. See `backend/persistence.md` startup lifecycle.
 
 ## DTOs
 
@@ -67,13 +67,13 @@ Dense, agent-first index of concrete endpoints, DTOs, and patterns as they land.
 
 | Name | Module | Shape |
 |------|--------|-------|
-| `User` | `app/models/` (`db/users.py`) | SQLModel table — **first persistent entity**. `id` (app-generated snowflake, string in JSON — **migrated**, `fast/001`; only the `user_id` token claim still int, deferred to feature 004), `username` (unique, indexed), `pwdhash` (nullable bcrypt; **null == disabled**, no `disabled` bool), `role: UserRole`, `jwt_signing_key` (nullable), `last_login`, `last_key_update`. No `salt` column. See `backend.md` → Domain models. |
+| `User` | `app/models/` (`db/users.py`) | SQLModel table — **first persistent entity**. `id` (app-generated snowflake, string in JSON — **migrated**, `fast/001`; only the `user_id` token claim still int, deferred to feature 004), `username` (unique, indexed), `pwdhash` (nullable bcrypt; **null == disabled**, no `disabled` bool), `role: UserRole`, `jwt_signing_key` (nullable), `last_login`, `last_key_update`. No `salt` column. See `backend/features.md` → Domain models. |
 | `UserRole` | `app/models/` | enum — `admin` \| `author` |
-| `LlmServer` | `app/models/llm_server.py` (`db/llm_servers.py`) | SQLModel table — **second persistent entity** (feature 006). `id` (app-generated snowflake, `default_factory=generate_id`, string in JSON — **conformant**), `name`, `backend_type` (bare `str`, validated at service against `{"llama-swap","openai"}`), `base_url` (must include `/v1`), `api_key` (nullable; raw literal or `$ENV_VAR` token; never returned raw, masked as `has_api_key`), `enabled_models` (JSON-encoded `list[str]` in a TEXT column, decoded at service edge), `is_active`, `is_embedding` (≤1 row, clear-all-then-set), `embedding_model`, `created_at`, `modified_at`. See `backend.md` → LLM server connections. |
+| `LlmServer` | `app/models/llm_server.py` (`db/llm_servers.py`) | SQLModel table — **second persistent entity** (feature 006). `id` (app-generated snowflake, `default_factory=generate_id`, string in JSON — **conformant**), `name`, `backend_type` (bare `str`, validated at service against `{"llama-swap","openai"}`), `base_url` (must include `/v1`), `api_key` (nullable; raw literal or `$ENV_VAR` token; never returned raw, masked as `has_api_key`), `enabled_models` (JSON-encoded `list[str]` in a TEXT column, decoded at service edge), `is_active`, `is_embedding` (≤1 row, clear-all-then-set), `embedding_model`, `created_at`, `modified_at`. See `backend/features.md` → LLM server connections. |
 
 ## Conventions
 
-- **Entity ids = Snowflake 64-bit ints** — 41-bit ms timestamp (fixed epoch) / 10-bit node id (`BOOKWRITER_NODE_ID`, default 0) / 12-bit sequence; app-generated via `app/ids.py` `generate_id()`. **Serialized as strings** in JSON/JSONL/DTOs (they exceed JS 2^53; a number loses precision); `from_dict` also accepts a legacy JSON number. Frontend `.d.ts` types ids as `string`. See `backend.md` → Conventions — entity ID strategy.
+- **Entity ids = Snowflake 64-bit ints** — 41-bit ms timestamp (fixed epoch) / 10-bit node id (`BOOKWRITER_NODE_ID`, default 0) / 12-bit sequence; app-generated via `app/ids.py` `generate_id()`. **Serialized as strings** in JSON/JSONL/DTOs (they exceed JS 2^53; a number loses precision); `from_dict` also accepts a legacy JSON number. Frontend `.d.ts` types ids as `string`. See `backend/auth-ids.md` → Conventions — entity ID strategy.
 
 ## Frontend `src/api/` pattern
 

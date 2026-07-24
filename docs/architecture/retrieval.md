@@ -2,7 +2,7 @@
 
 **Realizes:** FEAT-017, FEAT-004 (UC-014), FEAT-005 (UC-020); UC-078, UC-086; US-089, US-100
 
-This document closes the bridge `backend.md` deliberately deferred. Feature 007 shipped the vector-rebuild **operation**, the full index **reset**, and an **empty `VECTOR_SOURCE_REGISTRY`**, explicitly deferring the embed-content bridge to "the first vector-backed domain model (the Stage-2 codex, behind the architect gate)". This is that gate.
+This document closes the bridge `backend/features.md` deliberately deferred. Feature 007 shipped the vector-rebuild **operation**, the full index **reset**, and an **empty `VECTOR_SOURCE_REGISTRY`**, explicitly deferring the embed-content bridge to "the first vector-backed domain model (the Stage-2 codex, behind the architect gate)". This is that gate.
 
 Nothing here changes the standing rule: **SQLite is the source of truth; LanceDB is a derived sidecar index that is rebuilt from source rows on import and never exported.**
 
@@ -23,7 +23,7 @@ The index is built at **Stage 2** even though both consumers are **Stage 5**. Th
 
 ## Dependency — the single designated embedding server
 
-Embedding uses **the one row designated by FEAT-004 / UC-014** (`LlmServer.is_embedding` true, with `embedding_model` set). At most one row may hold that designation, enforced clear-all-then-set (`backend.md` → "Embedding designation").
+Embedding uses **the one row designated by FEAT-004 / UC-014** (`LlmServer.is_embedding` true, with `embedding_model` set). At most one row may hold that designation, enforced clear-all-then-set (`backend/features.md` → "Embedding designation").
 
 `services/embedding.py` — the module feature 007 explicitly did **not** build — is the single point where text becomes vectors:
 
@@ -135,7 +135,7 @@ The last row is the property the whole design rests on: **every failure above is
 
 ## Out of scope
 
-- **How retrieved material is ranked, merged, budgeted and placed into a prompt.** That is FEAT-013 assistant internals — context assembly, token budgets, tool protocol — and is undesigned until its own session before Stage 5. This document ends at "here are the relevant chunks".
+- **How retrieved material is ranked, merged, budgeted and placed into a prompt.** That is FEAT-013 assistant internals — context assembly, token budgets, tool protocol — and is undesigned until its own session before Stage 5 (`domain-chat.md` carries the full boundary). This document ends at "here are the relevant chunks".
 - **UC-078's relevance criterion.** Product records it as an open `_TBD:` (challenge C27 — "what makes an entry *relevant* enough to reach the chat"). It is a product question with no measurable criterion offered, and choosing a threshold here would resolve it by design. Not done.
 - **Web search (UC-087).** Not retrieval over the book's own material; part of the deferred assistant design.
 - **Reranking, hybrid keyword+vector search, cross-encoder scoring.** None is required by any stated requirement. Nearest-neighbour over one book's chunks is what UC-078 and UC-086 ask for; anything more is added when a stated need appears.

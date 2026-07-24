@@ -65,7 +65,7 @@ Product's UC-037 says reopening *auto-closes* whichever chapter is open. Taken t
 
 `state = closing`, `Chapter.summary_status`, and `ChapterNoteChangeset.status` (`domain-continuity.md`) are **created at Stage 2, nullable and unused**, even though nothing reads them before Stage 4.
 
-This is the same reasoning that justifies drawing the entity map whole (`domain-model.md`): additive nullable columns are the cheap migration case, and adding them now costs a wider `CREATE TABLE` that nothing queries. Doing it now buys something specific — **Stage 4 becomes pure behaviour with no DDL at all**. That matters more here than elsewhere because `backend.md` records the constraint: SQLite cannot `ADD COLUMN … NOT NULL` to a populated table without a default, so a column added later against live book data arrives nullable regardless of what the model declares. Landing it early keeps the schema honest instead of accumulating retroactively-nullable columns.
+This is the same reasoning that justifies drawing the entity map whole (`domain-model.md`): additive nullable columns are the cheap migration case, and adding them now costs a wider `CREATE TABLE` that nothing queries. Doing it now buys something specific — **Stage 4 becomes pure behaviour with no DDL at all**. That matters more here than elsewhere because `backend/features.md` records the constraint: SQLite cannot `ADD COLUMN … NOT NULL` to a populated table without a default, so a column added later against live book data arrives nullable regardless of what the model declares. Landing it early keeps the schema honest instead of accumulating retroactively-nullable columns.
 
 ## ChapterChange — the unified write record
 

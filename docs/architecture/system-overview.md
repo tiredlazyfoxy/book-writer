@@ -2,7 +2,7 @@
 
 BookWriter is a single FastAPI backend serving four React SPAs (Shell, Working page, Reader, Admin) plus a standalone Login page. In production nginx serves the static frontend builds and reverse-proxies API traffic to the backend. This document describes the component topology and the client↔server contract.
 
-**Book-domain coverage.** As of 2026-07-24 the book domain has a **first architectural pass**: the entity map for `FEAT-006..018` (`domain-model.md`), book-scoped authorization (`authorization.md`), the retrieval/embedding bridge (`retrieval.md`), and the frontend workspace topology described below (`frontend-workspace.md`). **Still uncovered: the internals of the FEAT-013 assistant** — context assembly, the tool/function-call protocol, the agent loop, sub-agent scoped checks (UC-088), the SSE event protocol for shared-canvas writes, prompt design, token budgets, model selection, and web-search wiring (UC-087). Those get their own design session before Stage 5. See `docs/product/` (start at `quick-reference.md`, then `relationships.md`) for the requirements source of record.
+**Book-domain coverage.** As of 2026-07-24 the book domain has a **first architectural pass**: the entity map for `FEAT-006..018` (`domain-model.md`), book-scoped authorization (`authorization.md`), the retrieval/embedding bridge (`retrieval.md`), and the frontend workspace topology described below (`frontend-workspace.md`). **Still uncovered — do not infer it:** the internals of the FEAT-013 assistant (context assembly, the tool/agent loop, the shared-canvas SSE protocol, model selection, web search). It is undesigned and gets its own session before Stage 5 — see `domain-chat.md` for the full boundary. See `docs/product/` (start at `quick-reference.md`, then `relationships.md`) for the requirements source of record.
 
 ## High-level topology
 
@@ -88,7 +88,7 @@ The client-side routes each entry owns. Reasoning for the split and for the `wor
 
 - **Transport**: REST over `/api/...`. Request and response bodies are JSON; every shape is a Pydantic model on the backend and a matching TypeScript DTO on the frontend.
 - **Streaming**: Server-Sent Events (SSE) for long-running LLM generation. The frontend reads the stream with a `fetch`-based reader parsing `event:` / `data:` frames — **not** the browser `EventSource` API, because requests need `POST` bodies and a `Bearer` auth header. See `frontend.md` (`api/sse.ts`).
-- **Auth**: JWT (HS256) in the `Authorization: Bearer <token>` header. The token is issued at login and carried by both SPAs. See `backend.md` for the per-user signing-key scheme.
+- **Auth**: JWT (HS256) in the `Authorization: Bearer <token>` header. The token is issued at login and carried by both SPAs. See `backend/auth-ids.md` for the per-user signing-key scheme.
 - **Errors**: non-2xx responses carry a JSON body; the frontend normalizes them into a typed `ApiError` (status + message + optional structured field details). Book-domain endpoints add two cases on top of the existing taxonomy: a private book the caller has no relationship to answers **404** (existence hiding), and a chapter write carrying a stale base version answers **409**. See `authorization.md` → "Failure modes" and `domain-chapter.md` → "Concurrency".
 
 ### First-run setup endpoints (feature 003)
@@ -101,7 +101,7 @@ The first real endpoints — the **front door of a cold, unconfigured instance**
 | `POST` | `/api/auth/setup/create` | JSON `CreateDBRequest{admin_username, password, password_confirm}` | `LoginResponse{token}` (auto sign-in) |
 | `POST` | `/api/auth/setup/import` | multipart, field `file` | `AuthStatusResponse` (no token) |
 
-`create` provisions the schema and the first admin, then returns a token so the caller is signed in immediately; `import` restores an archive and leaves the caller unauthenticated (they log in afterward). See `backend.md` for the deferred-schema startup lifecycle these endpoints drive.
+`create` provisions the schema and the first admin, then returns a token so the caller is signed in immediately; `import` restores an archive and leaves the caller unauthenticated (they log in afterward). See `backend/persistence.md` for the deferred-schema startup lifecycle these endpoints drive.
 
 ## Ports
 
