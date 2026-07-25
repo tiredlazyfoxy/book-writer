@@ -63,6 +63,21 @@ def _register_models() -> None:
     #     lines below as table modules are introduced. Do not remove this hook. ---
     import app.models.user  # noqa: F401
     import app.models.llm_server  # noqa: F401
+    import app.models.assistant_mode  # noqa: F401
+    import app.models.sub_agent  # noqa: F401
+    import app.models.mode_tool  # noqa: F401
+    import app.models.subagent_tool  # noqa: F401
+    import app.models.mode_subagent  # noqa: F401
+    import app.models.book  # noqa: F401
+    import app.models.book_member  # noqa: F401
+    import app.models.chapter  # noqa: F401
+    import app.models.chapter_change  # noqa: F401
+    import app.models.chapter_text_revision  # noqa: F401
+    import app.models.chapter_notes  # noqa: F401
+    import app.models.codex_entry  # noqa: F401
+    import app.models.codex_entry_version  # noqa: F401
+    import app.models.flag  # noqa: F401
+    import app.models.chat  # noqa: F401
 
     return
 

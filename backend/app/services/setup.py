@@ -10,6 +10,7 @@ that the route layer (step 004) maps to an HTTP 4xx — no HTTP concerns here.
 Skeleton (step 003): signatures are frozen; bodies are UNIMPLEMENTED.
 """
 
+from app.db import assistant_modes
 from app.db import users
 from app.db.engine import init_db, is_db_ready, set_db_ready
 from app.models.user import User, UserRole
@@ -53,6 +54,7 @@ async def create_database(
         raise SetupError("Password and confirmation do not match.")
 
     await init_db()
+    await assistant_modes.seed_default_modes()
     admin = User(
         username=admin_username,
         pwdhash=auth_service.hash_password(password),
