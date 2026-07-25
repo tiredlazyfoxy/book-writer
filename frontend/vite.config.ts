@@ -28,6 +28,10 @@ function spaFallback(): Plugin {
           req.url = "/admin/index.html";
         } else if (url.startsWith("/login")) {
           req.url = "/login/index.html";
+        } else if (url.startsWith("/work")) {
+          req.url = "/work/index.html";
+        } else if (url.startsWith("/read")) {
+          req.url = "/read/index.html";
         } else {
           req.url = "/index.html";
         }
@@ -52,6 +56,8 @@ export default defineConfig({
         user: resolve(__dirname, "index.html"),
         admin: resolve(__dirname, "admin/index.html"),
         login: resolve(__dirname, "login/index.html"),
+        work: resolve(__dirname, "work/index.html"),
+        read: resolve(__dirname, "read/index.html"),
       },
     },
   },

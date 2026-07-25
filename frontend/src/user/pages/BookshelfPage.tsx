@@ -67,7 +67,11 @@ export const BookshelfPage = observer(function BookshelfPage() {
           {books.map((book) => (
             <Table.Tr key={book.id}>
               <Table.Td>
-                <Text size="sm">{book.title}</Text>
+                {/* Plain <a>: /work is a separate Vite entry, so this is a full
+                    page load across entries, not a react-router link. */}
+                <a href={`/work/${book.id}`}>
+                  <Text size="sm">{book.title}</Text>
+                </a>
               </Table.Td>
               <Table.Td>
                 <Badge variant="light" size="sm">
