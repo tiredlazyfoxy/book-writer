@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --port 8194",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "@mantine/core": "^7.17",
@@ -21,10 +24,16 @@
     "react-router-dom": "^7.14.2"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4",
+    "@testing-library/jest-dom": "^6.6",
+    "@testing-library/react": "^16.3",
+    "@testing-library/user-event": "^14.6",
     "@types/react": "^19.1",
     "@types/react-dom": "^19.1",
     "@vitejs/plugin-react": "^4.4",
+    "jsdom": "^26",
     "typescript": "^5.8",
-    "vite": "^6.3"
+    "vite": "^6.3",
+    "vitest": "^3.2"
   }
 }

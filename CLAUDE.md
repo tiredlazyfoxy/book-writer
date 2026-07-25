@@ -56,6 +56,9 @@ Agents (coder, fast-coder, verifiers, fixers) read commands from this section. I
 - **Frontend build (= typecheck + bundle)**: `cd frontend && npm run build`
   - Internally runs `tsc && vite build`. Treat this as the frontend typecheck-and-bundle command.
 - **Frontend typecheck only (no bundle)**: `cd frontend && npx tsc --noEmit`
+- **Frontend tests**: `cd frontend && npm test` (Vitest + jsdom + React Testing Library; specs live under `frontend/tests/`, watch mode is `npm run test:watch`)
+- **Frontend test typecheck**: `cd frontend && npm run test:types`
+  - `npm run build` deliberately does **not** typecheck tests: `frontend/tsconfig.json` keeps `include: ["src"]`, so a broken test can never break the bundle. `frontend/tsconfig.test.json` is the only program covering `tests/`, and `npm run test:types` is the command that runs it.
 - **Linter**: none configured — do not run lint commands unless added here later.
 
 ## Project Structure
