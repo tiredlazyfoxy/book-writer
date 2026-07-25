@@ -12,12 +12,20 @@ Skeleton (008 step 004): the model shape is frozen. A table is a declarative
 type, not behavior — there is nothing to leave unimplemented.
 """
 
+import enum
 from datetime import datetime
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.ids import generate_id
+
+
+class MemberRole(str, enum.Enum):
+    """A book membership role marker. Single value today — a ``BookMember`` row
+    exists only for co-authors (the owner has no row, readers have no row)."""
+
+    co_author = "co_author"
 
 
 class BookMember(SQLModel, table=True):
@@ -28,7 +36,7 @@ class BookMember(SQLModel, table=True):
       (``default_factory=generate_id``), a surrogate PK over the natural pair.
     - ``book_id`` — FK → ``books.id``.
     - ``user_id`` — FK → ``users.id``.
-    - ``role`` — co-author role marker (a plain string, not an enum).
+    - ``role`` — co-author role marker (a single-value ``MemberRole`` enum).
     - ``created_at`` — nullable, app-set timestamp. This entity carries only one
       timestamp (no ``modified_at``).
 
@@ -47,5 +55,5 @@ class BookMember(SQLModel, table=True):
     id: int = Field(default_factory=generate_id, primary_key=True)
     book_id: int = Field(foreign_key="books.id")
     user_id: int = Field(foreign_key="users.id")
-    role: str
+    role: MemberRole
     created_at: datetime | None = Field(default=None)

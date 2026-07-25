@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from app.db.engine import get_standalone_session
 from app.models.book import Book
+from app.models.book_member import BookMember
 
 
 async def create(row: Book) -> Book:
@@ -30,3 +31,50 @@ async def get_by_id(book_id: int) -> Book | None:
     async with session:
         result = await session.exec(select(Book).where(Book.id == book_id))
         return result.one_or_none()
+
+
+async def update(row: Book) -> None:
+    """Persist changes to an already-existing ``Book`` ``row``. Returns nothing.
+
+    Follows the ``llm_servers`` add/commit/refresh convention; the caller passes
+    the already-mutated ``Book``.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+
+
+async def list_by_owner(owner_id: int) -> list[Book]:
+    """Return every ``Book`` whose ``owner_id`` matches, deterministically
+    ordered.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(Book).where(Book.owner_id == owner_id).order_by(Book.id)
+        )
+        return list(result.all())
+
+
+async def list_shared(user_id: int) -> list[Book]:
+    """Return every ``Book`` where ``user_id`` is a ``BookMember`` (co-author)
+    and is **not** the owner, deterministically ordered.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(Book)
+            .join(BookMember, BookMember.book_id == Book.id)
+            .where(BookMember.user_id == user_id)
+            .where(Book.owner_id != user_id)
+            .order_by(Book.id)
+        )
+        return list(result.all())

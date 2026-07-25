@@ -26,7 +26,7 @@ from sqlmodel import SQLModel
 from app.db import engine, import_export_queries
 from app.models.assistant_mode import AssistantMode
 from app.models.book import Book, BookState, CollaborationMode, Visibility
-from app.models.book_member import BookMember
+from app.models.book_member import BookMember, MemberRole
 from app.models.chapter import Chapter, ChapterState, SummaryStatus
 from app.models.chapter_change import ChangeStatus, ChapterChange, PlacementKind
 from app.models.chapter_notes import ChapterNoteChangeset, NoteStatus
@@ -411,15 +411,14 @@ def _book_member_to_dict(member: BookMember) -> dict[str, object]:
     """Serialize a ``BookMember`` row to a JSON-safe dict for export.
 
     ``id`` / ``book_id`` / ``user_id`` emitted as ``str(...)``; ``role``
-    passed through; one timestamp (``created_at``) via ``.isoformat()``.
-
-    Skeleton (008 step 004): signature frozen; body UNIMPLEMENTED.
+    serialised via ``MemberRole(...).value``; one timestamp (``created_at``)
+    via ``.isoformat()``.
     """
     return {
         "id": str(member.id),
         "book_id": str(member.book_id),
         "user_id": str(member.user_id),
-        "role": member.role,
+        "role": MemberRole(member.role).value,
         "created_at": member.created_at.isoformat() if member.created_at else None,
     }
 
@@ -429,9 +428,9 @@ def _dict_to_book_member(data: dict[str, object]) -> BookMember:
     ``_book_member_to_dict``).
 
     ``id`` / ``book_id`` / ``user_id`` parsed as string-or-legacy-number to
-    ``int``; ``role`` passed through; ``created_at`` parsed from isoformat.
-
-    Skeleton (008 step 004): signature frozen; body UNIMPLEMENTED.
+    ``int``; ``role`` rebuilt via ``MemberRole(...)`` (``table=True`` skips
+    validation, so a plain-``str`` restore is coerced to a true enum member);
+    ``created_at`` parsed from isoformat.
     """
     raw_id = data.get("id")
     created_at = data.get("created_at")
@@ -439,7 +438,7 @@ def _dict_to_book_member(data: dict[str, object]) -> BookMember:
         id=int(raw_id) if raw_id is not None else None,
         book_id=int(data["book_id"]),
         user_id=int(data["user_id"]),
-        role=data["role"],
+        role=MemberRole(data["role"]),
         created_at=datetime.fromisoformat(created_at) if created_at else None,
     )
 

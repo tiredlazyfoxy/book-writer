@@ -65,7 +65,7 @@ from sqlmodel import SQLModel
 from app.db import book_members, books
 from app.db.engine import DbConfig
 from app.models.book import Book, BookState, CollaborationMode, Visibility
-from app.models.book_member import BookMember
+from app.models.book_member import BookMember, MemberRole
 from app.services import db_admin
 from app.services.db_import_export import (
     TABLE_REGISTRY,
@@ -237,7 +237,7 @@ def test_book_member_codec_round_trips_all_fields__DoD2():
         id=101010101,
         book_id=202020202,
         user_id=303030303,
-        role="co-author",
+        role=MemberRole.co_author,
         created_at=created_at,
     )
 
@@ -249,7 +249,7 @@ def test_book_member_codec_round_trips_all_fields__DoD2():
     assert isinstance(data["book_id"], str)
     assert data["user_id"] == "303030303"
     assert isinstance(data["user_id"], str)
-    assert data["role"] == "co-author"
+    assert data["role"] == MemberRole.co_author.value
     assert data["created_at"] == created_at.isoformat()
 
     restored = _dict_to_book_member(data)
@@ -260,7 +260,7 @@ def test_book_member_codec_round_trips_all_fields__DoD2():
     assert isinstance(restored.book_id, int)
     assert restored.user_id == 303030303
     assert isinstance(restored.user_id, int)
-    assert restored.role == "co-author"
+    assert restored.role == MemberRole.co_author
     assert restored.created_at == created_at
 
 
@@ -305,9 +305,9 @@ async def test_books_db_round_trip__DoD3(db: DbConfig):
 # and list_by_book(book_id) returns exactly that book's members (members are
 # inserted for two different book_ids and the filter selects only one book's).
 async def test_book_members_db_round_trip_and_list__DoD3(db: DbConfig):
-    member_a = BookMember(book_id=10, user_id=1, role="co-author")
-    member_b = BookMember(book_id=10, user_id=2, role="editor")
-    member_other = BookMember(book_id=20, user_id=1, role="co-author")
+    member_a = BookMember(book_id=10, user_id=1, role=MemberRole.co_author)
+    member_b = BookMember(book_id=10, user_id=2, role=MemberRole.co_author)
+    member_other = BookMember(book_id=20, user_id=1, role=MemberRole.co_author)
 
     created_a = await book_members.create(member_a)
     await book_members.create(member_b)
@@ -321,7 +321,7 @@ async def test_book_members_db_round_trip_and_list__DoD3(db: DbConfig):
     assert fetched.id == created_a.id
     assert fetched.book_id == 10
     assert fetched.user_id == 1
-    assert fetched.role == "co-author"
+    assert fetched.role == MemberRole.co_author
 
     # list_by_book returns exactly book 10's members (both, and only those).
     listed = await book_members.list_by_book(10)
@@ -338,10 +338,10 @@ async def test_book_members_db_round_trip_and_list__DoD3(db: DbConfig):
 # DoD-4: a second BookMember with the same (book_id, user_id) pair is rejected by
 # the DB. The two rows differ only by the auto surrogate id.
 async def test_book_member_composite_unique_enforced__DoD4(db: DbConfig):
-    await book_members.create(BookMember(book_id=10, user_id=1, role="co-author"))
+    await book_members.create(BookMember(book_id=10, user_id=1, role=MemberRole.co_author))
 
     with pytest.raises(IntegrityError):
-        await book_members.create(BookMember(book_id=10, user_id=1, role="editor"))
+        await book_members.create(BookMember(book_id=10, user_id=1, role=MemberRole.co_author))
 
 
 # ---------------------------------------------------------------------------

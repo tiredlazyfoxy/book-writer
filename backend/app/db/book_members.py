@@ -43,3 +43,56 @@ async def list_by_book(book_id: int) -> list[BookMember]:
             select(BookMember).where(BookMember.book_id == book_id)
         )
         return list(result.all())
+
+
+async def get_by_book_and_user(book_id: int, user_id: int) -> BookMember | None:
+    """Return the ``BookMember`` row for the ``(book_id, user_id)`` pair, or
+    ``None``. Keys on the natural unique pair, not the surrogate ``id``.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(BookMember)
+            .where(BookMember.book_id == book_id)
+            .where(BookMember.user_id == user_id)
+        )
+        return result.one_or_none()
+
+
+async def delete(book_id: int, user_id: int) -> bool:
+    """Remove the membership for the ``(book_id, user_id)`` pair.
+
+    Returns ``True`` when a row was removed and ``False`` when no row matched
+    (so a service can 404 a non-member removal). Keys on the natural unique
+    pair, not the surrogate ``id``.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(BookMember)
+            .where(BookMember.book_id == book_id)
+            .where(BookMember.user_id == user_id)
+        )
+        member = result.one_or_none()
+        if member is None:
+            return False
+        await session.delete(member)
+        await session.commit()
+        return True
+
+
+async def list_by_user(user_id: int) -> list[BookMember]:
+    """Return every ``BookMember`` row whose ``user_id`` equals ``user_id``.
+
+    Skeleton (009 step 001): signature frozen.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(BookMember).where(BookMember.user_id == user_id)
+        )
+        return list(result.all())
