@@ -73,9 +73,15 @@ async def import_database(archive_bytes: bytes) -> None:
     failure raises ``SetupError`` and does **not** call ``set_db_ready`` (the
     instance stays unconfigured — US-002.AC-2, decision 4). On success runs the
     import via ``db_import_export.import_all`` (which itself runs ``init_db``
-    first and rebuilds the vector index after), then flips ``set_db_ready(True)``
-    (US-002.AC-1). Full transactional rollback of a partial import is not
-    required.
+    first and rebuilds the vector index after), seeds the fixed five assistant
+    modes, then flips ``set_db_ready(True)`` (US-002.AC-1). Full transactional
+    rollback of a partial import is not required.
+
+    The seed sits in the same relative position ``create_database`` uses it —
+    after the schema exists, before readiness is flipped — so an instance
+    bootstrapped by import is not left without its modes (feature 012 step 001).
+    It is idempotent and check-then-create keyed on ``key``, so modes carried by
+    the archive keep their stored ``system_prompt`` and gain no duplicate row.
     """
     try:
         await db_import_export.import_all(archive_bytes)
@@ -84,4 +90,5 @@ async def import_database(archive_bytes: bytes) -> None:
     except Exception as exc:
         raise SetupError(f"The import archive is invalid or corrupt: {exc}") from exc
 
+    await assistant_modes.seed_default_modes()
     set_db_ready(True)

@@ -41,3 +41,23 @@ async def list_by_mode(mode_key: str) -> list[ModeTool]:
             select(ModeTool).where(ModeTool.mode_key == mode_key)
         )
         return list(result.all())
+
+
+async def delete_by_mode(mode_key: str) -> int:
+    """Delete every ``ModeTool`` row for ``mode_key``; return how many were removed.
+
+    The first half of the replace-set save (``assistant-config.md`` → replace-set
+    semantics). Returns a **count**, not a ``bool`` like
+    ``db/llm_servers.py:71 delete`` — a zero result is a normal, non-error state
+    because an unconfigured mode legitimately has no rows.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(ModeTool).where(ModeTool.mode_key == mode_key)
+        )
+        rows = list(result.all())
+        for row in rows:
+            await session.delete(row)
+        await session.commit()
+        return len(rows)

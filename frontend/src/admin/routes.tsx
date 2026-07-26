@@ -3,6 +3,8 @@ import { observer } from "mobx-react-lite";
 import { UsersPage } from "./pages/UsersPage";
 import { LlmServersPage } from "./pages/LlmServersPage";
 import { DatabasePage } from "./pages/DatabasePage";
+import { AssistantModesPage } from "./pages/AssistantModesPage";
+import { SubAgentsPage } from "./pages/SubAgentsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 /**
@@ -19,6 +21,8 @@ export const AdminRoutes = observer(function AdminRoutes() {
       <Route path="/" element={<UsersPage />} />
       <Route path="/llm-servers" element={<LlmServersPage />} />
       <Route path="/database" element={<DatabasePage />} />
+      <Route path="/assistant-modes" element={<AssistantModesPage />} />
+      <Route path="/sub-agents" element={<SubAgentsPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

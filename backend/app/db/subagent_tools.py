@@ -43,3 +43,21 @@ async def list_by_sub_agent(sub_agent_id: int) -> list[SubagentTool]:
             select(SubagentTool).where(SubagentTool.sub_agent_id == sub_agent_id)
         )
         return list(result.all())
+
+
+async def delete_by_sub_agent(sub_agent_id: int) -> int:
+    """Delete every ``SubagentTool`` row for ``sub_agent_id``; return the count removed.
+
+    Same count-returning bulk-delete contract as
+    ``db/mode_tools.py delete_by_mode`` — zero is a normal, non-error result.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(SubagentTool).where(SubagentTool.sub_agent_id == sub_agent_id)
+        )
+        rows = list(result.all())
+        for row in rows:
+            await session.delete(row)
+        await session.commit()
+        return len(rows)

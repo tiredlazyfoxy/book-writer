@@ -3,7 +3,14 @@
 // No JSX in this module — it holds icon component *references*, not elements, so
 // the table stays testable without a renderer.
 
-import { IconDatabase, IconServer2, IconUsers, type Icon } from "@tabler/icons-react";
+import {
+  IconDatabase,
+  IconRobot,
+  IconServer2,
+  IconSparkles,
+  IconUsers,
+  type Icon,
+} from "@tabler/icons-react";
 
 /** One admin navbar entry. */
 export interface AdminNavItem {
@@ -21,11 +28,13 @@ export interface AdminNavItem {
   exact?: boolean;
 }
 
-/** The three admin sections, in display order. */
+/** The five admin sections, in display order. */
 export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   { path: "/", label: "Users", icon: IconUsers, exact: true },
   { path: "/llm-servers", label: "LLM Servers", icon: IconServer2 },
   { path: "/database", label: "Database", icon: IconDatabase },
+  { path: "/assistant-modes", label: "Assistant modes", icon: IconSparkles },
+  { path: "/sub-agents", label: "Sub-agents", icon: IconRobot },
 ];
 
 /**

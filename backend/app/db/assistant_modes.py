@@ -55,6 +55,20 @@ async def list_all() -> list[AssistantMode]:
         return list(result.all())
 
 
+async def update(row: AssistantMode) -> None:
+    """Persist changes to an already-existing ``row``. Returns nothing.
+
+    Row-in / ``None``-out, mirroring ``db/llm_servers.py:62 update(server)``: the
+    caller mutates the fields it wants (including ``modified_at`` — ``db/`` never
+    sets timestamps) and hands the whole row over.
+    """
+    session = await get_standalone_session()
+    async with session:
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+
+
 async def seed_default_modes() -> None:
     """Idempotently ensure the fixed five ``AssistantMode`` rows exist.
 

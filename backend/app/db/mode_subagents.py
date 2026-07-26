@@ -43,3 +43,54 @@ async def list_by_mode(mode_key: str) -> list[ModeSubagent]:
             select(ModeSubagent).where(ModeSubagent.mode_key == mode_key)
         )
         return list(result.all())
+
+
+async def list_by_sub_agent(sub_agent_id: int) -> list[ModeSubagent]:
+    """Return every ``ModeSubagent`` row whose ``sub_agent_id`` matches.
+
+    The accessible-modes reverse lookup — the same one row set ``list_by_mode``
+    reads from the mode side, read from the sub-agent side (US-112.AC-2).
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(ModeSubagent).where(ModeSubagent.sub_agent_id == sub_agent_id)
+        )
+        return list(result.all())
+
+
+async def delete_by_mode(mode_key: str) -> int:
+    """Delete every ``ModeSubagent`` row for ``mode_key``; return the count removed.
+
+    Count-returning bulk delete (zero is a normal result). Removes only this
+    mode's slice — a sub-agent's links to other modes are untouched.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(ModeSubagent).where(ModeSubagent.mode_key == mode_key)
+        )
+        rows = list(result.all())
+        for row in rows:
+            await session.delete(row)
+        await session.commit()
+        return len(rows)
+
+
+async def delete_by_sub_agent(sub_agent_id: int) -> int:
+    """Delete every ``ModeSubagent`` row for ``sub_agent_id``; return the count removed.
+
+    Count-returning bulk delete (zero is a normal result). Removes only this
+    sub-agent's slice — a mode's links to other sub-agents are untouched. Also the
+    primitive the disable cascade uses.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(ModeSubagent).where(ModeSubagent.sub_agent_id == sub_agent_id)
+        )
+        rows = list(result.all())
+        for row in rows:
+            await session.delete(row)
+        await session.commit()
+        return len(rows)
