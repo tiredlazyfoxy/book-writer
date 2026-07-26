@@ -43,6 +43,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { BookDetailResponse } from "../../src/types/books";
 import { ApiError } from "../../src/api/client";
 import * as booksApi from "../../src/api/books";
+import * as chatsApi from "../../src/api/chats";
 import { BookStatePage } from "../../src/work/pages/BookStatePage";
 import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
@@ -61,6 +62,21 @@ vi.mock("../../src/api/books", () => ({
     { value: "private", label: "Private" },
     { value: "public", label: "Public" },
   ],
+}));
+
+// The DoD-1 case mounts the whole `WorkRoutes` table at `/bk-1`, which matches
+// `/:bookId` and renders the workspace shell; the shell now owns `ChatPaneState`
+// and kicks off a chat-pane load in its mount effect (`listChats` / `listModelOptions`
+// from `src/api/chats`). Replace the WHOLE module so that mount-time load resolves
+// locally instead of firing a real fetch (an unhandled rejection would fail the run).
+// The two list calls resolve empty; the rest are never reached from a mount and get
+// trivial resolved values. Pure harness mocking — no assertion here depends on it.
+vi.mock("../../src/api/chats", () => ({
+  listChats: vi.fn().mockResolvedValue([]),
+  createChat: vi.fn().mockResolvedValue(undefined),
+  updateChat: vi.fn().mockResolvedValue(undefined),
+  getChat: vi.fn().mockResolvedValue(undefined),
+  listModelOptions: vi.fn().mockResolvedValue([]),
 }));
 
 const OWNER_ID = "u-owner-77";
@@ -105,6 +121,11 @@ beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — default to a resolved detail;
   // pending / rejected cases override in-test.
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail());
+  // `restoreMocks` also clears the factory's chat-list implementations, so re-arm the two
+  // list calls here (mirrors WorkspaceShell.test.tsx) — the shell's mount-time chat load
+  // must resolve empty, not `undefined`, or the pane computeds crash. Pure harness mocking.
+  vi.mocked(chatsApi.listChats).mockResolvedValue([]);
+  vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
 });
 
 describe("BookStatePage", () => {

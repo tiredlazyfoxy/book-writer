@@ -1,22 +1,20 @@
 import { observer } from "mobx-react-lite";
-import { Stack, Text } from "@mantine/core";
+import { ChatPane } from "../chat/ChatPane";
+import type { ChatPaneState } from "../chat/chatPaneState";
 
 /**
- * The workspace's right-hand region placeholder. The chat pane itself is owned by
- * `011.chat-panel` and stays empty until Stage 5 (`frontend-workspace.md` → "The
- * working page"); this slot only renders a short notice naming that owner. No
- * chat behaviour, no state, no props.
+ * Thin adapter for the workspace's right-hand aside region: forwards the book id
+ * and the shell-owned `ChatPaneState` to `ChatPane`. The 010 placeholder notice
+ * ("the chat pane is delivered by 011.chat-panel") is gone — the real pane lives
+ * here now. No state, no effect of its own.
  *
+ * SKELETON (011/004): props frozen; body is a one-line forward to `ChatPane`.
  */
-export const ChatPaneSlot = observer(function ChatPaneSlot() {
-  return (
-    <Stack gap="xs" p="md">
-      <Text size="sm" fw={500}>
-        Chat
-      </Text>
-      <Text size="sm" c="dimmed">
-        The chat pane is delivered by 011.chat-panel.
-      </Text>
-    </Stack>
-  );
+export interface ChatPaneSlotProps {
+  bookId: string;
+  state: ChatPaneState;
+}
+
+export const ChatPaneSlot = observer(function ChatPaneSlot({ bookId, state }: ChatPaneSlotProps) {
+  return <ChatPane bookId={bookId} state={state} />;
 });

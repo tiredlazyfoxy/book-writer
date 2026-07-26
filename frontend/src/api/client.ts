@@ -86,16 +86,22 @@ const REFRESH_PATH = "/api/auth/refresh";
 /** Set while a refresh-driven retry is in flight, so the retry cannot re-enter this seam. */
 let isRefreshing = false;
 
-async function silentRefreshRetry<T>(url: string, opts: RequestOptions): Promise<T> {
+/**
+ * The single silent-refresh mechanism: POST the stored refresh token to
+ * `/api/auth/refresh` via a DIRECT `fetch` (the sanctioned location — NOT
+ * `api/auth.refresh`, which would create a `client -> api/auth -> client` import
+ * cycle) and store the new access token on success. On a missing refresh token, a
+ * transport failure, or a non-OK response it calls `logout()` and throws
+ * `ApiError(401)`. Shared by the on-401 retry seam below and the exported
+ * `refreshAuthToken` entry point, so there is exactly ONE refresh path.
+ */
+async function performTokenRefresh(): Promise<void> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
     logout();
     throw new ApiError(401, "Unauthorized");
   }
 
-  // Direct `fetch` (the sanctioned location — NOT `api/auth.refresh`, which would
-  // create a `client -> api/auth -> client` import cycle). Never routed through
-  // `request`, so it can never re-enter this interceptor.
   let refreshRes: Response;
   try {
     refreshRes = await fetch(REFRESH_PATH, {
@@ -115,6 +121,10 @@ async function silentRefreshRetry<T>(url: string, opts: RequestOptions): Promise
 
   const tokens = (await refreshRes.json()) as TokenResponse;
   setAccessToken(tokens.access_token);
+}
+
+async function silentRefreshRetry<T>(url: string, opts: RequestOptions): Promise<T> {
+  await performTokenRefresh();
 
   // Retry the original request exactly once, with the loop guard set so a repeat 401
   // falls through to normal error handling instead of triggering another refresh.
@@ -124,6 +134,18 @@ async function silentRefreshRetry<T>(url: string, opts: RequestOptions): Promise
   } finally {
     isRefreshing = false;
   }
+}
+
+/**
+ * Reusable one-shot token refresh for raw-`fetch` callers that BYPASS `request<T>`
+ * — chiefly `sse.ts:streamPost`, which sends `authHeaders()` and never re-enters
+ * the on-401 silent-refresh seam. Await this before opening such a stream so a
+ * stale access token is renewed first (feature 011 step 005, DoD-9). It reuses the
+ * one refresh path and the same `logout()`-on-failure fallback as the on-401 retry;
+ * on failure it rejects with `ApiError(401)` so the caller does not open the stream.
+ */
+export async function refreshAuthToken(): Promise<void> {
+  await performTokenRefresh();
 }
 
 /** Throw `ApiError(status, message, body)` from a non-OK response, preferring a `{ detail }` message. */

@@ -5,6 +5,7 @@ import { Alert, AppShell, Burger, Group, Loader, Title } from "@mantine/core";
 import { WorkNavigator } from "./WorkNavigator";
 import { ChatPaneSlot } from "./ChatPaneSlot";
 import { WorkspaceShellState, loadWorkspaceBook } from "./workspaceShellState";
+import { ChatPaneState, loadChatPane, stopChatTurn } from "../chat/chatPaneState";
 
 /**
  * The three-region working page for `/work/:bookId`. Reads `:bookId` from the
@@ -23,12 +24,19 @@ import { WorkspaceShellState, loadWorkspaceBook } from "./workspaceShellState";
 export const WorkspaceShell = observer(function WorkspaceShell() {
   const { bookId } = useParams();
   const [state] = useState(() => new WorkspaceShellState());
+  const [chatPaneState] = useState(() => new ChatPaneState());
 
   useEffect(() => {
     const ctrl = new AbortController();
     void loadWorkspaceBook(state, bookId ?? "", ctrl.signal);
-    return () => ctrl.abort();
-  }, [state]);
+    void loadChatPane(chatPaneState, bookId ?? "", ctrl.signal);
+    return () => {
+      ctrl.abort();
+      // Unmount also aborts any live turn stream (a separate AbortController owned
+      // by the pane state, not the load signal) — the unmount half of DoD-10.
+      stopChatTurn(chatPaneState);
+    };
+  }, [state, chatPaneState]);
 
   const id = bookId ?? "";
   const loading = state.bookDetailStatus === "idle" || state.bookDetailStatus === "loading";
@@ -61,11 +69,19 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
       </AppShell.Header>
 
       <AppShell.Navbar p="xs">
-        <WorkNavigator bookId={id} />
+        <WorkNavigator
+          bookId={id}
+          onShowChatList={() => {
+            // The Chats navigator entry is a pane-state control, not a link: it
+            // reveals the chat pane's active-chats list (the aside is always
+            // mounted). Mirrors the direct-mutation pattern used for `navbarOpened`.
+            chatPaneState.showArchived = false;
+          }}
+        />
       </AppShell.Navbar>
 
       <AppShell.Aside p="xs">
-        <ChatPaneSlot />
+        <ChatPaneSlot bookId={id} state={chatPaneState} />
       </AppShell.Aside>
 
       <AppShell.Main>

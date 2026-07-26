@@ -6,9 +6,14 @@ row types never leak past this module (see ``docs/architecture/backend.md`` —
 layer separation). Public functions accept and return ``ChatMessage`` or plain
 types.
 
-Skeleton (008 step 009): signatures are frozen; bodies are UNIMPLEMENTED.
+Skeleton (008 step 009): the ``create`` / ``get_by_id`` / ``list_by_chat``
+signatures are frozen (bodies real, delivered by 008). Skeleton (011 step 001):
+``list_by_chat_ordered`` and ``next_position`` are frozen; their bodies are
+UNIMPLEMENTED. Step 003 is the only writer of messages; this step adds the
+ordered read and position allocation it will consume.
 """
 
+from sqlalchemy import func
 from sqlmodel import select
 
 from app.db.engine import get_standalone_session
@@ -43,3 +48,36 @@ async def list_by_chat(chat_id: int) -> list[ChatMessage]:
             select(ChatMessage).where(ChatMessage.chat_id == chat_id)
         )
         return list(result.all())
+
+
+async def list_by_chat_ordered(chat_id: int) -> list[ChatMessage]:
+    """Return a chat's messages ordered by ``position`` ascending (where
+    :func:`list_by_chat` is unordered).
+
+    Skeleton (011 step 001): UNIMPLEMENTED.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(ChatMessage)
+            .where(ChatMessage.chat_id == chat_id)
+            .order_by(ChatMessage.position)
+        )
+        return list(result.all())
+
+
+async def next_position(chat_id: int) -> int:
+    """Return the next free ordinal for ``chat_id`` — ``0`` for an empty chat and
+    ``max(position) + 1`` otherwise.
+
+    Skeleton (011 step 001): UNIMPLEMENTED.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(func.max(ChatMessage.position)).where(
+                ChatMessage.chat_id == chat_id
+            )
+        )
+        current_max = result.one()
+        return 0 if current_max is None else current_max + 1

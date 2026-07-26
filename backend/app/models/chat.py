@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 from app.ids import generate_id
+from app.models.schemas.chats import ChatSamplingParams
 
 
 class Chat(SQLModel, table=True):
@@ -29,6 +30,15 @@ class Chat(SQLModel, table=True):
     - ``author_id`` — FK → ``users.id`` (a plain FK; privacy is a service rule,
       not modelled here).
     - ``title`` — display label (required).
+    - ``llm_server_id`` — nullable FK → ``llm_servers.id`` (the per-chat model
+      pair, mirroring ``SubAgent`` field-for-field).
+    - ``model_name`` — nullable model id string (the other half of the pair). The
+      "move together" invariant is a service rule (feature 011), not a DB
+      constraint — both columns are declared nullable independently.
+    - ``sampling_params`` — non-nullable TEXT holding a JSON object; defaults to
+      the serialized default :class:`ChatSamplingParams` (feature decision 5, the
+      ``LlmServer.enabled_models`` JSON-in-TEXT precedent). The typed
+      :class:`ChatSamplingParams` is the only reader/writer of this column.
     - ``archived`` — ``bool = False``; archived, not destroyed (UC-082).
     - ``created_at`` / ``modified_at`` — nullable, app-set timestamps.
     """
@@ -39,6 +49,11 @@ class Chat(SQLModel, table=True):
     book_id: int = Field(foreign_key="books.id")
     author_id: int = Field(foreign_key="users.id")
     title: str
+    llm_server_id: int | None = Field(default=None, foreign_key="llm_servers.id")
+    model_name: str | None = Field(default=None)
+    sampling_params: str = Field(
+        default_factory=lambda: ChatSamplingParams().model_dump_json()
+    )
     archived: bool = False
     created_at: datetime | None = Field(default=None)
     modified_at: datetime | None = Field(default=None)
@@ -51,6 +66,8 @@ class ChatMessage(SQLModel, table=True):
     - ``chat_id`` — FK → ``chats.id``.
     - ``role`` — who spoke (required free string; no enum).
     - ``content`` — the message body (required).
+    - ``reasoning`` — nullable; the assistant's thinking for this message
+      (``None`` for user messages and for assistants that produced none).
     - ``position`` — required non-null int; the message number / order of the
       message within its chat (an explicit ordinal alongside ``created_at``).
     - ``created_at`` — nullable, app-set timestamp (single timestamp).
@@ -62,5 +79,6 @@ class ChatMessage(SQLModel, table=True):
     chat_id: int = Field(foreign_key="chats.id")
     role: str
     content: str
+    reasoning: str | None = Field(default=None)
     position: int
     created_at: datetime | None = Field(default=None)

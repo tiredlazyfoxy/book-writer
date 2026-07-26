@@ -856,6 +856,11 @@ def _chat_to_dict(chat: Chat) -> dict[str, object]:
         "book_id": str(chat.book_id),
         "author_id": str(chat.author_id),
         "title": chat.title,
+        "llm_server_id": (
+            str(chat.llm_server_id) if chat.llm_server_id is not None else None
+        ),
+        "model_name": chat.model_name,
+        "sampling_params": chat.sampling_params,
         "archived": chat.archived,
         "created_at": chat.created_at.isoformat() if chat.created_at else None,
         "modified_at": (
@@ -874,17 +879,24 @@ def _dict_to_chat(data: dict[str, object]) -> Chat:
     Skeleton (008 step 009): signature frozen; body UNIMPLEMENTED.
     """
     raw_id = data.get("id")
+    raw_server_id = data.get("llm_server_id")
     created_at = data.get("created_at")
     modified_at = data.get("modified_at")
-    return Chat(
+    chat = Chat(
         id=int(raw_id) if raw_id is not None else None,
         book_id=int(data["book_id"]),
         author_id=int(data["author_id"]),
         title=data["title"],
+        llm_server_id=int(raw_server_id) if raw_server_id is not None else None,
+        model_name=data.get("model_name"),
         archived=data.get("archived", False),
         created_at=datetime.fromisoformat(created_at) if created_at else None,
         modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
     )
+    sampling_params = data.get("sampling_params")
+    if sampling_params is not None:
+        chat.sampling_params = sampling_params
+    return chat
 
 
 def _chat_message_to_dict(message: ChatMessage) -> dict[str, object]:
@@ -901,6 +913,7 @@ def _chat_message_to_dict(message: ChatMessage) -> dict[str, object]:
         "chat_id": str(message.chat_id),
         "role": message.role,
         "content": message.content,
+        "reasoning": message.reasoning,
         "position": message.position,
         "created_at": (
             message.created_at.isoformat() if message.created_at else None
@@ -925,6 +938,7 @@ def _dict_to_chat_message(data: dict[str, object]) -> ChatMessage:
         chat_id=int(data["chat_id"]),
         role=data["role"],
         content=data["content"],
+        reasoning=data.get("reasoning"),
         position=data["position"],
         created_at=datetime.fromisoformat(created_at) if created_at else None,
     )

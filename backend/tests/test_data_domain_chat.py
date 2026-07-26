@@ -59,6 +59,7 @@ from sqlmodel import SQLModel
 from app.db import chat_messages, chats
 from app.db.engine import DbConfig
 from app.models.chat import Chat, ChatMessage
+from app.models.schemas.chats import ChatSamplingParams
 from app.services import db_admin
 from app.services.db_import_export import (
     TABLE_REGISTRY,
@@ -416,3 +417,134 @@ async def test_schema_present_and_drift_clean__DoD5(db: DbConfig):
     # A freshly-created DB matches metadata: no table drifts.
     for entry in report.tables:
         assert entry.status == "ok", f"table {entry.name!r} not clean: {entry.status}"
+
+
+# ---------------------------------------------------------------------------
+# DoD-10 (feature 011, step 001) — import/export round-trips the new columns
+# and the field-set pins include the new fields; registry order is unchanged.
+# ---------------------------------------------------------------------------
+
+# The frozen full column sets of both tables (status.md -> Skeleton -> Step 001),
+# amended to include the columns this step adds: the Chat model pair
+# (`llm_server_id`, `model_name`) + `sampling_params`, and `ChatMessage.reasoning`.
+CHAT_FIELDS = {
+    "id",
+    "book_id",
+    "author_id",
+    "title",
+    "llm_server_id",
+    "model_name",
+    "sampling_params",
+    "archived",
+    "created_at",
+    "modified_at",
+}
+CHAT_MESSAGE_FIELDS = {
+    "id",
+    "chat_id",
+    "role",
+    "content",
+    "reasoning",
+    "position",
+    "created_at",
+}
+
+
+# DoD-10: a chat carrying a model pair and non-default sampling survives
+# export -> import unchanged. `llm_server_id` emits as a string (or null) and
+# parses back to the same int; `model_name` survives; the sampling JSON round-trips
+# to the same parsed ChatSamplingParams.
+def test_chat_codec_round_trips_model_pair_and_sampling__DoD10():
+    params = ChatSamplingParams(temperature=0.15, top_k=7, max_tokens=512, seed=99)
+    chat = Chat(
+        id=123123123,
+        book_id=456456456,
+        author_id=789789789,
+        title="Configured chat",
+        llm_server_id=555000111,
+        model_name="my-model-v1",
+        sampling_params=params.model_dump_json(),
+        archived=False,
+    )
+
+    data = _chat_to_dict(chat)
+
+    # Model pair: server id emitted as a string, model name verbatim.
+    assert data["llm_server_id"] == "555000111"
+    assert data["model_name"] == "my-model-v1"
+    # Sampling column is carried in the export dict.
+    assert "sampling_params" in data
+
+    restored = _dict_to_chat(data)
+
+    assert restored.llm_server_id == 555000111
+    assert isinstance(restored.llm_server_id, int)
+    assert restored.model_name == "my-model-v1"
+    # Sampling round-trips to the same parsed object.
+    assert ChatSamplingParams.model_validate_json(restored.sampling_params) == params
+
+
+# DoD-10: a null model pair round-trips as null (server id emitted as None).
+def test_chat_codec_round_trips_null_model_pair__DoD10():
+    chat = Chat(
+        id=222222222,
+        book_id=333333333,
+        author_id=444444444,
+        title="Unconfigured chat",
+        llm_server_id=None,
+        model_name=None,
+    )
+
+    data = _chat_to_dict(chat)
+    assert data["llm_server_id"] is None
+    assert data["model_name"] is None
+
+    restored = _dict_to_chat(data)
+    assert restored.llm_server_id is None
+    assert restored.model_name is None
+
+
+# DoD-10: an assistant message with `reasoning` survives export -> import
+# unchanged, and a None reasoning round-trips as None.
+def test_chat_message_codec_round_trips_reasoning__DoD10():
+    with_reasoning = ChatMessage(
+        id=101010101,
+        chat_id=202020202,
+        role="assistant",
+        content="The answer is 42.",
+        reasoning="First I considered the question, then computed.",
+        position=3,
+    )
+
+    data = _chat_message_to_dict(with_reasoning)
+    assert data["reasoning"] == "First I considered the question, then computed."
+    restored = _dict_to_chat_message(data)
+    assert restored.reasoning == "First I considered the question, then computed."
+
+    # A user message with no reasoning.
+    without = ChatMessage(
+        id=303030303,
+        chat_id=202020202,
+        role="user",
+        content="What is the answer?",
+        reasoning=None,
+        position=2,
+    )
+    data2 = _chat_message_to_dict(without)
+    assert data2["reasoning"] is None
+    restored2 = _dict_to_chat_message(data2)
+    assert restored2.reasoning is None
+
+
+# DoD-10: the field-set pins for both tables include the new columns exactly —
+# no missing, no extra — so the codecs and DTOs cannot silently drop a column.
+def test_chat_and_message_field_sets_pinned__DoD10():
+    assert set(Chat.model_fields) == CHAT_FIELDS
+    assert set(ChatMessage.model_fields) == CHAT_MESSAGE_FIELDS
+
+
+# DoD-10: no table is added by this step, so the registry order is unchanged —
+# the full canonical 18-entry order still holds.
+def test_registry_order_unchanged_no_table_added__DoD10():
+    labels = [entry[0] for entry in TABLE_REGISTRY]
+    assert labels == FULL_CANONICAL_ORDER

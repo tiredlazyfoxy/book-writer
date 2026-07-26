@@ -47,6 +47,19 @@ function ChapterVariantsItemRoute() {
 }
 
 /**
+ * `/work/:bookId/chats` degrades to a redirect to the book-state route (011/004):
+ * the chat list is owned by the chat pane (US-095.AC-1 / US-105.AC-3), so this
+ * documented deep link must neither 404 nor put a chat surface in the content
+ * pane. Reads `:bookId` so the redirect is absolute (`/:bookId/state`,
+ * basename-resolved), mirroring the index redirect. The doc tension is recorded
+ * in `outcome.md`.
+ */
+function ChatsRedirectRoute() {
+  const { bookId } = useParams();
+  return <Navigate to={`/${bookId}/state`} replace />;
+}
+
+/**
  * Work SPA route table, mounted under the `/work` basename by `App.tsx`. The
  * `/:bookId` route renders the keyed workspace shell; its nested catch-all
  * renders the not-found page **inside** the content pane for an unknown subject
@@ -86,10 +99,7 @@ export const WorkRoutes = observer(function WorkRoutes() {
           }
         />
         <Route path="variants/:chapterId" element={<ChapterVariantsItemRoute />} />
-        <Route
-          path="chats"
-          element={<SubjectPlaceholderPage heading="Chats" owner="011.chat-panel" />}
-        />
+        <Route path="chats" element={<ChatsRedirectRoute />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

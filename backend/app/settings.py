@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     - ``node_id`` — 10-bit snowflake node id (0–1023). Honors the
       ``BOOKWRITER_NODE_ID`` environment override; defaults to ``0`` for the
       single-node deployment. Consumed by ``app.ids.generate_id``.
+    - ``google_search_api_key`` — Google Custom Search JSON API credential,
+      stored as a ``$ENV_VAR`` pointer (never a plaintext key) and resolved
+      through ``services/secrets.py:resolve_env_ref`` at call time. Defaults to
+      unset so the app boots without web search configured (feature 011).
+    - ``google_search_engine_id`` — the Custom Search engine id (``cx``) passed
+      to the same resolver. Defaults to unset (feature 011).
     """
 
     model_config = SettingsConfigDict(
@@ -53,6 +59,14 @@ class Settings(BaseSettings):
         ge=0,
         le=1023,
         validation_alias="BOOKWRITER_NODE_ID",
+    )
+    google_search_api_key: str | None = Field(
+        default=None,
+        validation_alias="BOOKWRITER_GOOGLE_SEARCH_API_KEY",
+    )
+    google_search_engine_id: str | None = Field(
+        default=None,
+        validation_alias="BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID",
     )
 
 

@@ -17,24 +17,33 @@
  *   - the owner label each route names is pinned VERBATIM by the step file /
  *     `004.context.md` -> "Owner labels": chapters + one chapter -> `014.chapter-skeleton`;
  *     characters / locations / facts + one codex entry -> `013.codex`; variants + one
- *     chapter's variants -> `018.chapter-history-variants`; chats -> `011.chat-panel`
- *     (US-105.AC-1 / AC-2);
+ *     chapter's variants -> `018.chapter-history-variants`;
+ *   - `/:bookId/chats` no longer renders a content-pane view: under
+ *     011.chat-panel / 004 (DoD-5, retarget 2026-07-26) it redirects to the
+ *     book-state route (`/:bookId/state`), so no `011.chat-panel` surface appears in
+ *     the content pane (US-105.AC-3);
  *   - there is NO `chat/:id` route, so a chat-id path falls through to the in-pane
  *     not-found page (US-105.AC-3) — its back-to-bookshelf anchor (href "/") from
  *     step 001 identifies it;
  *   - the owner labels are asserted INSIDE the content pane (`main`), because the
- *     chat-pane slot also names `011.chat-panel` and must not be mistaken for the
- *     chats-list placeholder.
+ *     chat-pane region also renders under `011.chat-panel`, so scoping keeps the
+ *     content-pane assertions unambiguous.
  *
  * `api/books` is mocked module-factory form (never `fetch`); the shell subtree reads
  * only `getBookDetail`, but `WorkRoutes` also imports the Book-state page, so the
  * two option arrays are supplied too (their real spec-data pairs) to keep the module
- * shape intact. `globals: false`.
+ * shape intact. `api/chats` is likewise mocked module-factory form: the `/:bookId`
+ * shell now owns the chat pane and starts a chat load on mount, so every export the
+ * pane imports is enumerated and the two list calls resolve empty (no real fetch).
+ * `globals: false`.
  */
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
+import { useLocation } from "react-router-dom";
 import type { BookDetailResponse } from "../../src/types/books";
 import * as booksApi from "../../src/api/books";
+import * as chatsApi from "../../src/api/chats";
 import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
 
@@ -51,6 +60,16 @@ vi.mock("../../src/api/books", () => ({
     { value: "private", label: "Private" },
     { value: "public", label: "Public" },
   ],
+}));
+
+// The `/:bookId` shell (mounted by WorkRoutes) owns the chat pane and starts a chat
+// load on mount, reading through this module — enumerate every export it imports.
+vi.mock("../../src/api/chats", () => ({
+  listChats: vi.fn(),
+  createChat: vi.fn(),
+  updateChat: vi.fn(),
+  getChat: vi.fn(),
+  listModelOptions: vi.fn(),
 }));
 
 /** A fully-typed BookDetailResponse fixture; only the id matters here. */
@@ -74,10 +93,19 @@ function renderAt(route: string): void {
   renderWithProviders(<WorkRoutes />, { route });
 }
 
+/** Reports the router's current pathname, so a redirect is observable. */
+function LocationProbe(): ReactElement {
+  const location = useLocation();
+  return <span data-testid="pathname">{location.pathname}</span>;
+}
+
 beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — the shell needs a resolved
   // book so it reaches `ready` and renders its `<Outlet/>` (the subject placeholder).
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1"));
+  // The shell's chat-pane load resolves empty so no real fetch fires.
+  vi.mocked(chatsApi.listChats).mockResolvedValue([]);
+  vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
 });
 
 describe("subject list routes render a read-only empty state naming their owner (DoD-5)", () => {
@@ -87,18 +115,41 @@ describe("subject list routes render a read-only empty state naming their owner 
     ["/bk-1/locations", /013\.codex/],
     ["/bk-1/facts", /013\.codex/],
     ["/bk-1/variants", /018\.chapter-history-variants/],
-    ["/bk-1/chats", /011\.chat-panel/],
   ];
 
   for (const [route, ownerLabel] of LIST_ROUTES) {
     it(`DoD-5: ${route} renders, inside the content pane, an empty state naming ${ownerLabel.source}`, async () => {
       renderAt(route);
-      // Scope to the content pane (`main`): the chat-pane slot also names
+      // Scope to the content pane (`main`): the chat-pane region also renders under
       // `011.chat-panel`, so only the placeholder inside `main` counts.
       const main = await screen.findByRole("main");
       expect(await within(main).findByText(ownerLabel)).toBeInTheDocument();
     });
   }
+});
+
+describe("the /chats deep link redirects out of the content pane (011.chat-panel/004 DoD-5)", () => {
+  it("DoD-5: /:bookId/chats redirects to the book-state route and shows no chats view in the content pane", async () => {
+    // Retargeted 2026-07-26: step 004 turns `/:bookId/chats` from a content-pane
+    // placeholder into a redirect to `/:bookId/state` (step file Interface intent ->
+    // `routes.tsx`; DoD-5). Expected target route + the absence of a content-pane
+    // chats surface both come from the spec, not from code.
+    renderWithProviders(
+      <>
+        <WorkRoutes />
+        <LocationProbe />
+      </>,
+      { route: "/bk-1/chats" },
+    );
+
+    // The deep link neither 404s nor lands a chat surface in the content pane: it
+    // redirects to the book-state route.
+    await waitFor(() => expect(screen.getByTestId("pathname").textContent).toBe("/bk-1/state"));
+
+    // No `011.chat-panel` chats placeholder survives inside the content pane.
+    const main = await screen.findByRole("main");
+    expect(within(main).queryByText(/011\.chat-panel/)).toBeNull();
+  });
 });
 
 describe("subject item routes resolve into the content pane, not the catch-all (DoD-6)", () => {

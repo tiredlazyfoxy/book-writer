@@ -12,16 +12,20 @@
  * basename-stripped (`/bk-1/state`, not `/work/bk-1/state`).
  *
  * The book load goes through `api/books.getBookDetail`, mocked module-factory form
- * (never `fetch`). The shell's subtree reaches only `getBookDetail` from that module
- * (the navigator + chat slot touch no API), so the factory supplies that one export.
- * Errors are constructed as the real `ApiError` from `api/client` — the 403/404 a
- * non-member receives.
+ * (never `fetch`). The shell's subtree reaches only `getBookDetail` from that module,
+ * so the `api/books` factory supplies that one export. Under 011.chat-panel / 004 the
+ * shell also owns a `ChatPaneState` and starts a chat load in its mount effect, so
+ * `api/chats` is mocked module-factory form too (every export enumerated, the two
+ * list calls resolving empty) — no real fetch, no unhandled rejection. Errors are
+ * constructed as the real `ApiError` from `api/client` — the 403/404 a non-member
+ * receives.
  *
  * Expected values come from the spec: the title is whatever the mocked detail
- * carries (DoD-5); the chat slot names `011.chat-panel` as its owner (DoD-4 /
- * `context.md` -> "Chat-pane slot"); a failed load replaces the workspace content
- * without crashing or rendering blank (DoD-6); one book id yields exactly one load
- * across a subject navigation (DoD-7).
+ * carries (DoD-5); the chat-pane slot is the third region and, per 004's Interface
+ * intent for `ChatPaneSlot`/`WorkspaceShell`, no longer renders an "owned by
+ * 011.chat-panel" notice (retarget 2026-07-26); a failed load replaces the workspace
+ * content without crashing or rendering blank (DoD-6); one book id yields exactly one
+ * book load across a subject navigation (DoD-7).
  *
  * `globals: false`: every primitive is imported explicitly.
  */
@@ -32,15 +36,25 @@ import { Route, Routes } from "react-router-dom";
 import type { BookDetailResponse } from "../../src/types/books";
 import { ApiError } from "../../src/api/client";
 import * as booksApi from "../../src/api/books";
+import * as chatsApi from "../../src/api/chats";
 import { WorkspaceShell } from "../../src/work/components/shell/WorkspaceShell";
 import { renderWithProviders } from "../support/render";
 
 // A module-factory mock replaces the WHOLE module. The shell's render subtree
 // reaches only `getBookDetail` from `api/books` (the navigator resolves paths
-// locally, the chat slot is an inert placeholder) — so that single export is all
-// the factory must supply.
+// locally) — so that single export is all the factory must supply.
 vi.mock("../../src/api/books", () => ({
   getBookDetail: vi.fn(),
+}));
+
+// The shell now owns the chat pane and starts a chat load on mount, reading through
+// this module — enumerate every export it imports so no real fetch fires.
+vi.mock("../../src/api/chats", () => ({
+  listChats: vi.fn(),
+  createChat: vi.fn(),
+  updateChat: vi.fn(),
+  getChat: vi.fn(),
+  listModelOptions: vi.fn(),
 }));
 
 const BOOK_TITLE = "The Long Novel";
@@ -85,21 +99,28 @@ beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — default to a resolved
   // detail; individual tests override for pending / rejected cases.
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1", BOOK_TITLE));
+  // The shell's chat-pane load resolves empty (no chats, no model options) so the
+  // mount effect does not fire a real fetch or throw an unhandled rejection.
+  vi.mocked(chatsApi.listChats).mockResolvedValue([]);
+  vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
 });
 
 describe("WorkspaceShell", () => {
-  it("DoD-4: renders all three regions — navigator, content pane with the nested outlet, and the chat-pane slot naming 011.chat-panel", async () => {
+  it("DoD-4: renders all three regions — navigator, content pane with the nested outlet, and the chat-pane region (no 011.chat-panel owner notice)", async () => {
     renderShell("/bk-1/state");
 
     // The nested-route outlet renders inside the content pane (the main landmark).
     const outletContent = await screen.findByTestId("subject-state");
     expect(within(screen.getByRole("main")).getByTestId("subject-state")).toBe(outletContent);
 
-    // The navigator is present (its Book state entry is one of the seven links).
+    // The navigator is present (its Book state entry is one of its links).
     expect(screen.getByRole("link", { name: "Book state" })).toBeInTheDocument();
 
-    // The chat-pane slot placeholder names its owning feature.
-    expect(screen.getByText(/011\.chat-panel/)).toBeInTheDocument();
+    // The third region — the chat-pane slot — is present as the aside landmark, and
+    // (per 004's Interface intent) no longer renders an "owned by 011.chat-panel"
+    // notice: that slot placeholder is removed.
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    expect(screen.queryByText(/011\.chat-panel/)).toBeNull();
   });
 
   it("DoD-5: loads the book exactly once and renders its title, showing no title while the load is pending", async () => {

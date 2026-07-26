@@ -269,25 +269,61 @@ async def get_embedding_config() -> EmbeddingConfigResponse:
     )
 
 
+def _construct_client(
+    server: LlmServer, resolved_key: str | None, model: str
+) -> LLMClient:
+    """The single ``backend_type`` → client-class branch (the ``"openai"`` /
+    ``"llama-swap"`` mapping lives here and nowhere else).
+
+    ``"openai"`` → :class:`OpenAIAPIClient`, otherwise :class:`LlamaSwapAPIClient`,
+    each with ``model``, ``base_url=server.base_url`` and
+    ``bearer_token=resolved_key``. Shared by :func:`_create_client` (``model=""``,
+    for ``list_models``) and :func:`create_model_client` (a real chat model) so the
+    stored-value translation is written once (feature 011, step 003 — Interface
+    intent: "reuse its ``backend_type`` branch").
+    """
+    if server.backend_type == "openai":
+        return OpenAIAPIClient(
+            model=model, base_url=server.base_url, bearer_token=resolved_key
+        )
+    return LlamaSwapAPIClient(
+        model=model, base_url=server.base_url, bearer_token=resolved_key
+    )
+
+
 def _create_client(server: LlmServer, resolved_key: str | None) -> LLMClient:
     """Construct the ``llm`` client for ``server`` given its already-resolved key (D4/D8).
 
     Private construction seam — **tests monkeypatch this** so no real ``llm``
     library / network is touched. ``resolved_key`` is passed in explicitly (never
     resolved inside) so a fake client can capture exactly what flows toward it
-    (US-021.AC-1). Real impl branches on ``server.backend_type``: ``"openai"`` →
-    :class:`OpenAIAPIClient` (``bearer_token=resolved_key``), ``"llama-swap"`` →
-    :class:`LlamaSwapAPIClient`, each with ``base_url=server.base_url``.
-
-    Skeleton (step 003): UNIMPLEMENTED.
+    (US-021.AC-1). Hardcodes ``model=""`` because it exists only to serve
+    ``list_models()``. Name / signature / behaviour are **frozen** — this is the
+    monkeypatch seam the LLM-server tests bind to.
     """
-    if server.backend_type == "openai":
-        return OpenAIAPIClient(
-            model="", base_url=server.base_url, bearer_token=resolved_key
-        )
-    return LlamaSwapAPIClient(
-        model="", base_url=server.base_url, bearer_token=resolved_key
-    )
+    return _construct_client(server, resolved_key, model="")
+
+
+def create_model_client(
+    server: LlmServer, resolved_key: str | None, model: str
+) -> LLMClient:
+    """Construct a **model-bound** ``llm`` client for a chat turn (feature 011,
+    step 003).
+
+    The chat-turn sibling of :func:`_create_client`: same
+    ``backend_type`` → client-class mapping (via :func:`_construct_client`) but
+    bound to a real ``model`` rather than ``""``. ``resolved_key`` is the already
+    ``$ENV``-resolved api key (via :func:`app.services.secrets.resolve_env_ref`),
+    passed in so a fake client can capture it.
+
+    The returned :class:`~llm.LLMClient` MUST be used as an **async context
+    manager** — it exposes ``__aenter__`` / ``__aexit__`` (which open/close its
+    internal ``aiohttp.ClientSession``) and **no standalone ``close()``**. Entering
+    it in an ``async with`` is what closes the session on every path, including
+    failure (``003.context.md`` → "The existing client construction path").
+
+    """
+    return _construct_client(server, resolved_key, model)
 
 
 async def probe_models(server_id: int) -> list[str]:
