@@ -46,7 +46,7 @@ apply at finalization. Grouped by target architecture file. The coder appends
   natural-key seed as **as-shipped**; the `seed_default_modes()` seed is wired
   into `services/setup.py::create_database` (idempotent, converges with the
   import UPSERT). Reason: the config-model persistence is now realized; the
-  runtime slice remains unbuilt (features 013/020).
+  runtime slice remains unbuilt (features 012/013).
 
 ## `docs/architecture/domain-model.md`
 

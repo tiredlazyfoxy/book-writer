@@ -2,7 +2,7 @@
 <!-- roadmap:start -->
 - **Stage:** 4.codex · **Track:** multi-step · **Size:** L
 - **Delivers:** FEAT-017 (core), FEAT-018, FEAT-020 (mode runtime)
-- **Depends on:** `010.working-page`, `011.chat-panel`
+- **Depends on:** `010.working-page`, `011.chat-panel`, `012.assistant-config-editor`
 
 ## Definition
 Author, edit, browse and search codex entries (characters / locations /

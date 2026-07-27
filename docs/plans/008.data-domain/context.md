@@ -35,7 +35,7 @@ Deliverables across the steps:
   `013.codex`. **Do not touch `db/vector.py`.** (This narrows the wording in
   `brief.md`, which predates the user's deferral decision — the deferral is
   authoritative and recorded in `outcome.md`.)
-- Incremental index maintenance, the FEAT-020 admin CRUD/editor (→ `020`), the
+- Incremental index maintenance, the FEAT-020 admin CRUD/editor (→ `012`), the
   `TOOL_REGISTRY` catalogue (code, not a table; belongs to `011`/`013`).
 
 ## Architecture ground truth (read these; cite the ids they attribute)

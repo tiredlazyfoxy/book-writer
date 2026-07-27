@@ -33,7 +33,7 @@ maintenance behaviour (wired when codex ships, `013.codex`); field-level
 refinement of later-stage tables beyond what the map fixes. The
 `TOOL_REGISTRY` catalogue itself (code, not a table, never exported —
 belongs to the runtime, `011`/`013`); all admin CRUD / route / UI for
-assistant config (→ `020`).
+assistant config (→ `012.assistant-config-editor`).
 
 ## Open questions for the planner
 - Confirm which later-stage nullable columns land now vs. deferred —
@@ -42,5 +42,5 @@ assistant config (→ `020`).
 - `AssistantMode`'s natural-key PK is a deliberate exception to the
   snowflake convention (justified in `assistant-config.md`) — confirm the
   codec emits/parses `key` verbatim; confirm the mode-seed lands here vs.
-  `020`.
+  `012.assistant-config-editor`.
 <!-- roadmap:end -->
