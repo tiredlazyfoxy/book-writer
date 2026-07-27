@@ -2,6 +2,8 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { BookStatePage } from "./pages/BookStatePage";
+import { CodexEntryPage } from "./pages/CodexEntryPage";
+import { CodexListPage } from "./pages/CodexListPage";
 import { SubjectPlaceholderPage } from "./pages/SubjectPlaceholderPage";
 import { WorkspaceShell } from "./components/shell/WorkspaceShell";
 
@@ -32,7 +34,7 @@ function ChapterItemRoute() {
 
 function CodexEntryItemRoute() {
   const { id } = useParams();
-  return <SubjectPlaceholderPage key={id} heading="Codex entry" owner="013.codex" />;
+  return <CodexEntryPage key={id} mode="existing" />;
 }
 
 function ChapterVariantsItemRoute() {
@@ -79,18 +81,20 @@ export const WorkRoutes = observer(function WorkRoutes() {
           element={<SubjectPlaceholderPage heading="Chapters" owner="014.chapter-skeleton" />}
         />
         <Route path="chapter/:id" element={<ChapterItemRoute />} />
-        <Route
-          path="characters"
-          element={<SubjectPlaceholderPage heading="Characters" owner="013.codex" />}
-        />
-        <Route
-          path="locations"
-          element={<SubjectPlaceholderPage heading="Locations" owner="013.codex" />}
-        />
-        <Route
-          path="facts"
-          element={<SubjectPlaceholderPage heading="Facts" owner="013.codex" />}
-        />
+        {/*
+          The three codex lists (013/011) share ONE parameterized page — the kind is
+          fixed by the route and is never user-selectable. The explicit `key` applies
+          `frontend.md`'s "page = route = fresh state instance" rule: without it React
+          would reconcile the same component type across `/characters` → `/locations`
+          and keep the previous kind's state instance alive.
+          `codex/new` (UC-076's blank entry, kind carried as `?kind=`) is declared
+          BEFORE `codex/:id`; both render the ONE entry page (013/012), which reads
+          its kind from the query string at mount on the blank route.
+        */}
+        <Route path="characters" element={<CodexListPage key="character" kind="character" />} />
+        <Route path="locations" element={<CodexListPage key="location" kind="location" />} />
+        <Route path="facts" element={<CodexListPage key="fact" kind="fact" />} />
+        <Route path="codex/new" element={<CodexEntryPage mode="blank" />} />
         <Route path="codex/:id" element={<CodexEntryItemRoute />} />
         <Route
           path="variants"

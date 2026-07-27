@@ -7,6 +7,7 @@ import type {
   ChatSamplingParams,
   CreateChatRequest,
   ModelOptionResponse,
+  TurnSubject,
   UpdateChatRequest,
 } from "../../../types/chats";
 import {
@@ -14,6 +15,7 @@ import {
   readActiveChatId,
   writeActiveChatId,
 } from "../../activeChat";
+import { currentContentSubject, dispatchCanvasFrame } from "../../contentSubject";
 
 /**
  * State for the chat pane (`ChatPane`), owned by `WorkspaceShell` via
@@ -577,6 +579,27 @@ export async function loadChatMessages(
 }
 
 /**
+ * The content pane's subject as the turn request's three wire fields, read from
+ * `work/contentSubject.ts` at SEND time — never stored on `ChatPaneState`, which
+ * has no subject field, so a turn sent after the author navigates carries the
+ * subject they are looking at NOW (UC-083 / US-086.AC-1 / US-087.AC-1).
+ *
+ * `undefined` when nothing is registered, which posts exactly `{ prompt }` and
+ * leaves `011.chat-panel`'s shipped behaviour untouched. A list subject maps to
+ * its kind with a null id (UC-090 — a list is a subject too); a blank codex entry
+ * maps to a null id with the `/codex/new?kind=` kind (UC-076).
+ */
+function turnSubject(): TurnSubject | undefined {
+  const subject = currentContentSubject();
+  if (subject === null) return undefined;
+  return {
+    subject_kind: subject.kind,
+    subject_id: subject.entityId ?? null,
+    codex_kind: subject.codexKind ?? null,
+  };
+}
+
+/**
  * Send the author's prompt as a new turn (unimplemented — coder fills). Intent:
  * append the user message optimistically, clear the pending prompt (accepted) and
  * the streaming buffers, set `turnStatus = "streaming"`, open the stream via
@@ -627,6 +650,9 @@ export async function sendChatTurn(
     chat.id,
     prompt,
     turnStreamHandlers(state, bookId, chat.id),
+    // Read at SEND time, so the turn carries whatever the content pane is showing
+    // right now — nothing about the subject is stored on the pane.
+    turnSubject(),
   );
   runInAction(() => {
     state.turnController = controller;
@@ -660,6 +686,9 @@ export async function retryChatTurn(state: ChatPaneState, bookId: string): Promi
     chat.id,
     null,
     turnStreamHandlers(state, bookId, chat.id),
+    // Re-read at RETRY time too: the author may have navigated between the failed
+    // send and the retry, and the retry must carry the current subject.
+    turnSubject(),
   );
   runInAction(() => {
     state.turnController = controller;
@@ -694,7 +723,7 @@ export function stopChatTurn(state: ChatPaneState): void {
 }
 
 /**
- * The four frame handlers shared by {@link sendChatTurn} and {@link retryChatTurn},
+ * The frame handlers shared by {@link sendChatTurn} and {@link retryChatTurn},
  * all observable writes wrapped in `runInAction`:
  * - `thinking` — append to `streamingThinking`, keep the live region expanded;
  * - `delta` — append to `streamingContent`; the FIRST content delta of the turn
@@ -702,7 +731,11 @@ export function stopChatTurn(state: ChatPaneState): void {
  * - `done` — reload the chat's messages once (the persisted assistant message does
  *   NOT arrive in the frame; `sse.ts:streamPost` discards the `done` payload),
  *   replacing the in-flight bubble with the stored message and re-enabling the composer;
- * - `error` — set `turnError` / `turnStatus = "error"`, preserving every prior message.
+ * - `error` — set `turnError` / `turnStatus = "error"`, preserving every prior message;
+ * - `canvas` — hand the frame straight to `work/contentSubject.ts`'s dispatcher
+ *   (013 step 013). The pane owns NO canvas state and no subject state: it neither
+ *   inspects nor buffers the draft, and the registry decides between the open
+ *   page's apply-draft callback and the restore-buffer fallback.
  */
 function turnStreamHandlers(
   state: ChatPaneState,
@@ -732,6 +765,9 @@ function turnStreamHandlers(
         state.turnError = message || "The turn failed.";
         state.turnController = null;
       });
+    },
+    onCanvas: (frame) => {
+      dispatchCanvasFrame(bookId, frame);
     },
   };
 }

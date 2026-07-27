@@ -24,8 +24,30 @@ declarative — there is nothing to leave unimplemented.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from app.models.codex_entry import CodexKind
+
+# The vocabulary of things the working page's content pane can hold — the wire
+# mirror of ``frontend/src/work/subject.ts:SubjectKind``, value for value
+# (``frontend-workspace.md`` → "Content pane — subject and editability"). A
+# **literal union, not a free string**: an unknown kind is a 422 at the schema
+# boundary rather than a silently mode-less turn. ``services/assistant_runtime.py``
+# maps these onto FEAT-020's modes (013 step 007).
+SubjectKind = Literal[
+    "book-state",
+    "chapters",
+    "chapter",
+    "characters",
+    "locations",
+    "facts",
+    "codex-entry",
+    "variants",
+    "chapter-variants",
+    "chats",
+]
 
 
 class ChatSamplingParams(BaseModel):
@@ -170,9 +192,28 @@ class TurnRequest(BaseModel):
     message before the assistant runs; when **absent** (``None``) the turn is a
     **retry** — the assistant re-runs over the already-stored history and no new
     user message is written (``003.context.md`` → "Retry semantics").
+
+    The three subject fields (013 step 007) carry the working page's content-pane
+    subject so the turn can resolve a FEAT-020 mode
+    (``services/assistant_runtime.py``). **All three are optional and default to
+    absent**, so ``011.chat-panel``'s callers and tests keep working unchanged
+    (DoD-13) — a body of ``{"prompt": "..."}`` is still a complete request.
+
+    - ``subject_kind`` — which pane subject the author had open; the literal
+      union :data:`SubjectKind`, never a free string.
+    - ``subject_id`` — the subject's entity id **as a string** (ids are ``str`` on
+      the wire). ``None`` for a list / book-state subject **and** for UC-076's
+      blank codex entry, which has no row yet.
+    - ``codex_kind`` — the kind of a blank codex entry. Only consulted when the
+      subject is a codex entry with **no** ``subject_id``: for an existing entry
+      the stored row's ``kind`` wins and this field is ignored
+      (``context.md`` → the shared-canvas design, point 1).
     """
 
     prompt: str | None = None
+    subject_kind: SubjectKind | None = None
+    subject_id: str | None = None
+    codex_kind: CodexKind | None = None
 
 
 class ThinkingFrame(BaseModel):
@@ -203,3 +244,52 @@ class ErrorFrame(BaseModel):
     offered (UC-056 / US-060)."""
 
     message: str
+
+
+# Which part of the content-pane subject a canvas write targets. A **constrained
+# literal, never a free string** (the :data:`SubjectKind` discipline): a codex
+# character or location entry has both a ``name`` and a ``body``, so the frame —
+# and the tool argument that produces it — must say which one it carries, and an
+# unknown value is refused at the schema boundary rather than silently applied to
+# the wrong field. Shared by :class:`CanvasFrame` and
+# ``services/codex_tools.py:WriteCodexDraftArgs`` so the wire vocabulary and the
+# model-facing vocabulary can never drift apart.
+CanvasField = Literal["name", "body"]
+
+
+class CanvasFrame(BaseModel):
+    """``data:`` payload of a ``canvas`` SSE frame — the assistant's draft for the
+    subject open in the working page's content pane (013 step 010, UC-076 /
+    UC-077; ``013.codex/context.md`` → "The shared-canvas write design" point 3).
+
+    The fifth frame kind, beside ``thinking`` / ``delta`` / ``done`` / ``error``.
+    ``routes/chats.py``'s serializer is generic over the event name, so this frame
+    reaches the client with **no route change**; the client dispatches it to the
+    registered canvas target by ``(subject_kind, subject_id)``
+    (``context.md`` point 4).
+
+    - ``subject_kind`` — which pane subject the draft is for, the
+      :data:`SubjectKind` literal union (this step emits only ``"codex-entry"``;
+      the field is the general protocol's, so a later chapter canvas needs no new
+      frame).
+    - ``subject_id`` — that subject's entity id **as a string**, or ``None`` for
+      UC-076's blank entry, which has no row yet. Required-but-nullable: an
+      omitted id must never be mistaken for a blank entry.
+    - ``field`` — which part of the subject the ``text`` is
+      (:data:`CanvasField`).
+    - ``text`` — the draft itself, whole. It arrives in **one** frame, not
+      streamed token by token: ``chat_with_tools`` hands a tool its arguments only
+      once the model has finished emitting them (``context.md`` point 6 —
+      token-level canvas streaming is the later manual-loop swap).
+
+    **Nothing about this frame persists.** There is no code path from a chat to
+    the ``codex_entries`` table at all; the author hand-edits if they wish and
+    saves through the ordinary UC-069 / UC-070 endpoint (``context.md`` point 5,
+    which is what makes US-086.AC-2 / US-087.AC-2 / US-088.AC-2 true by
+    construction).
+    """
+
+    subject_kind: SubjectKind
+    subject_id: str | None
+    field: CanvasField
+    text: str

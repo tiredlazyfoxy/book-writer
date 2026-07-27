@@ -10,6 +10,7 @@
 // here — they are unwrapped in `api/chats.ts`.
 
 import type { ISODateString } from "./common";
+import type { CodexKind } from "./codex";
 
 /**
  * The typed sampling set stored per chat — mirrors backend `ChatSamplingParams`.
@@ -102,4 +103,94 @@ export interface ModelOptionResponse {
   server_id: string;
   server_name: string;
   model_name: string;
+}
+
+/**
+ * Which content-pane subject a turn (or a `canvas` frame) is about — a wire-exact
+ * mirror of the backend's `SubjectKind` literal union
+ * (`backend/app/models/schemas/chats.py`, 013 step 007/010). A literal union, not
+ * a free string: an unknown kind is refused at the schema boundary.
+ *
+ * Structurally identical to `work/subject.ts:SubjectKind` (same ten members, same
+ * order) but deliberately declared here: `src/types/` models the WIRE and must
+ * not import from an entry's domain modules. TypeScript's structural typing makes
+ * the two interchangeable, and a member added to one and not the other stops
+ * compiling at the mapping site.
+ */
+export type SubjectKind =
+  | "book-state"
+  | "chapters"
+  | "chapter"
+  | "characters"
+  | "locations"
+  | "facts"
+  | "codex-entry"
+  | "variants"
+  | "chapter-variants"
+  | "chats";
+
+/**
+ * The three subject fields a turn request may carry, supplied together by the
+ * caller of `streamChatTurn`.
+ *
+ * - `subject_kind` — the kind of subject the author had open.
+ * - `subject_id` — its entity id as a string, or `null` for a list / book-state
+ *   subject AND for UC-076's blank codex entry, which has no row yet.
+ * - `codex_kind` — the kind of a blank codex entry. Only consulted by the backend
+ *   when the subject is a codex entry with no `subject_id`; for an existing entry
+ *   the stored row's kind wins and this is ignored. `null` for every non-codex
+ *   subject.
+ */
+export interface TurnSubject {
+  subject_kind: SubjectKind;
+  subject_id: string | null;
+  codex_kind: CodexKind | null;
+}
+
+/**
+ * `POST /api/books/{book_id}/chats/{chat_id}/turn` body — mirrors backend
+ * `TurnRequest`. `prompt` is the author's text for a fresh turn, or `null` for a
+ * retry (the user message is already persisted server-side).
+ *
+ * The three subject fields are OPTIONAL and are omitted entirely when no content
+ * subject is registered, so `011.chat-panel`'s shipped body (`{ prompt }`) is
+ * still a complete request.
+ */
+export interface TurnRequest {
+  prompt: string | null;
+  subject_kind?: SubjectKind | null;
+  subject_id?: string | null;
+  codex_kind?: CodexKind | null;
+}
+
+/**
+ * Which part of a subject an assistant draft targets — wire-exact with the
+ * backend's `CanvasField`, and identical to
+ * `work/pages/codexEntryPageState.ts:CodexDraftField`, so a frame's `field` binds
+ * to the page's apply-draft callback with no translation.
+ */
+export type CanvasField = "name" | "body";
+
+/**
+ * `data:` payload of a `canvas` SSE frame — the assistant's draft for the subject
+ * open in the working page's content pane (013 step 010; UC-076 / UC-077,
+ * US-086.AC-1 / US-087.AC-1). Wire-exact with backend `CanvasFrame`, field for
+ * field and in the same order.
+ *
+ * The fifth frame kind beside `thinking` / `delta` / `done` / `error`. It reaches
+ * the client through `api/sse.ts`'s EXISTING generic-event routing (any event
+ * name that is not `done` or `error` goes to `onEvent`), so `sse.ts` is unchanged.
+ *
+ * - `subject_kind` / `subject_id` — which subject the draft is for; the client
+ *   dispatches on the pair. `subject_id` is nullable, never omitted: `null` is
+ *   UC-076's blank entry, and an absent id must never be read as one.
+ * - `field` — which part of the subject `text` is.
+ * - `text` — the draft itself, WHOLE: it arrives in one frame, not streamed token
+ *   by token, so the entry fills in one jump while the chat's prose streams on.
+ */
+export interface CanvasFrame {
+  subject_kind: SubjectKind;
+  subject_id: string | null;
+  field: CanvasField;
+  text: string;
 }

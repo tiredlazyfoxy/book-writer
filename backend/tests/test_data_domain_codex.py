@@ -28,7 +28,9 @@ Bound to the frozen skeleton signatures (status.md -> Skeleton -> Step 008):
                                                               in db_import_export
     TABLE_REGISTRY: ("codex_entries", ...) then ("codex_entry_versions", ...)
         slotted BETWEEN chapter_note_changesets and flags        in db_import_export
-    VECTOR_SOURCE_REGISTRY: list[tuple[type, Callable]]        in app.db.vector
+    VECTOR_SOURCE_REGISTRY: list[VectorSource]                 in app.db.vector
+        (013.codex step 005 widened the tuple into a typed `VectorSource`
+         carrying source_kind / model_class / row_selector / chunker)
     build_consistency_report() -> report with .tables entries each carrying
         .name / .status                                       in app.services.db_admin
 
@@ -51,8 +53,10 @@ context.md), never from implementation internals:
     - TABLE_REGISTRY slots `codex_entries` then `codex_entry_versions` BETWEEN
       `chapter_note_changesets` and `flags`; label sequence equals the canonical
       order restricted to present tables (DoD-4);
-    - `codex_entries` is NOT a registered vector source — VECTOR_SOURCE_REGISTRY
-      is codex-free (DoD-5);
+    - SUPERSEDED by 013.codex step 005 DoD-15: `codex_entries` IS a registered
+      vector source — VECTOR_SOURCE_REGISTRY holds exactly one typed
+      `VectorSource` (fields read BY NAME), discriminated `codex_entry` and
+      bound to CodexEntry (was feature-008 DoD-5's "codex-free" deferral guard);
     - after init_db(), both tables exist in SQLModel.metadata and the FEAT-005
       consistency report is clean (DoD-6).
 
@@ -540,29 +544,26 @@ def test_table_registry_order__DoD4():
 
 
 # ---------------------------------------------------------------------------
-# DoD-5 — vector deferral guard
+# DoD-5 SUPERSEDED — codex IS a vector source (013.codex step 005, DoD-15)
 # ---------------------------------------------------------------------------
 
 
-# DoD-5: `codex_entries` is NOT registered as a vector source — all vector work is
-# deferred to 013.codex. VECTOR_SOURCE_REGISTRY (a list of (model_class,
-# text_extractor) tuples) must contain no codex entry. An empty registry trivially
-# satisfies this; the assertion is written so a future accidental codex
-# registration would fail.
-def test_codex_not_registered_as_vector_source__DoD5():
-    # The CodexEntry / CodexEntryVersion model classes are not registered sources.
-    model_classes = [entry[0] for entry in VECTOR_SOURCE_REGISTRY]
-    assert CodexEntry not in model_classes
-    assert CodexEntryVersion not in model_classes
+# 013.codex step 005 DoD-15 (supersedes feature-008 DoD-5): the deferral this
+# file locked in is discharged — `codex_entries` IS now a registered vector
+# source. VECTOR_SOURCE_REGISTRY holds exactly one entry, a typed `VectorSource`
+# (no longer a `(model_class, text_extractor)` tuple, so its fields are read BY
+# NAME), discriminated `codex_entry` and bound to the CodexEntry model class.
+# CodexEntryVersion is not a source — history rows are not indexed.
+def test_codex_registered_as_vector_source__DoD15():
+    assert len(VECTOR_SOURCE_REGISTRY) == 1
 
-    # No registered source is codex-related: neither its table name nor its class
-    # name references codex.
-    for model_class in model_classes:
-        tablename = getattr(model_class, "__tablename__", "")
-        assert tablename != "codex_entries"
-        assert tablename != "codex_entry_versions"
-        assert "codex" not in str(tablename).lower()
-        assert "codex" not in model_class.__name__.lower()
+    source = VECTOR_SOURCE_REGISTRY[0]
+    assert source.source_kind == "codex_entry"
+    assert source.model_class is CodexEntry
+
+    model_classes = [entry.model_class for entry in VECTOR_SOURCE_REGISTRY]
+    assert CodexEntry in model_classes
+    assert CodexEntryVersion not in model_classes
 
 
 # ---------------------------------------------------------------------------

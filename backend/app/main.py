@@ -26,11 +26,13 @@ from app.db import vector
 from app.routes import auth
 from app.routes import books
 from app.routes import chats
+from app.routes import codex
 from app.routes import health
 from app.routes.admin import assistant_config as admin_assistant_config
 from app.routes.admin import db as admin_db
 from app.routes.admin import llm_servers as admin_llm_servers
 from app.routes.admin import users as admin_users
+from app.services import embedding as embedding_service
 from app.settings import get_settings
 
 logging.basicConfig(
@@ -63,7 +65,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     config = db_engine.DbConfig(db_path=settings.db_path)
     await db_engine.init_engine(config)
-    await vector.init_vector(settings.lancedb_dir)
+    # The composition root injects the embedding callables the sidecar needs:
+    # ``db → services`` is forbidden, and one of ``rebuild_index``'s two callers
+    # itself lives in ``db/`` (013 step 005).
+    await vector.init_vector(
+        settings.lancedb_dir,
+        embed_batch=embedding_service.embed_batch,
+        probe_dimension=embedding_service.probe_dimension,
+    )
     ready = await users.admin_exists()
     db_engine.set_db_ready(ready)
     logger.info(
@@ -79,6 +88,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(books.router)
 app.include_router(chats.router)
+app.include_router(codex.router)
 app.include_router(admin_users.router)
 app.include_router(admin_llm_servers.router)
 app.include_router(admin_db.router)

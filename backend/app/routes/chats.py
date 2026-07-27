@@ -213,7 +213,7 @@ async def run_chat_turn(
     frame-yielding orchestrator is the service (layer separation).
     """
     try:
-        context = await chat_turn.prepare_turn(access, chat_id)
+        context = await chat_turn.prepare_turn(access, chat_id, payload)
     except authz.BookAuthorizationError as err:
         raise _map_authz_error(err)
     except chats_service.ChatError as err:

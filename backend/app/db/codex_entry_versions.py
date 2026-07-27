@@ -7,9 +7,12 @@ layer separation). Public functions accept and return ``CodexEntryVersion`` or
 plain types.
 
 Skeleton (008 step 008): signatures are frozen; bodies are UNIMPLEMENTED.
+Skeleton (013 step 001): ``next_generation`` is added. ``list_by_entry`` keeps
+its signature — only its ordering changes, which is behavior, not interface.
 """
 
-from sqlmodel import select
+from sqlalchemy import func
+from sqlmodel import col, select
 
 from app.db.engine import get_standalone_session
 from app.models.codex_entry_version import CodexEntryVersion
@@ -35,11 +38,31 @@ async def get_by_id(version_id: int) -> CodexEntryVersion | None:
         return result.one_or_none()
 
 
-async def list_by_entry(entry_id: int) -> list[CodexEntryVersion]:
-    """Return every ``CodexEntryVersion`` row whose ``entry_id`` equals ``entry_id``."""
+async def next_generation(entry_id: int) -> int:
+    """Return the 1-based ``generation`` the *next* version row for ``entry_id``
+    should carry: ``1`` when the entry has no version rows, otherwise one more
+    than the highest existing ``generation`` (independent of insertion order).
+    """
     session = await get_standalone_session()
     async with session:
         result = await session.exec(
-            select(CodexEntryVersion).where(CodexEntryVersion.entry_id == entry_id)
+            select(func.max(CodexEntryVersion.generation)).where(
+                CodexEntryVersion.entry_id == entry_id
+            )
+        )
+        current_max = result.one()
+        return 1 if current_max is None else current_max + 1
+
+
+async def list_by_entry(entry_id: int) -> list[CodexEntryVersion]:
+    """Return every ``CodexEntryVersion`` row whose ``entry_id`` equals
+    ``entry_id``, in **ascending ``generation``** order.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(CodexEntryVersion)
+            .where(CodexEntryVersion.entry_id == entry_id)
+            .order_by(col(CodexEntryVersion.generation))
         )
         return list(result.all())

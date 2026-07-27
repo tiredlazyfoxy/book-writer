@@ -33,6 +33,42 @@ Skeleton (011 step 003): ``ThinkSplitter``'s method bodies, the sampling-options
 builder, :func:`prepare_turn` and :func:`run_turn` are UNIMPLEMENTED; the
 signatures, the frame envelope, the channel vocabulary, :data:`MAX_LOOPS` and
 :data:`_TURN_FAILURE_EXCEPTIONS` are the frozen contract.
+
+Skeleton (013 step 007): the turn becomes **subject-aware**. :func:`prepare_turn`
+takes the whole :class:`~app.models.schemas.chats.TurnRequest` and resolves its
+subject fields **before the stream opens** (the phase that already exists for
+"resolve everything, refuse nothing later"), storing the result on
+:class:`TurnContext` as ``subject``; :func:`run_turn` reads that subject's mode
+key to populate ``compose_system_prompt``'s ``mode=`` layer and to replace 011's
+``resolve_tools(None)`` seam with a real allowlist. Both new parameters/fields
+default, so every 011 call shape still binds unchanged.
+
+Skeleton (013 step 008): the turn's tools are resolved in **one** call —
+:func:`app.services.assistant_runtime.resolve_turn_tools` returns the real
+registry tools *and* the mode's synthetic sub-agent delegation tools, and the
+combined list is handed to ``build_tool_bindings`` together (the ``llm`` client
+pre-flights the two maps against each other). :func:`run_turn` builds the
+:class:`~app.services.subagent_delegation.ParentTurn` value a delegation inherits
+from — the parent's server, resolved key and model. Nothing else changes.
+
+Skeleton (013 step 009): the turn also builds the
+:class:`~app.services.tools.ToolContext` that **bound** tools are closed over —
+this step, the turn's book id, which is the codex tools' hard filter — and hands
+it to ``build_tool_bindings`` beside the resolved tool list. The ``llm`` client
+passes no per-request context argument, so a bound tool can only receive it at
+binding time.
+
+Skeleton (013 step 010): that same tool context now also carries the turn's
+:class:`~app.services.authz.BookAccess`, its already-resolved content-pane
+subject and a **frame emitter** — a closure over the very queue :func:`run_turn`
+pumps ``thinking`` / ``delta`` through, so the shared-canvas ``canvas`` frame a
+tool emits is ordered naturally among the surrounding frames and there is no
+second transport. The queue is therefore created **before** the tools are bound.
+The same context rides on :class:`~app.services.subagent_delegation.ParentTurn`,
+so a sub-agent whose ``subagent_tool`` rows select a bound tool can bind it too.
+Nothing else about the turn changes, and ``routes/chats.py`` is untouched: its
+serializer is generic over the event name, so a ``TurnFrame`` whose event is
+``canvas`` is emitted correctly with no route edit.
 """
 
 import asyncio
@@ -56,12 +92,15 @@ from app.models.schemas.chats import (
     DoneFrame,
     ErrorFrame,
     ThinkingFrame,
+    TurnRequest,
 )
+from app.services import assistant_runtime
 from app.services import authz
 from app.services import chats as chats_service
 from app.services import llm_servers as llm_servers_service
 from app.services import prompt_composition
 from app.services import secrets
+from app.services import subagent_delegation
 from app.services import tools as tools_service
 
 logger = logging.getLogger(__name__)
@@ -221,11 +260,26 @@ class TurnContext:
     - ``server`` — the resolved active :class:`~app.models.llm_server.LlmServer`.
     - ``resolved_key`` — the api key with ``$ENV`` indirection already resolved
       (``None`` when the server carries no key).
+    - ``subject`` — the turn's resolved content-pane subject and its FEAT-020
+      mode key (013 step 007). Defaults to
+      :data:`~app.services.assistant_runtime.NO_SUBJECT`, which is exactly what a
+      ``TurnRequest`` carrying no subject fields resolves to, so every 011 call
+      site that builds a context by keyword keeps binding unchanged.
+    - ``access`` — the caller's :class:`~app.services.authz.BookAccess` for this
+      book (013 step 010), carried through from :func:`prepare_turn` so
+      :func:`run_turn` can put it on the turn's
+      :class:`~app.services.tools.ToolContext`. The shared-canvas write needs the
+      caller's role and the book's collaboration mode to mirror the client's
+      write gate server-side (``context.md`` decision 3); no other turn concern
+      reads it. **Defaulted** for the same reason ``subject`` is — 011's and
+      013's shipped tests build this record by keyword.
     """
 
     chat: Chat
     server: LlmServer
     resolved_key: str | None
+    subject: assistant_runtime.ResolvedSubject = assistant_runtime.NO_SUBJECT
+    access: authz.BookAccess | None = None
 
 
 @dataclass(frozen=True)
@@ -258,7 +312,11 @@ _ERROR_MESSAGE = (
 )
 
 
-async def prepare_turn(access: authz.BookAccess, chat_id: str) -> TurnContext:
+async def prepare_turn(
+    access: authz.BookAccess,
+    chat_id: str,
+    request: TurnRequest | None = None,
+) -> TurnContext:
     """Run the **pre-stream refusals** and return a :class:`TurnContext`.
 
     Raised **before anything is persisted and before the first frame**, so the
@@ -272,6 +330,16 @@ async def prepare_turn(access: authz.BookAccess, chat_id: str) -> TurnContext:
     - the key's env var is unset →
       :class:`~app.services.llm_servers.LlmServerError` ``env_not_set`` (→ 400,
       UC-054 exception flow).
+
+    ``request`` is the parsed turn body (013 step 007). Its three subject fields
+    are resolved here — the phase that exists precisely to settle everything
+    before the first frame — through
+    :func:`app.services.assistant_runtime.resolve_subject`, and the result rides
+    on the returned context. ``None`` (or a body with no subject fields) resolves
+    to :data:`~app.services.assistant_runtime.NO_SUBJECT`: no subject, no mode,
+    exactly the turn ``011.chat-panel`` shipped. Resolving a subject **never**
+    refuses a turn — an unresolvable or cross-book subject is simply no subject
+    (US-085.AC-1), so this adds no failure mode to the pre-stream contract above.
 
     """
     chat = await chats_service._resolve_owned_chat(
@@ -291,7 +359,22 @@ async def prepare_turn(access: authz.BookAccess, chat_id: str) -> TurnContext:
     # Resolve the ``$ENV`` key ref here (the ``probe_models`` precedent) so an unset
     # env var surfaces as ``LlmServerError(env_not_set)`` → 400 before any frame.
     resolved_key = secrets.resolve_env_ref(server.api_key)
-    return TurnContext(chat=chat, server=server, resolved_key=resolved_key)
+    subject = await assistant_runtime.resolve_subject(
+        access,
+        subject_kind=request.subject_kind if request is not None else None,
+        subject_id=request.subject_id if request is not None else None,
+        codex_kind=request.codex_kind if request is not None else None,
+    )
+    return TurnContext(
+        chat=chat,
+        server=server,
+        resolved_key=resolved_key,
+        subject=subject,
+        # Carried, not re-resolved: the caller's role and the book's
+        # collaboration mode are what the shared-canvas write gate reads (013
+        # step 010), and this is the one place they are already in hand.
+        access=access,
+    )
 
 
 async def run_turn(
@@ -305,10 +388,18 @@ async def run_turn(
        position, role ``"user"`` — before any assistant work, so a failure leaves
        it stored exactly once and a retry (``prompt is None``) re-runs over the
        stored history without duplicating it;
-    2. compose the system prompt from :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`
-       and the book's ``system_prompt`` (mode and chapter layers null this feature);
-    3. build the tool definitions + callable map from the whole ``TOOL_REGISTRY``
-       (null mode);
+    2. compose the system prompt from :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`,
+       the resolved subject's **mode** prompt (013 step 007) and the book's
+       ``system_prompt`` (the chapter layer stays null until ``015`` / ``016``);
+    3. build the tool definitions + callable map from
+       :func:`~app.services.assistant_runtime.resolve_turn_tools` — the mode's
+       ``mode_tool`` allowlist (or
+       :data:`~app.services.assistant_runtime.BASE_TOOL_NAMES` with no mode; 013
+       step 007, ``context.md`` decision 6) **plus** the mode's synthetic
+       sub-agent delegation tools (013 step 008), as one combined list bound in a
+       single ``build_tool_bindings`` call — together with the turn's
+       :class:`~app.services.tools.ToolContext`, which every **bound** tool is
+       closed over (013 step 009);
     4. construct the model-bound client via
        :func:`app.services.llm_servers.create_model_client`, entered as an
        ``async with`` so its session closes on every path;
@@ -344,16 +435,66 @@ async def run_turn(
             )
         )
 
-    # 2. Compose the system prompt (base + book; mode/chapter null this feature).
+    # 1b. The subject's FEAT-020 mode decides both the prompt's mode layer and
+    #     the tool allowlist, so it is read once here, before the prompt is
+    #     composed (013 step 007). ``context.subject`` was resolved before the
+    #     stream opened; ``mode_key`` is ``None`` for every subject outside the
+    #     three codex kinds — and for a turn that carried no subject at all.
+    mode_key = context.subject.mode_key
+    mode_prompt = await assistant_runtime.mode_system_prompt(mode_key)
+
+    # 2. Compose the system prompt (base + mode + book; chapter stays null until
+    #    015/016). An absent or blank mode prompt contributes no section at all —
+    #    the composer's own skip rule (US-110.AC-4).
     book = await books.get_by_id(chat.book_id)
     system = prompt_composition.compose_system_prompt(
         base=prompt_composition.BASE_SYSTEM_PROMPT,
+        mode=mode_prompt,
         book=book.system_prompt if book is not None else None,
     )
 
-    # 3. The whole registry under null mode (mode-tool gating is deferred to 013).
+    # 3. Real mode-tool gating (013 step 007) plus the mode's synthetic sub-agent
+    #    delegation tools (013 step 008), resolved in ONE place and bound in ONE
+    #    call: the ``llm`` client pre-flights every ``tools_definitions`` name
+    #    against the ``tools`` map, so real and synthetic tools must be built
+    #    together. ``parent_turn`` is what a sub-agent with no model assignment
+    #    of its own inherits (US-113.AC-6) — the parent's server, its already
+    #    ``$ENV``-resolved key and its model.
+    #    ``tool_context`` is what a BOUND tool is closed over (013 step 009):
+    #    the ``llm`` client dispatches ``func(**kwargs)`` with no per-request
+    #    context argument, so everything a tool needs from the turn — the book
+    #    (the codex tools' hard filter), the caller's access, the content-pane
+    #    subject and the way to put a frame on this turn's stream (013 step 010)
+    #    — has to be supplied at binding time.
+    #
+    #    The frame queue is created HERE, before the tools are bound, because
+    #    ``emit_frame`` closes over it: a tool's ``canvas`` frame must travel the
+    #    SAME put-onto-the-queue path ``thinking`` / ``delta`` already use, so it
+    #    interleaves naturally with them and no second transport exists. The tool
+    #    runs inside ``drive()`` below — the very task that pumps those frames.
+    queue: asyncio.Queue[object] = asyncio.Queue()
+
+    async def emit_frame(event: str, data: BaseModel) -> None:
+        await queue.put(TurnFrame(event=event, data=data))
+
+    tool_context = tools_service.ToolContext(
+        book_id=chat.book_id,
+        access=context.access,
+        subject=context.subject,
+        emit_frame=emit_frame,
+    )
+    parent_turn = subagent_delegation.ParentTurn(
+        server=server,
+        resolved_key=context.resolved_key,
+        model=chat.model_name or "",
+        # A delegated sub-agent binds its own tools; without the turn's context
+        # a bound one would be silently dropped from its nested call (013 step
+        # 009's flagged consequence, resolved here).
+        tool_context=tool_context,
+    )
     tool_defs, tool_map = tools_service.build_tool_bindings(
-        tools_service.resolve_tools(None)
+        await assistant_runtime.resolve_turn_tools(mode_key, parent_turn),
+        tool_context,
     )
 
     # 4. The message history to replay (includes the just-persisted user message).
@@ -373,7 +514,6 @@ async def run_turn(
     splitter = ThinkSplitter()
     content_parts: list[str] = []
     thinking_parts: list[str] = []
-    queue: asyncio.Queue[object] = asyncio.Queue()
     failure: list[Exception] = []
 
     async def emit(channel: Channel, text: str) -> None:

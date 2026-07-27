@@ -42,11 +42,23 @@ from app.services import tools
 from app.services.web_search import web_search
 
 
-# DoD-3: TOOL_REGISTRY contains exactly one entry, named `web_search`, with a
-# non-empty description, its args schema is WebSearchArgs and its callable is
-# web_search.
+# DoD-3: TOOL_REGISTRY's contents are known and pinned: `web_search` is present
+# and FIRST, with a non-empty description, its args schema is WebSearchArgs and
+# its callable is web_search.
+#
+# Updated by 013.codex step 009, which added the two BOUND codex entries
+# (`codex_search` / `codex_read_entry`) to the catalogue, and again by step 010,
+# which added the bound `write_codex_draft` entry; the original "exactly one
+# entry" wording was superseded by those steps' Interface intent (step 009's
+# DoD-12, step 010's DoD-12). The intent of this test -- the registry's contents
+# are pinned, not open-ended -- is unchanged.
 def test_registry_has_single_web_search_entry__DoD3():
-    assert len(tools.TOOL_REGISTRY) == 1
+    assert {t.name for t in tools.TOOL_REGISTRY} == {
+        "web_search",
+        "codex_search",
+        "codex_read_entry",
+        "write_codex_draft",
+    }
 
     entry = tools.TOOL_REGISTRY[0]
     assert entry.name == "web_search"

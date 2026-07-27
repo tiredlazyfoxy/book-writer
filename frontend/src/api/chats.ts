@@ -1,10 +1,14 @@
 import { request, refreshAuthToken } from "./client";
 import { streamPost } from "./sse";
 import type {
+  CanvasFrame,
   ChatDetailResponse,
   ChatResponse,
   CreateChatRequest,
   ModelOptionResponse,
+  SubjectKind,
+  TurnRequest,
+  TurnSubject,
   UpdateChatRequest,
 } from "../types/chats";
 
@@ -101,13 +105,18 @@ export async function listModelOptions(
  *   own `onDone()` with NO payload, so the `done` frame's persisted-message DTO does
  *   NOT flow through here — the state layer obtains the persisted message by
  *   reloading the chat (`chatPaneState.loadChatMessages`), not from this callback;
- * - `onError` carries the failure message.
+ * - `onError` carries the failure message;
+ * - `onCanvas` carries the assistant's shared-canvas draft (013 step 010/013).
+ *   OPTIONAL: `011.chat-panel`'s four-handler callers stay valid, and a caller
+ *   that has no canvas target simply omits it. It reaches this interface through
+ *   `sse.ts`'s EXISTING generic-event routing — `sse.ts` is NOT modified.
  */
 export interface TurnStreamHandlers {
   onThinking: (text: string) => void;
   onDelta: (text: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  onCanvas?: (frame: CanvasFrame) => void;
 }
 
 /**
@@ -120,41 +129,95 @@ export interface TurnStreamHandlers {
  * `handlers`, narrowing the `thinking` / `delta` `data: unknown` payloads to
  * `{ text }`.
  *
+ * `subject` (013 step 013) carries the content pane's current subject onto the
+ * wire — the three optional fields of `TurnRequest`, supplied together or not at
+ * all. OMITTED when no content subject is registered, in which case the posted
+ * body is exactly `{ prompt }` and `011.chat-panel`'s shipped behaviour is
+ * unchanged. The caller (`chatPaneState`) reads the subject from
+ * `work/contentSubject.ts` at SEND time and maps it to these wire fields; this
+ * module never imports from an entry's domain modules.
+ *
  * SEAM (deliberate — documented per the step): `streamPost` OWNS and RETURNS its
  * own `AbortController` and takes NO `signal`, so this one api function breaks the
  * repo's trailing-`signal` convention. The caller `await`s the returned controller,
  * stores it, and cancels via an explicit stop rather than passing a signal in.
- *
- * SKELETON (011/005): signature frozen; body throws so DoD-9's await-before-stream
- * stays red until the coder fills it.
+ * `subject` is therefore the trailing argument, and NO `signal` parameter is added.
  */
 export async function streamChatTurn(
   bookId: string,
   chatId: string,
   prompt: string | null,
   handlers: TurnStreamHandlers,
+  subject?: TurnSubject,
 ): Promise<AbortController> {
   // DoD-9: renew a possibly-stale access token BEFORE opening the stream, since
   // `streamPost` uses raw `fetch` + `authHeaders()` and never re-enters `client.ts`'s
   // on-401 silent refresh. Awaited first so the stream opens with a fresh token.
   await refreshAuthToken();
 
+  // The three subject fields ride along only when the caller supplied them, so a
+  // turn sent with nothing registered posts exactly `{ prompt }`.
+  const body: TurnRequest = { prompt, ...subject };
+
   // `streamPost` owns and returns its own `AbortController` (no `signal` in); the
   // caller stores the returned controller and cancels via an explicit stop.
   return streamPost(
     `${BASE}/${bookId}/chats/${chatId}/turn`,
-    { prompt },
+    body,
     {
       onEvent: (event, data) => {
         // `thinking` / `delta` both arrive via `onEvent` with `data: unknown`;
         // narrow to the frame's text here so no `any` reaches the state layer.
         if (event === "thinking") handlers.onThinking(frameText(data));
         else if (event === "delta") handlers.onDelta(frameText(data));
+        else if (event === "canvas") {
+          // `canvas` reaches us through `sse.ts`'s EXISTING generic-event routing
+          // (any name that is not `done` / `error` goes to `onEvent`), so `sse.ts`
+          // is unmodified. A malformed payload is dropped, never forwarded.
+          const frame = canvasFrame(data);
+          if (frame !== null) handlers.onCanvas?.(frame);
+        }
       },
       onDone: () => handlers.onDone(),
       onError: (message) => handlers.onError(message),
     },
   );
+}
+
+/**
+ * Narrow a raw `canvas` `data: unknown` payload to a {@link CanvasFrame}, or
+ * `null` when it is not one — so no untyped payload reaches the state layer and a
+ * malformed frame is dropped rather than dispatched. `subject_id` is
+ * required-but-nullable: an ABSENT id is malformed, only an explicit `null` is
+ * UC-076's blank entry.
+ */
+function canvasFrame(data: unknown): CanvasFrame | null {
+  if (data === null || typeof data !== "object") return null;
+  const raw = data as {
+    subject_kind?: unknown;
+    subject_id?: unknown;
+    field?: unknown;
+    text?: unknown;
+  };
+
+  const subjectKind = raw.subject_kind;
+  const subjectId = raw.subject_id;
+  const field = raw.field;
+  const text = raw.text;
+
+  if (typeof subjectKind !== "string") return null;
+  if (subjectId !== null && typeof subjectId !== "string") return null;
+  if (field !== "name" && field !== "body") return null;
+  if (typeof text !== "string") return null;
+
+  return {
+    // The backend validates `subject_kind` against its own literal union at the
+    // schema boundary, so the wire value is taken as the kind it declares.
+    subject_kind: subjectKind as SubjectKind,
+    subject_id: subjectId,
+    field,
+    text,
+  };
 }
 
 /** Narrow a raw `thinking` / `delta` `data: unknown` payload to its `text` chunk. */

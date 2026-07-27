@@ -65,7 +65,25 @@ async def run_vector_rebuild() -> None:
     Delegates to :func:`app.db.vector.rebuild_index` so the post-import rebuild
     and the admin rebuild button share one path (D6). The returned indexed-row
     count is discarded — this hook's signature is ``-> None``.
+
+    A rebuild failure is **logged and swallowed, never propagated**: this path
+    deliberately bypasses ``services/db_admin.py``'s embedding-provider gate
+    (``retrieval.md`` — the import path is not gated), so it must tolerate the
+    provider's absence. Importing a database into an instance with no embedding
+    server configured still completes; the index is derived, so it stays empty
+    until an admin rebuild rather than failing the import. The guard is broad by
+    intent — no embedder injected (``VectorIndexError``), an unreachable
+    embedding server (``EmbeddingError``) and a sidecar-level failure are all
+    recoverable by rebuilding, and none of them makes the imported SQLite data
+    wrong.
     """
     from app.db import vector
 
-    await vector.rebuild_index()
+    try:
+        await vector.rebuild_index()
+    except Exception:
+        logger.exception(
+            "Post-import vector index rebuild failed; the index is left empty "
+            "or stale. The import itself completed — rebuild the index from the "
+            "admin page once an embedding server is designated."
+        )

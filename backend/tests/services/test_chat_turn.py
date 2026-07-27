@@ -45,12 +45,12 @@ from app.models.schemas.chats import (
 )
 from app.models.user import User, UserRole
 from app.services import chat_turn
+from app.services.assistant_runtime import BASE_TOOL_NAMES
 from app.services.authz import AccessRole, BookAccess
 from app.services.chat_turn import TurnContext
 from app.services.chats import ChatError, ChatErrorReason
 from app.services.llm_servers import LlmServerError, LlmServerErrorReason
 from app.services.prompt_composition import BASE_SYSTEM_PROMPT
-from app.services.tools import TOOL_REGISTRY
 
 
 # ---------------------------------------------------------------------------
@@ -575,13 +575,20 @@ async def test_library_failures_yield_single_error_frame__DoD9_US060_AC1(
 
 
 # ---------------------------------------------------------------------------
-# DoD-11 — system prompt from base + book system_prompt; whole TOOL_REGISTRY
+# DoD-11 — system prompt from base + book system_prompt; the null-mode allowlist
 # ---------------------------------------------------------------------------
 
 
 # DoD-11 (assistant-config.md; decision 9): the turn composes its system prompt
 # from the base constant plus the book's system_prompt (mode/chapter absent) and
-# offers the WHOLE TOOL_REGISTRY because the mode is null.
+# offers exactly BASE_TOOL_NAMES because the mode is null.
+#
+# Updated by 013.codex step 009. The original clause read "offers the WHOLE
+# TOOL_REGISTRY"; 013.codex context.md decision 6 (landed in step 007) replaced
+# "null mode == the whole registry" with the code-defined BASE_TOOL_NAMES
+# allowlist, and the two coincided only while the registry held a single entry.
+# Step 009 adds the two bound codex entries, so the null-mode truth is now
+# BASE_TOOL_NAMES. The system-prompt half of the test is unchanged.
 async def test_system_prompt_and_whole_registry_offered__DoD11(
     db: DbConfig, monkeypatch
 ):
@@ -594,9 +601,9 @@ async def test_system_prompt_and_whole_registry_offered__DoD11(
     assert BASE_SYSTEM_PROMPT in system
     assert "BOOK_RULES_XYZ" in system
 
-    # The whole registry (null mode) is offered: the tool callable map and the
-    # OpenAI tool definitions both cover exactly the registry's tool names.
-    registry_names = {t.name for t in TOOL_REGISTRY}
-    assert set(fake.call["tools"].keys()) == registry_names
-    assert len(fake.call["tools_definitions"]) == len(TOOL_REGISTRY)
+    # The null-mode allowlist is offered: the tool callable map and the OpenAI
+    # tool definitions both cover exactly BASE_TOOL_NAMES.
+    base_names = set(BASE_TOOL_NAMES)
+    assert set(fake.call["tools"].keys()) == base_names
+    assert {d["function"]["name"] for d in fake.call["tools_definitions"]} == base_names
     assert "web_search" in fake.call["tools"]

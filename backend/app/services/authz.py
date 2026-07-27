@@ -47,7 +47,8 @@ class AccessRole(str, enum.Enum):
 
 
 class Capability(str, enum.Enum):
-    """The 009 book capabilities gated by the matrix."""
+    """The 009 book capabilities plus the 013 members-only codex capabilities,
+    all gated by the matrix."""
 
     read_book = "read_book"
     view_book_detail = "view_book_detail"
@@ -56,6 +57,9 @@ class Capability(str, enum.Enum):
     add_member = "add_member"
     remove_member = "remove_member"
     set_visibility = "set_visibility"
+    # 013 step 001 — ``authorization.md`` → "Members-only material".
+    browse_codex = "browse_codex"
+    edit_codex_entry = "edit_codex_entry"
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,19 @@ _CAPABILITY_MATRIX: dict[Capability, frozenset[AccessRole]] = {
     Capability.add_member: frozenset({AccessRole.owner}),
     Capability.remove_member: frozenset({AccessRole.owner}),
     Capability.set_visibility: frozenset({AccessRole.owner}),
+    # Members-only codex (``authorization.md`` → "Members-only material"):
+    # owner and co-author only; a reader never sees the codex even on a public
+    # book (US-085.AC-1). The *(mode)* qualifier on the co-author cell of the
+    # create/edit row is **not expressible here** — this table maps capability →
+    # role set and has no vocabulary for "and the book is in free mode". That
+    # collaboration-mode rule belongs to ``services/codex.py`` (013 step 002),
+    # the way ``services/chats.py`` layers row ownership on top of book access.
+    Capability.browse_codex: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
+    Capability.edit_codex_entry: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
 }
 
 
