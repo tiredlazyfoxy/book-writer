@@ -70,6 +70,7 @@ def _register_models() -> None:
     import app.models.mode_subagent  # noqa: F401
     import app.models.book  # noqa: F401
     import app.models.book_member  # noqa: F401
+    import app.models.book_author_prompt  # noqa: F401
     import app.models.chapter  # noqa: F401
     import app.models.chapter_change  # noqa: F401
     import app.models.chapter_text_revision  # noqa: F401

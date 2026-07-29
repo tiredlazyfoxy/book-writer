@@ -20,6 +20,7 @@ import {
   BookSettingsPageState,
   archiveAction,
   loadBookSettings,
+  loadSystemPrompt,
   removeMemberAction,
   setVisibilityAction,
   unarchiveAction,
@@ -28,6 +29,7 @@ import {
   AddCoAuthorDraft,
   submitAddCoAuthor,
 } from "../components/books/addCoAuthorDraft";
+import { SystemPromptCard } from "../components/books/SystemPromptCard";
 import {
   TransferOwnershipDraft,
   submitTransferOwnership,
@@ -47,6 +49,11 @@ import {
  * a server refusal surfaces as a field error). Each action spins a fresh
  * `AbortController` and re-loads the detail on success (backend is the source of
  * truth — no optimistic local edits).
+ *
+ * Feature 021 adds the `SystemPromptCard` — the editor for **the caller's own**
+ * system prompt for this book (every author of a book keeps their own). It is a
+ * second, independent loadable: the same single mount effect starts its load, and it
+ * renders inside the detail branch, above the co-author sections.
  */
 export const BookSettingsPage = observer(function BookSettingsPage() {
   const { bookId } = useParams();
@@ -54,9 +61,13 @@ export const BookSettingsPage = observer(function BookSettingsPage() {
   const [addDraft] = useState(() => new AddCoAuthorDraft());
   const [transferDraft] = useState(() => new TransferOwnershipDraft());
 
+  // The ONE page-level mount effect: it now loads both of the page's loadables (the
+  // book detail and the caller's own system prompt) off the same AbortController.
+  // Feature 021 adds no second `useEffect` — the hook rules allow exactly one.
   useEffect(() => {
     const ctrl = new AbortController();
     void loadBookSettings(state, bookId ?? "", ctrl.signal);
+    void loadSystemPrompt(state, bookId ?? "", ctrl.signal);
     return () => ctrl.abort();
   }, [state]);
 
@@ -154,6 +165,8 @@ export const BookSettingsPage = observer(function BookSettingsPage() {
               </Button>
             </Group>
           </Stack>
+
+          <SystemPromptCard state={state} bookId={id} />
 
           <Divider />
 

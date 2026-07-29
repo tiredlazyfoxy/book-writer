@@ -43,6 +43,13 @@ class BookResponse(BaseModel):
     ``owner_id`` are ``str`` (snowflake serialized as a string). Carries no
     moderation internals (``moderation_reason`` / ``moderated_by`` /
     ``moderated_at``) and no ``system_prompt`` / ``active_notes``.
+
+    The ``system_prompt`` omission is deliberate and is now structural (feature
+    021): the assistant prompt is **per-author**, not per-book, and is served by
+    its own endpoint (``GET`` / ``PUT /api/books/{book_id}/system-prompt``,
+    returning the *caller's own* prompt). A book-shaped DTO cannot carry it
+    honestly — two authors reading the same book would need different bytes in
+    the same field.
     """
 
     id: str
@@ -83,10 +90,16 @@ class BookDetailResponse(BookResponse):
     Extends :class:`BookResponse` (so it carries ``id``, ``owner_id``, ``title``,
     ``description``, ``collaboration_mode``, ``visibility``, ``state`` and the
     timestamps) and adds the ``members`` co-author list. Deliberately omits
-    ``system_prompt`` and ``active_notes`` — neither the settings page (step 7)
-    nor the settings mutations (step 5) render or mutate them; the book-wide
-    prompt is FEAT-020 assistant-config territory (undesigned). This DTO is
-    members-only: readers never receive it (they get :class:`ReaderBookResponse`).
+    ``system_prompt`` and ``active_notes``.
+
+    ``system_prompt`` stays off this DTO permanently (feature 021): the assistant
+    prompt is **per-author**, not per-book, and has its own endpoint (``GET`` /
+    ``PUT /api/books/{book_id}/system-prompt``) that always answers with the
+    *caller's own* prompt. Putting it on a book-shaped DTO would be dishonest —
+    two authors reading the same book would need different bytes in the same
+    field — so the settings page fetches it separately rather than from here.
+    This DTO is members-only: readers never receive it (they get
+    :class:`ReaderBookResponse`).
     """
 
     members: list[BookMemberResponse]
@@ -102,6 +115,13 @@ class ReaderBookResponse(BaseModel):
     settings, ``system_prompt`` or any mutation-bearing field. The exclusion is
     enforced structurally by this being a separate DTO from
     :class:`BookDetailResponse` (UC-029 exclusion list).
+
+    ``system_prompt`` is doubly excluded (feature 021): beyond the reader
+    exclusion list, there is no book-wide prompt left to project. The prompt is
+    **per-author** and lives on its own endpoint (``GET`` / ``PUT
+    /api/books/{book_id}/system-prompt``), which serves the caller their own
+    prompt and is members-only — a reader has none, and no book-shaped DTO could
+    carry a value that differs per caller.
     """
 
     title: str

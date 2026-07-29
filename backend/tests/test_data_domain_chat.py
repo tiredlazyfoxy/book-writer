@@ -82,6 +82,7 @@ FULL_CANONICAL_ORDER = [
     "mode_subagents",
     "books",
     "book_members",
+    "book_author_prompts",
     "chapters",
     "chapter_changes",
     "chapter_text_revisions",
@@ -377,8 +378,8 @@ async def test_chat_messages_list_by_chat_filters__DoD3(db: DbConfig):
 
 
 # DoD-4: this is the final step, so the COMPLETE TABLE_REGISTRY tablename
-# sequence must equal the full 18-entry canonical order EXACTLY — order
-# preserved, with NO duplicates and NO extras.
+# sequence must equal the full canonical order EXACTLY — order preserved, with
+# NO duplicates and NO extras.
 def test_full_table_registry_equals_canonical_order__DoD4():
     labels = [entry[0] for entry in TABLE_REGISTRY]
 
@@ -543,8 +544,26 @@ def test_chat_and_message_field_sets_pinned__DoD10():
     assert set(ChatMessage.model_fields) == CHAT_MESSAGE_FIELDS
 
 
-# DoD-10: no table is added by this step, so the registry order is unchanged —
-# the full canonical 18-entry order still holds.
+# The registry as feature 011 step 001 knew it. That step added COLUMNS, not a
+# table, so its guard below is scoped to the tables that existed when it ran; a
+# later feature legitimately inserting an entry of its own (feature 021 adds
+# `book_author_prompts`) does not falsify what DoD-10 verifies.
+REGISTRY_AS_OF_FEATURE_011 = [
+    name for name in FULL_CANONICAL_ORDER if name != "book_author_prompts"
+]
+
+
+# DoD-10: no table is added by this step — the chat domain's registry footprint
+# is still exactly one `chats` entry followed by one `chat_messages` entry, and
+# the order of the tables that existed when this step ran is unchanged.
 def test_registry_order_unchanged_no_table_added__DoD10():
     labels = [entry[0] for entry in TABLE_REGISTRY]
-    assert labels == FULL_CANONICAL_ORDER
+
+    # This step introduced no chat-domain table: still one entry each, adjacent.
+    assert labels.count("chats") == 1
+    assert labels.count("chat_messages") == 1
+    assert labels.index("chat_messages") == labels.index("chats") + 1
+
+    # The order of the tables this step knew about is unchanged.
+    known_names = set(REGISTRY_AS_OF_FEATURE_011)
+    assert [name for name in labels if name in known_names] == REGISTRY_AS_OF_FEATURE_011

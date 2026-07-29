@@ -88,6 +88,7 @@ CANONICAL_ORDER = [
     "mode_subagents",
     "books",
     "book_members",
+    "book_author_prompts",
     "chapters",
     "chapter_changes",
     "chapter_text_revisions",

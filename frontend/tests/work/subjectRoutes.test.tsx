@@ -52,8 +52,13 @@ import { renderWithProviders } from "../support/render";
 // A module-factory mock replaces the WHOLE module. `getBookDetail` powers the shell
 // load; the option arrays are the real spec-data pairs (copied verbatim from
 // `src/api/books.ts`) that the Book-state page — imported by `WorkRoutes` — depends on.
+// 021.per-author-system-prompt / step 006: the Book-state page's mount effect now also
+// loads the caller's own prompt through this module, so both prompt exports must be
+// enumerated here too — a factory that omits one strips it to `undefined`.
 vi.mock("../../src/api/books", () => ({
   getBookDetail: vi.fn(),
+  getOwnSystemPrompt: vi.fn(),
+  updateOwnSystemPrompt: vi.fn(),
   COLLABORATION_MODE_OPTIONS: [
     { value: "free", label: "Free" },
     { value: "proposal", label: "Proposal" },
@@ -156,6 +161,20 @@ beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — the shell needs a resolved
   // book so it reaches `ready` and renders its `<Outlet/>` (the subject placeholder).
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1"));
+  // The Book-state page (the `/state` route + the `/chats` redirect target) loads the
+  // caller's own prompt on mount; a prompt-shaped resolved value keeps that load off the
+  // network and out of the rejected-promise path. `""` + `modified_at: null` is the
+  // "no stored prompt" wire shape.
+  vi.mocked(booksApi.getOwnSystemPrompt).mockResolvedValue({
+    book_id: "bk-1",
+    system_prompt: "",
+    modified_at: null,
+  });
+  vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue({
+    book_id: "bk-1",
+    system_prompt: "",
+    modified_at: null,
+  });
   // The shell's chat-pane load resolves empty so no real fetch fires.
   vi.mocked(chatsApi.listChats).mockResolvedValue([]);
   vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);

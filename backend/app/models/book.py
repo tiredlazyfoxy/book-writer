@@ -57,7 +57,18 @@ class Book(SQLModel, table=True):
     - ``collaboration_mode`` / ``visibility`` / ``state`` — required enums.
     - ``moderation_reason`` / ``moderated_by`` / ``moderated_at`` — the nullable
       moderation triple; null on an ``active`` book (Stage-6 behaviour, land now).
-    - ``system_prompt`` — book-wide prompt (required).
+    - ``system_prompt`` — **superseded and dormant** (feature 021, step 004).
+      It once held the single book-wide assistant prompt; the prompt is now
+      per-author (``BookAuthorPrompt``, one row per ``(book_id, user_id)``) and
+      **nothing reads this column any more** — prompt composition takes the
+      author's own row. It is retained rather than dropped because ``db/
+      engine.py`` offers only an *additive* migration seam (``init_db()`` runs
+      ``SQLModel.metadata.create_all``, which never alters an existing table) and
+      there is **no Alembic in the repository**, so there is no supported DROP
+      COLUMN path. It stays required (not nullable, no default), is still written
+      ``""`` at book creation by ``services/books.py``, and is still exported and
+      imported by the JSONL codec so existing archives keep round-tripping. Dead
+      to the runtime, alive to the schema and the archive.
     - ``active_notes`` — materialised live state-note set, free text (required).
     - ``created_at`` / ``modified_at`` — nullable, app-set timestamps.
     """

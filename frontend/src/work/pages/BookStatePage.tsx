@@ -3,6 +3,7 @@ import { observer } from "mobx-react-lite";
 import { useParams } from "react-router-dom";
 import {
   Alert,
+  Button,
   Container,
   Divider,
   Group,
@@ -10,10 +11,16 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   Title,
 } from "@mantine/core";
 import type { ISODateString } from "../../types/common";
-import { BookStatePageState, loadBookState } from "./bookStatePageState";
+import {
+  BookStatePageState,
+  loadBookState,
+  loadSystemPrompt,
+  saveSystemPrompt,
+} from "./bookStatePageState";
 
 /** Render an ISO timestamp for the author, or an em dash when the field is null. */
 function formatTimestamp(value: ISODateString | null): string {
@@ -30,6 +37,12 @@ function formatTimestamp(value: ISODateString | null): string {
  * `BookResponse` wire gap), and the deferred per-chapter continuity empty state. The
  * loading and error states of the async trio replace the content rather than a blank
  * pane. No props.
+ *
+ * Feature 021 step 006 adds the caller's **own** system-prompt editor as its own
+ * section — the single editable region on this otherwise read-only view. Its load
+ * shares the existing mount effect and its `AbortController` (no second
+ * `useEffect`), and it renders its own loading / error branches so that the prompt
+ * trio and the book-detail trio fail independently.
  */
 export const BookStatePage = observer(function BookStatePage() {
   const { bookId } = useParams();
@@ -38,6 +51,7 @@ export const BookStatePage = observer(function BookStatePage() {
   useEffect(() => {
     const ctrl = new AbortController();
     void loadBookState(state, bookId ?? "", ctrl.signal);
+    void loadSystemPrompt(state, bookId ?? "", ctrl.signal);
     return () => ctrl.abort();
   }, [state]);
 
@@ -61,6 +75,16 @@ export const BookStatePage = observer(function BookStatePage() {
       </Container>
     );
   }
+
+  // Inner handler closing over `state` / `bookId`; it spins its own controller, since
+  // the mount effect's controller exists only to abort the page's initial loads.
+  const handleSavePrompt = () => {
+    const ctrl = new AbortController();
+    void saveSystemPrompt(state, bookId ?? "", ctrl.signal);
+  };
+
+  const promptLoading =
+    state.systemPromptStatus === "idle" || state.systemPromptStatus === "loading";
 
   return (
     <Container size="lg" py="md">
@@ -172,6 +196,54 @@ export const BookStatePage = observer(function BookStatePage() {
           <Text size="sm" c="dimmed">
             The book's state notes are not yet exposed by the API and cannot be shown here yet.
           </Text>
+        </Stack>
+
+        <Divider />
+
+        {/*
+          The caller's own system-prompt editor — the ONE editable region on this
+          otherwise read-only view. Its own trio branches keep it independent of the
+          book-detail trio above. No delete control, no client-side validation, no
+          restore buffer, no 409 path.
+        */}
+        <Stack gap="xs">
+          <Title order={5}>Your system prompt</Title>
+          <Text size="sm" c="dimmed">
+            This prompt is your own: every author of this book keeps their own, and yours is
+            not shared with your co-authors — they cannot see it or edit it.
+          </Text>
+
+          {promptLoading ? (
+            <Group py="xs">
+              <Loader size="sm" />
+            </Group>
+          ) : state.systemPromptStatus === "error" ? (
+            <Alert color="red">
+              {state.systemPromptError ?? "Could not load your system prompt."}
+            </Alert>
+          ) : (
+            <>
+              {state.systemPromptServerErrors.form && (
+                <Alert color="red">{state.systemPromptServerErrors.form}</Alert>
+              )}
+              <Textarea
+                label="System prompt"
+                placeholder="Write the instructions your assistant should follow for this book."
+                value={state.systemPromptDraft}
+                autosize
+                minRows={6}
+                error={state.systemPromptServerErrors.system_prompt}
+                onChange={(event) => {
+                  state.systemPromptDraft = event.currentTarget.value;
+                }}
+              />
+              <Group>
+                <Button onClick={handleSavePrompt} disabled={!state.canSaveSystemPrompt}>
+                  Save
+                </Button>
+              </Group>
+            </>
+          )}
         </Stack>
 
         <Divider />

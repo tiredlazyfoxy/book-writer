@@ -82,7 +82,7 @@ import aiohttp
 from llm import LLMError
 from pydantic import BaseModel
 
-from app.db import books, chat_messages
+from app.db import book_author_prompts, chat_messages
 from app.db import llm_servers as llm_servers_db
 from app.models.chat import Chat, ChatMessage
 from app.models.llm_server import LlmServer
@@ -389,8 +389,14 @@ async def run_turn(
        it stored exactly once and a retry (``prompt is None``) re-runs over the
        stored history without duplicating it;
     2. compose the system prompt from :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`,
-       the resolved subject's **mode** prompt (013 step 007) and the book's
-       ``system_prompt`` (the chapter layer stays null until ``015`` / ``016``);
+       the resolved subject's **mode** prompt (013 step 007) and the **author**
+       layer — the prompt belonging to *this chat's own author*
+       (``chat.author_id``) for *this chat's book* (``chat.book_id``), read
+       straight from :mod:`app.db.book_author_prompts` (021 step 004; ``services
+       → db`` is the sanctioned edge, and the turn is already scoped to that
+       author by ``services/chats.py``'s ownership guard). ``Book.system_prompt``
+       is **not** read: it is superseded and dormant. The chapter layer stays
+       null until ``015`` / ``016``;
     3. build the tool definitions + callable map from
        :func:`~app.services.assistant_runtime.resolve_turn_tools` — the mode's
        ``mode_tool`` allowlist (or
@@ -443,14 +449,24 @@ async def run_turn(
     mode_key = context.subject.mode_key
     mode_prompt = await assistant_runtime.mode_system_prompt(mode_key)
 
-    # 2. Compose the system prompt (base + mode + book; chapter stays null until
-    #    015/016). An absent or blank mode prompt contributes no section at all —
-    #    the composer's own skip rule (US-110.AC-4).
-    book = await books.get_by_id(chat.book_id)
+    # 2. Compose the system prompt (base + mode + author; chapter stays null
+    #    until 015/016). An absent or blank mode prompt contributes no section at
+    #    all — the composer's own skip rule (US-110.AC-4).
+    #
+    #    The author layer is **this chat's own author's** prompt for **this
+    #    chat's book** (021 step 004), read straight from the ``db/`` module:
+    #    ``services → db`` is the sanctioned edge, and the turn is already scoped
+    #    to that author by ``services/chats.py``'s ownership guard. The retired
+    #    book-wide ``Book.system_prompt`` is no longer read by anything. No row
+    #    means no author layer at all, and a blank stored prompt needs no special
+    #    case here — the composer's skip rule already drops it.
+    author_prompt = await book_author_prompts.get_by_book_and_user(
+        chat.book_id, chat.author_id
+    )
     system = prompt_composition.compose_system_prompt(
         base=prompt_composition.BASE_SYSTEM_PROMPT,
         mode=mode_prompt,
-        book=book.system_prompt if book is not None else None,
+        author=author_prompt.system_prompt if author_prompt is not None else None,
     )
 
     # 3. Real mode-tool gating (013 step 007) plus the mode's synthetic sub-agent

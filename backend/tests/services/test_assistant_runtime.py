@@ -39,6 +39,15 @@ Expected values come from the SPEC ONLY -- the step's DoD-1..DoD-13,
 ``007.mode-runtime-gating.md`` -> Interface intent, ``context.md`` decision 6
 (a null mode gets ``BASE_TOOL_NAMES``, not the whole registry) and
 ``assistant-config.md``'s mode table -- never from implementation internals.
+
+Superseded-guard update (feature 021, step 004 -- the composition switch): the
+composer's third layer is renamed ``book`` -> ``author`` (label ``BOOK`` ->
+``AUTHOR``) and the turn now composes the prompt of *the chat's own author*,
+read from ``BookAuthorPrompt``, instead of ``Book.system_prompt``
+(``021/context.md`` decision 3; ``021/004`` DoD-1/DoD-4/DoD-6). Every assertion
+below is preserved verbatim in strength; only the keyword and the row the
+third-layer sentinel is seeded into moved. Nothing about mode resolution, the
+mode layer or tool gating -- this module's own subject -- changed.
 """
 
 import inspect
@@ -49,6 +58,7 @@ from pydantic import BaseModel
 
 from app.db import (
     assistant_modes,
+    book_author_prompts,
     books,
     chat_messages,
     chats,
@@ -60,6 +70,7 @@ from app.db import (
 from app.db.engine import DbConfig
 from app.models.assistant_mode import AssistantMode
 from app.models.book import Book, BookState, CollaborationMode, Visibility
+from app.models.book_author_prompt import BookAuthorPrompt
 from app.models.chat import Chat
 from app.models.codex_entry import CodexEntry, CodexKind
 from app.models.llm_server import LlmServer
@@ -273,17 +284,27 @@ def _access(book_id: int, user_id: int) -> BookAccess:
 async def _turn_context(
     *,
     subject: ResolvedSubject | None = None,
-    book_prompt: str = "",
+    author_prompt: str = "",
 ) -> TurnContext:
     """Seed a full world and build a ``TurnContext`` directly.
 
     Building the frozen record by hand isolates ``run_turn`` from
     ``prepare_turn``; ``subject`` is the new fourth field.
+
+    ``author_prompt`` seeds the chat author's own ``BookAuthorPrompt`` row --
+    the source of the composer's third layer since feature 021 step 004. It was
+    ``book_prompt`` (a ``Book.system_prompt`` value) before the switch.
     """
     user = await _seed_user()
-    book = await _seed_book(user.id, system_prompt=book_prompt)
+    book = await _seed_book(user.id)
     server = await _seed_server()
     chat = await _seed_chat(book.id, user.id, server.id)
+    if author_prompt:
+        await book_author_prompts.create(
+            BookAuthorPrompt(
+                book_id=book.id, user_id=user.id, system_prompt=author_prompt
+            )
+        )
     if subject is None:
         return TurnContext(chat=chat, server=server, resolved_key="resolved-secret")
     return TurnContext(
@@ -515,15 +536,15 @@ async def test_chapter_subject_has_no_mode_yet__DoD6(db: DbConfig):
 
 # DoD-7 (US-110.AC-3; assistant-config.md -> composition order): the resolved
 # mode's system_prompt is looked up and reaches compose_system_prompt as its mode
-# layer, and the composed prompt carries base, then mode, then book, in that
-# order.
+# layer, and the composed prompt carries base, then mode, then the author layer,
+# in that order. (The third layer was the book's until feature 021 step 004.)
 async def test_mode_prompt_is_the_mode_layer_in_order__DoD7_US110_AC3(
     db: DbConfig, monkeypatch
 ):
     await _seed_mode("edit-character", "MODE_RULES_ABC")
     context = await _turn_context(
         subject=ResolvedSubject(kind="codex-entry", mode_key="edit-character"),
-        book_prompt="BOOK_RULES_XYZ",
+        author_prompt="AUTHOR_RULES_XYZ",
     )
     fake = _install_client(monkeypatch, _FakeClient(chunks=["ok"]))
 
@@ -536,16 +557,16 @@ async def test_mode_prompt_is_the_mode_layer_in_order__DoD7_US110_AC3(
     system = fake.call["system"]
     assert BASE_SYSTEM_PROMPT in system
     assert "MODE_RULES_ABC" in system
-    assert "BOOK_RULES_XYZ" in system
-    # base, then mode, then book.
+    assert "AUTHOR_RULES_XYZ" in system
+    # base, then mode, then author.
     assert (
         system.index(BASE_SYSTEM_PROMPT)
         < system.index("MODE_RULES_ABC")
-        < system.index("BOOK_RULES_XYZ")
+        < system.index("AUTHOR_RULES_XYZ")
     )
     # The mode prompt entered the composer as the `mode` layer (and only there).
     assert system == compose_system_prompt(
-        base=BASE_SYSTEM_PROMPT, mode="MODE_RULES_ABC", book="BOOK_RULES_XYZ"
+        base=BASE_SYSTEM_PROMPT, mode="MODE_RULES_ABC", author="AUTHOR_RULES_XYZ"
     )
 
 
@@ -566,7 +587,7 @@ async def test_blank_mode_prompt_contributes_no_section__DoD8_US110_AC4(
     await _seed_mode("edit-fact", stored_prompt)
     context = await _turn_context(
         subject=ResolvedSubject(kind="codex-entry", mode_key="edit-fact"),
-        book_prompt="BOOK_RULES_XYZ",
+        author_prompt="AUTHOR_RULES_XYZ",
     )
     fake = _install_client(monkeypatch, _FakeClient(chunks=["ok"]))
 
@@ -576,10 +597,10 @@ async def test_blank_mode_prompt_contributes_no_section__DoD8_US110_AC4(
 
     system = fake.call["system"]
     assert system == compose_system_prompt(
-        base=BASE_SYSTEM_PROMPT, book="BOOK_RULES_XYZ"
+        base=BASE_SYSTEM_PROMPT, author="AUTHOR_RULES_XYZ"
     )
     assert BASE_SYSTEM_PROMPT in system
-    assert "BOOK_RULES_XYZ" in system
+    assert "AUTHOR_RULES_XYZ" in system
 
 
 # DoD-8 (US-110.AC-4): a mode key with no AssistantMode row, and an absent key,
@@ -768,18 +789,19 @@ async def test_prepare_turn_without_subject_carries_no_mode__DoD13(db: DbConfig)
 
 
 # DoD-13 (backward compatibility): a turn sent with no subject fields at all
-# behaves exactly as 011 shipped it -- base + book system prompt with no mode
-# layer, web_search offered (the BASE_TOOL_NAMES allowlist), the reply streamed
-# and persisted, ending in one `done`.
+# behaves exactly as 011 shipped it -- base + the author's system prompt with no
+# mode layer (the third layer was the book's until feature 021 step 004),
+# web_search offered (the BASE_TOOL_NAMES allowlist), the reply streamed and
+# persisted, ending in one `done`.
 async def test_subjectless_turn_behaves_as_shipped__DoD13(db: DbConfig, monkeypatch):
-    context = await _turn_context(book_prompt="BOOK_RULES_XYZ")
+    context = await _turn_context(author_prompt="AUTHOR_RULES_XYZ")
     fake = _install_client(monkeypatch, _FakeClient(chunks=["the-answer"]))
 
     frames = await _run(context, "ask")
 
     system = fake.call["system"]
     assert system == compose_system_prompt(
-        base=BASE_SYSTEM_PROMPT, book="BOOK_RULES_XYZ"
+        base=BASE_SYSTEM_PROMPT, author="AUTHOR_RULES_XYZ"
     )
     assert set(fake.call["tools"].keys()) == set(BASE_TOOL_NAMES)
     assert "web_search" in fake.call["tools"]

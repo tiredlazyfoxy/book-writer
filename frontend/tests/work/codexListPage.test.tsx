@@ -88,8 +88,13 @@ vi.mock("../../src/api/client", async () => {
 });
 
 // `WorkRoutes` mounts the workspace shell, which loads the book and owns the chat pane.
+// Since 021.per-author-system-prompt / step 006 the Book-state page also loads the caller's
+// own prompt through this module; both prompt exports are enumerated so that no route
+// reachable from `WorkRoutes` can hit an `undefined` export.
 vi.mock("../../src/api/books", () => ({
   getBookDetail: vi.fn(),
+  getOwnSystemPrompt: vi.fn(),
+  updateOwnSystemPrompt: vi.fn(),
   COLLABORATION_MODE_OPTIONS: [
     { value: "free", label: "Free" },
     { value: "proposal", label: "Proposal" },
@@ -309,6 +314,19 @@ beforeEach(() => {
     created_at: null,
     modified_at: null,
     members: [],
+  });
+  // The Book-state page's prompt load, re-armed like every other mock: a prompt-shaped
+  // resolved value ("" + `modified_at: null` = no stored prompt) keeps it off the network
+  // and out of the rejected-promise path.
+  vi.mocked(booksApi.getOwnSystemPrompt).mockResolvedValue({
+    book_id: BOOK_ID,
+    system_prompt: "",
+    modified_at: null,
+  });
+  vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue({
+    book_id: BOOK_ID,
+    system_prompt: "",
+    modified_at: null,
   });
   vi.mocked(chatsApi.listChats).mockResolvedValue([]);
   vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);

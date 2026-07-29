@@ -38,9 +38,9 @@
  */
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import type { BookDetailResponse } from "../../src/types/books";
+import type { BookAuthorPromptResponse, BookDetailResponse } from "../../src/types/books";
 import { ApiError } from "../../src/api/client";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
@@ -52,8 +52,16 @@ import { renderWithProviders } from "../support/render";
 // `getBookDetail` (the loader) plus `COLLABORATION_MODE_OPTIONS` / `VISIBILITY_OPTIONS`
 // (the label sources). The two arrays are the real spec-data pairs from
 // `src/api/books.ts` — a factory that dropped them would strip the page's labels.
+//
+// 021.per-author-system-prompt / 006 widens this factory with the two prompt calls the
+// page now makes (`getOwnSystemPrompt` / `updateOwnSystemPrompt`, step 005's shared
+// contract). A whole-module factory that omitted an export the page imports would leave
+// it `undefined` and the page would fail to render for the wrong reason — so every
+// pre-existing entry stays exactly as it was.
 vi.mock("../../src/api/books", () => ({
   getBookDetail: vi.fn(),
+  getOwnSystemPrompt: vi.fn(),
+  updateOwnSystemPrompt: vi.fn(),
   COLLABORATION_MODE_OPTIONS: [
     { value: "free", label: "Free" },
     { value: "proposal", label: "Proposal" },
@@ -84,6 +92,12 @@ const CO_AUTHOR_ID = "u-coauthor-42";
 const BOOK_TITLE = "The Winds of Winter";
 const BOOK_DESCRIPTION = "A sprawling saga told across nine kingdoms.";
 
+/** The book every route in this spec addresses — the same id `makeDetail` carries. */
+const BOOK_ID = "bk-1";
+const STATE_ROUTE = `/${BOOK_ID}/state`;
+/** The caller's own stored prompt, as `GET /api/books/{id}/system-prompt` returns it. */
+const STORED_PROMPT = "Write in close third person, past tense.";
+
 /** A fully-typed BookDetailResponse fixture; callers override the fields they assert on. */
 function makeDetail(overrides: Partial<BookDetailResponse> = {}): BookDetailResponse {
   return {
@@ -97,6 +111,20 @@ function makeDetail(overrides: Partial<BookDetailResponse> = {}): BookDetailResp
     created_at: "2018-05-01T10:00:00Z",
     modified_at: "2026-11-30T15:00:00Z",
     members: [{ user_id: CO_AUTHOR_ID, role: "co_author", created_at: "2021-06-02T09:00:00Z" }],
+    ...overrides,
+  };
+}
+
+/**
+ * A fully-typed `BookAuthorPromptResponse` fixture (step 005's shared DTO, consumed
+ * unchanged here): `system_prompt` is never null — `""` means "this author has no
+ * prompt" — and `modified_at` is null only when no row exists yet.
+ */
+function makePrompt(overrides: Partial<BookAuthorPromptResponse> = {}): BookAuthorPromptResponse {
+  return {
+    book_id: BOOK_ID,
+    system_prompt: STORED_PROMPT,
+    modified_at: "2026-07-01T12:00:00Z",
     ...overrides,
   };
 }
@@ -121,6 +149,12 @@ beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — default to a resolved detail;
   // pending / rejected cases override in-test.
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail());
+  // Same re-arming for the two prompt calls the page makes from the same mount effect:
+  // without it they would resolve `undefined` and every pre-existing assertion in this
+  // file would go red for the wrong reason. The default is the happy path — a stored
+  // prompt for this book; individual cases override.
+  vi.mocked(booksApi.getOwnSystemPrompt).mockResolvedValue(makePrompt());
+  vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue(makePrompt());
   // `restoreMocks` also clears the factory's chat-list implementations, so re-arm the two
   // list calls here (mirrors WorkspaceShell.test.tsx) — the shell's mount-time chat load
   // must resolve empty, not `undefined`, or the pane computeds crash. Pure harness mocking.
@@ -227,5 +261,396 @@ describe("BookStatePage", () => {
     // ...and the pane is not blank — an author-facing error is rendered instead. The spec
     // pins no exact error wording, so DoD-5 asserts the pane is not blank.
     expect((document.body.textContent ?? "").trim()).not.toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------------------------
+ * 021.per-author-system-prompt / 006.book-state-editor — the Book-state prompt editor.
+ * DoD-1 · DoD-2 · DoD-3 · DoD-4 · DoD-5 · DoD-6 · DoD-7 · DoD-8 · DoD-9.
+ * (DoD-10 is [manual/live] — two authors on one book — and has no test here.)
+ *
+ * Bound to the frozen signatures in status.md -> `## Skeleton` (step 006, and step 005
+ * for the shared contract consumed unchanged):
+ *   getOwnSystemPrompt(bookId, signal?): Promise<BookAuthorPromptResponse>
+ *   updateOwnSystemPrompt(bookId, body: UpdateBookAuthorPromptRequest, signal?)
+ *                                      : Promise<BookAuthorPromptResponse>
+ *   interface BookAuthorPromptResponse { book_id: string; system_prompt: string;
+ *                                        modified_at: ISODateString | null }
+ *   PUT body: { system_prompt: string }
+ * The page loads the prompt from its EXISTING mount effect, so mounting it under
+ * `/:bookId/state` is the whole arrangement — exactly as the six cases above do.
+ *
+ * Expected values come from the spec, never from the page's code:
+ *   - the prompt is loaded ALONGSIDE the book state and its text lands in the editor
+ *     (`006` Interface intent) — DoD-1;
+ *   - `""` + `modified_at: null` is the normal starting state of every book for every
+ *     author (`context.md` -> "The wire contract"), so it renders an empty EDITABLE
+ *     field, never an error and never a read-only placeholder — DoD-2;
+ *   - after a save the surface shows what the SERVER returned, not the optimistic draft
+ *     (`context.md` -> cross-cutting frontend constraints), which is why the stored value
+ *     deliberately differs from what was typed — DoD-3;
+ *   - the save control is gated on "dirty AND no save in flight" — DoD-4;
+ *   - an empty save is legal and clears the prompt, and there is NO DELETE verb, so no
+ *     delete control may be offered (`context.md` -> decision 6) — DoD-5;
+ *   - a refusal shows the server's own message and loses nothing typed — DoD-6;
+ *   - the prompt is a SECOND, independent trio: its failure renders its own error branch
+ *     and leaves the book-state view whole — DoD-7;
+ *   - the copy says the prompt is the caller's own and not shared with co-authors — the
+ *     wording that replaces UC-093's book-wide framing (`context.md` -> Goal) — DoD-8;
+ *   - this step adds EXACTLY ONE editable region: the prompt editor is editable, and it
+ *     is the only editable control on the surface (`006.context.md` -> the editability
+ *     table). Asserting only "nothing else is editable" would pass by construction, so
+ *     both halves are asserted together — DoD-9.
+ *
+ * Out of scope by decision, and deliberately unasserted: any restore buffer, keystroke
+ * persistence, `baseVersion`, stale-buffer detection or 409 path (`006.context.md`).
+ *
+ * The spec pins no exact labels, so the editor is located as the prompt-labelled
+ * `<textarea>` and the save control as the nearest `save`-named button above it — never
+ * by test id or DOM shape.
+ * ---------------------------------------------------------------------------------- */
+
+/** Everything that could name a field for its author. */
+function labelTextFor(field: HTMLTextAreaElement): string {
+  const parts: string[] = [
+    field.getAttribute("aria-label") ?? "",
+    field.getAttribute("placeholder") ?? "",
+    field.getAttribute("name") ?? "",
+  ];
+  const labels = field.labels;
+  if (labels !== null) {
+    for (const label of Array.from(labels)) parts.push(label.textContent ?? "");
+  }
+  return parts.join(" ");
+}
+
+/**
+ * The multi-line prompt editor: the `<textarea>` whose own labelling names a prompt, or
+ * the page's sole textarea when nothing is labelled that way.
+ */
+function queryPromptEditor(): HTMLTextAreaElement | null {
+  const areas = Array.from(document.querySelectorAll("textarea"));
+  if (areas.length === 0) return null;
+  const named = areas.filter((area) => /prompt/i.test(labelTextFor(area)));
+  if (named.length > 0) return named[0];
+  return areas.length === 1 ? areas[0] : null;
+}
+
+function promptEditor(): HTMLTextAreaElement {
+  const editor = queryPromptEditor();
+  if (editor === null) throw new Error("no system-prompt editor is rendered");
+  return editor;
+}
+
+function saveButtonsIn(root: ParentNode): HTMLButtonElement[] {
+  return Array.from(root.querySelectorAll("button")).filter((button) =>
+    /save/i.test(button.textContent ?? ""),
+  );
+}
+
+/** The save control belonging to the prompt editor, or `null` when none is offered. */
+function findSaveControl(): HTMLButtonElement | null {
+  const editor = queryPromptEditor();
+  if (editor === null) return null;
+  let node: HTMLElement | null = editor.parentElement;
+  while (node !== null && node !== document.body) {
+    const found = saveButtonsIn(node);
+    if (found.length > 0) return found[0];
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function saveControl(): HTMLButtonElement {
+  const button = findSaveControl();
+  if (button === null) throw new Error("no save control is offered for the prompt editor");
+  return button;
+}
+
+/**
+ * True when the author cannot save right now. DoD-4 says only that saving is
+ * *unavailable*, so an absent control counts exactly as a disabled one does.
+ */
+function saveIsUnavailable(): boolean {
+  const button = findSaveControl();
+  return button === null || button.disabled;
+}
+
+/** The prompt section's own subtree: the smallest ancestor of the editor holding its save control. */
+function promptRegion(): HTMLElement {
+  const editor = promptEditor();
+  let node: HTMLElement | null = editor.parentElement;
+  while (node !== null && node !== document.body) {
+    if (saveButtonsIn(node).length > 0) return node;
+    node = node.parentElement;
+  }
+  return editor.parentElement ?? document.body;
+}
+
+/**
+ * Every control the author can actually change on the rendered surface: text-bearing
+ * inputs, textareas, selects and contenteditable regions that are neither disabled nor
+ * read-only. Buttons are not editable regions — they act, they do not hold author text.
+ */
+function editableControls(): HTMLElement[] {
+  const nodes = Array.from(
+    document.querySelectorAll<HTMLElement>("input, textarea, select, [contenteditable='true']"),
+  );
+  return nodes.filter((node) => {
+    if (node instanceof HTMLInputElement) {
+      if (["hidden", "button", "submit", "reset", "image"].includes(node.type)) return false;
+      return !node.disabled && !node.readOnly;
+    }
+    if (node instanceof HTMLTextAreaElement) return !node.disabled && !node.readOnly;
+    if (node instanceof HTMLSelectElement) return !node.disabled;
+    return true;
+  });
+}
+
+function pageText(): string {
+  return document.body.textContent ?? "";
+}
+
+function typeInto(field: HTMLTextAreaElement, value: string): void {
+  fireEvent.change(field, { target: { value } });
+}
+
+/** Waits for the mount load to settle with the given prompt text in the editor. */
+async function waitForEditor(value: string): Promise<HTMLTextAreaElement> {
+  await waitFor(() => {
+    expect(queryPromptEditor()).not.toBeNull();
+    expect(promptEditor().value).toBe(value);
+  });
+  return promptEditor();
+}
+
+/** The read-only book-state content that must keep rendering exactly as it does today. */
+async function expectBookStateContentIntact(): Promise<void> {
+  expect(await screen.findByText(BOOK_TITLE)).toBeInTheDocument();
+  expect(screen.getByText(BOOK_DESCRIPTION)).toBeInTheDocument();
+  const text = pageText();
+  expect(text).toContain("Free"); // collaboration_mode label
+  expect(text).toContain("Private"); // visibility label
+  expect(text).toMatch(/2018/); // created_at
+  expect(text).toMatch(/2026/); // modified_at
+  expect(text).toContain(OWNER_ID);
+  expect(text).toContain(CO_AUTHOR_ID);
+  expect(screen.getAllByText(/state notes/i).length).toBeGreaterThan(0);
+  expect(screen.getByText(/016\.chapter-close-continuity/)).toBeInTheDocument();
+}
+
+describe("BookStatePage — the author's own system prompt", () => {
+  it("DoD-1: on mount the page loads the caller's own prompt ALONGSIDE the book state, and shows its text in the editor", async () => {
+    renderPage(STATE_ROUTE);
+
+    // Both loadables are kicked off by the same mount, addressed to the book in the URL.
+    // The prompt endpoint names no user, so the value is the caller's own by construction.
+    await waitFor(() => expect(vi.mocked(booksApi.getOwnSystemPrompt)).toHaveBeenCalled());
+    expect(vi.mocked(booksApi.getOwnSystemPrompt).mock.calls[0][0]).toBe(BOOK_ID);
+    expect(vi.mocked(booksApi.getBookDetail)).toHaveBeenCalled();
+
+    // The stored text is in the editor...
+    const editor = await waitForEditor(STORED_PROMPT);
+    expect(editor).toBeEnabled();
+    // ...and the book state it loads alongside is on screen too.
+    await expectBookStateContentIntact();
+  });
+
+  it("DoD-2: a member with no stored prompt gets an empty, EDITABLE field — not an error and not a read-only placeholder", async () => {
+    // The normal starting state of every book for every author: 200 with an empty prompt
+    // and no row yet, never a failure.
+    vi.mocked(booksApi.getOwnSystemPrompt).mockResolvedValue(
+      makePrompt({ system_prompt: "", modified_at: null }),
+    );
+
+    renderPage(STATE_ROUTE);
+
+    await waitFor(() => expect(queryPromptEditor()).not.toBeNull());
+    const editor = promptEditor();
+
+    expect(editor.value).toBe("");
+    expect(editor).toBeEnabled();
+    expect(editor.readOnly).toBe(false);
+
+    // No failure copy and no retry — an empty prompt is not an error...
+    expect(promptRegion().textContent ?? "").not.toMatch(/failed|could not|couldn'?t|unavailable/i);
+    expect(screen.queryAllByRole("button", { name: /retry|try again/i })).toHaveLength(0);
+
+    // ...and the field genuinely accepts text.
+    typeInto(editor, "A first prompt.");
+    await waitFor(() => expect(promptEditor().value).toBe("A first prompt."));
+  });
+
+  it("DoD-3: saving sends the draft, and the editor then shows what the SERVER returned rather than the local draft", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    typeInto(editor, "What the author typed.");
+    await waitFor(() => expect(promptEditor().value).toBe("What the author typed."));
+
+    // The stored value deliberately differs from the draft, so "shows the server's answer"
+    // is distinguishable from "kept the draft".
+    vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue(
+      makePrompt({ system_prompt: "What the server stored.", modified_at: "2026-07-29T09:30:00Z" }),
+    );
+
+    fireEvent.click(saveControl());
+
+    await waitFor(() => expect(vi.mocked(booksApi.updateOwnSystemPrompt)).toHaveBeenCalled());
+    const [bookIdArg, bodyArg] = vi.mocked(booksApi.updateOwnSystemPrompt).mock.calls[0];
+    expect(bookIdArg).toBe(BOOK_ID);
+    expect(bodyArg).toEqual({ system_prompt: "What the author typed." });
+
+    await waitFor(() => expect(promptEditor().value).toBe("What the server stored."));
+  });
+
+  it("DoD-4: the save control is unavailable while the draft still matches the loaded value", async () => {
+    renderPage(STATE_ROUTE);
+    await waitForEditor(STORED_PROMPT);
+
+    expect(saveIsUnavailable()).toBe(true);
+
+    // Editing opens the gate...
+    typeInto(promptEditor(), `${STORED_PROMPT} And never head-hop.`);
+    await waitFor(() => expect(saveIsUnavailable()).toBe(false));
+
+    // ...and restoring the loaded value closes it again.
+    typeInto(promptEditor(), STORED_PROMPT);
+    await waitFor(() => expect(saveIsUnavailable()).toBe(true));
+  });
+
+  it("DoD-4: the save control is unavailable while a save is in flight", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    typeInto(editor, "Edited text.");
+    await waitFor(() => expect(saveIsUnavailable()).toBe(false));
+
+    // A save that never settles keeps the submit in flight.
+    vi.mocked(booksApi.updateOwnSystemPrompt).mockReturnValue(
+      new Promise<BookAuthorPromptResponse>(() => {}),
+    );
+    fireEvent.click(saveControl());
+
+    await waitFor(() => expect(saveIsUnavailable()).toBe(true));
+    expect(vi.mocked(booksApi.updateOwnSystemPrompt)).toHaveBeenCalledTimes(1);
+  });
+
+  it("DoD-5: emptying the editor is a legal save that clears the prompt", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    typeInto(editor, "");
+    await waitFor(() => expect(saveIsUnavailable()).toBe(false));
+
+    vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue(
+      makePrompt({ system_prompt: "", modified_at: "2026-07-29T10:00:00Z" }),
+    );
+
+    fireEvent.click(saveControl());
+
+    await waitFor(() => expect(vi.mocked(booksApi.updateOwnSystemPrompt)).toHaveBeenCalled());
+    expect(vi.mocked(booksApi.updateOwnSystemPrompt).mock.calls[0][1]).toEqual({
+      system_prompt: "",
+    });
+    await waitFor(() => expect(promptEditor().value).toBe(""));
+  });
+
+  it("DoD-5: no delete control is offered — an empty save is the only way to clear the prompt", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    // Make the section's own subtree locatable (its save control is rendered).
+    typeInto(editor, "Edited text.");
+    await waitFor(() => expect(saveIsUnavailable()).toBe(false));
+
+    const destructive = Array.from(promptRegion().querySelectorAll("button")).filter((button) =>
+      /delete|remove|clear|discard/i.test(button.textContent ?? ""),
+    );
+    expect(destructive).toHaveLength(0);
+
+    // Nor may any control elsewhere on the page offer to delete the prompt.
+    const promptDestructive = Array.from(document.querySelectorAll("button")).filter((button) => {
+      const label = button.textContent ?? "";
+      return /prompt/i.test(label) && /delete|remove|clear|discard/i.test(label);
+    });
+    expect(promptDestructive).toHaveLength(0);
+  });
+
+  it("DoD-6: a refused save surfaces the server's message and leaves the draft intact", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    typeInto(editor, "Typed but refused — do not lose me.");
+    await waitFor(() => expect(saveIsUnavailable()).toBe(false));
+
+    vi.mocked(booksApi.updateOwnSystemPrompt).mockRejectedValue(
+      new ApiError(403, "You are not a member of this book"),
+    );
+
+    fireEvent.click(saveControl());
+
+    // The server's own words reach the author...
+    await waitFor(() => expect(pageText()).toContain("You are not a member of this book"));
+    // ...and nothing typed is lost.
+    expect(promptEditor().value).toBe("Typed but refused — do not lose me.");
+  });
+
+  it("DoD-7: a failed prompt load renders its own error branch and leaves the rest of the Book-state view whole", async () => {
+    // Only the prompt trio fails; the book-state trio succeeds. The two are independent.
+    vi.mocked(booksApi.getOwnSystemPrompt).mockRejectedValue(
+      new ApiError(500, "Prompt service unavailable"),
+    );
+
+    renderPage(STATE_ROUTE);
+
+    await waitFor(() => expect(vi.mocked(booksApi.getOwnSystemPrompt)).toHaveBeenCalled());
+
+    // Half one — the prompt section is in its error branch: something failure-shaped is
+    // on screen (the spec pins no wording) and no editor is bound to data never read.
+    await waitFor(() =>
+      expect(pageText()).toMatch(
+        /(Prompt service unavailable|failed|could not|couldn'?t|unavailable|error|retry|try again)/i,
+      ),
+    );
+    expect(queryPromptEditor()).toBeNull();
+
+    // Half two — the book state loaded fine and still renders in full.
+    await expectBookStateContentIntact();
+  });
+
+  it("DoD-8: the section says the prompt is the caller's own and not shared with co-authors", async () => {
+    renderPage(STATE_ROUTE);
+    await waitForEditor(STORED_PROMPT);
+
+    // The copy that replaces UC-093's book-wide framing: this prompt belongs to the
+    // caller, and co-authors neither see nor share it.
+    expect(pageText()).toMatch(/prompt/i);
+    expect(pageText()).toMatch(
+      /(your own|yours alone|only you|only yours|your personal|not shared|no[- ]one else|each author|every author|per[\s-]author)/i,
+    );
+
+    // ...and the section never frames it as one prompt the whole book shares.
+    const regionText = promptRegion().textContent ?? "";
+    expect(regionText).not.toMatch(/book[\s-]wide/i);
+    expect(regionText).not.toMatch(/applies to (all|every|everyone)/i);
+  });
+
+  it("DoD-9: the prompt editor is editable and is the ONLY editable region — the rest of the Book-state view stays read-only", async () => {
+    renderPage(STATE_ROUTE);
+    const editor = await waitForEditor(STORED_PROMPT);
+
+    // Half one — the region this step adds really is editable.
+    expect(editor).toBeEnabled();
+    expect(editor.readOnly).toBe(false);
+    typeInto(editor, "Edited by the author.");
+    await waitFor(() => expect(promptEditor().value).toBe("Edited by the author."));
+
+    // Half two — and it is the only editable control anywhere on the surface: exactly one
+    // region became editable, not two.
+    expect(editableControls()).toEqual([promptEditor()]);
+
+    // The read-only content it sits among is untouched.
+    await expectBookStateContentIntact();
   });
 });

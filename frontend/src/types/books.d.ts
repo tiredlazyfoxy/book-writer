@@ -69,8 +69,17 @@ export interface BookMemberResponse {
 /**
  * `GET /api/books/{id}` result — mirrors backend `BookDetailResponse`. Extends the
  * `BookResponse` summary (all its fields) and adds the co-author `members` list.
- * Members-only: readers never receive it. Deliberately omits `system_prompt` /
- * `active_notes` (not rendered by the settings page).
+ * Members-only: readers never receive it.
+ *
+ * Deliberately omits `system_prompt` — and it is not an oversight to be fixed by
+ * adding the field. The system prompt is **per-author**, not book-wide: it is served
+ * by its own endpoint (`GET` / `PUT /api/books/{id}/system-prompt` →
+ * `BookAuthorPromptResponse`), which always answers with the *caller's own* prompt.
+ * A book-shaped DTO therefore cannot carry it honestly — two authors reading the
+ * same book would need different bytes in the same field. Mirrors the same note on
+ * the backend `BookDetailResponse` (see docs/plans/021.per-author-system-prompt).
+ * `active_notes` stays omitted for the original reason: the settings page does not
+ * render it.
  */
 export interface BookDetailResponse extends BookResponse {
   members: BookMemberResponse[];
@@ -99,4 +108,32 @@ export interface AddMemberRequest {
  */
 export interface SetVisibilityRequest {
   visibility: Visibility;
+}
+
+/**
+ * `GET /api/books/{id}/system-prompt` result and `PUT /api/books/{id}/system-prompt`
+ * result — mirrors backend `BookAuthorPromptResponse`. Always **the caller's own**
+ * prompt for that book; no other author's is addressable, which is why the wire
+ * carries **no `user_id`** field.
+ *
+ * `book_id` is **string** (snowflake serialized as a string). `system_prompt` is
+ * never null — `""` means "this author has written no prompt", a normal starting
+ * state rather than an error. `modified_at` is `null` when no row exists yet, so
+ * "empty prompt, never written" and "prompt deliberately cleared to empty" are
+ * distinguishable only by that timestamp. A missing row is a `200`, never a `404`.
+ */
+export interface BookAuthorPromptResponse {
+  book_id: string;
+  system_prompt: string;
+  modified_at: ISODateString | null;
+}
+
+/**
+ * `PUT /api/books/{id}/system-prompt` request body — mirrors backend
+ * `UpdateBookAuthorPromptRequest`. Upsert: the row is created when absent and
+ * updated when present. `""` is valid input and means "no prompt" — there is no
+ * DELETE verb, because an empty string already expresses that state.
+ */
+export interface UpdateBookAuthorPromptRequest {
+  system_prompt: string;
 }

@@ -24,6 +24,7 @@ from app.db import engine as db_engine
 from app.db import users
 from app.db import vector
 from app.routes import auth
+from app.routes import book_author_prompts
 from app.routes import books
 from app.routes import chats
 from app.routes import codex
@@ -89,6 +90,7 @@ app.include_router(auth.router)
 app.include_router(books.router)
 app.include_router(chats.router)
 app.include_router(codex.router)
+app.include_router(book_author_prompts.router)
 app.include_router(admin_users.router)
 app.include_router(admin_llm_servers.router)
 app.include_router(admin_db.router)

@@ -23,17 +23,30 @@ against the real ``db`` fixture with rows seeded through the db layer.
 Expected values come from the SPEC ONLY -- the step DoD (DoD-2..DoD-11), the
 Interface intent, and the feature ``context.md`` decisions -- never from
 implementation internals. ``asyncio_mode = "auto"``.
+
+Extended by feature 021, step 004 (the composition switch): the turn now
+composes the prompt belonging to **the chat's own author** -- the
+``BookAuthorPrompt`` row for ``(chat.book_id, chat.author_id)`` -- as the
+composer's renamed ``author`` layer, and ``Book.system_prompt`` no longer
+influences composition at all. Its DoD-4 / DoD-5 / DoD-6 / DoD-7 coverage lives
+at the bottom of this module; feature 011's ``__DoD11`` guard is superseded in
+place (same assertions, third-layer sentinel moved off the retired column onto
+the author's row). Sources: ``021/004.composition-switch.md`` -> Interface
+intent + DoD, ``021/context.md`` decisions 2 and 3.
 """
 
+import datetime
 import inspect
+from pathlib import Path
 
 import aiohttp
 import pytest
 from llm import LLMError
 
-from app.db import books, chat_messages, chats, llm_servers, users
-from app.db.engine import DbConfig
+from app.db import book_author_prompts, books, chat_messages, chats, llm_servers, users
+from app.db.engine import DbConfig, init_db, init_engine, set_db_ready
 from app.models.book import Book, BookState, CollaborationMode, Visibility
+from app.models.book_author_prompt import BookAuthorPrompt
 from app.models.chat import Chat, ChatMessage
 from app.models.llm_server import LlmServer
 from app.models.schemas.chats import (
@@ -44,13 +57,14 @@ from app.models.schemas.chats import (
     ThinkingFrame,
 )
 from app.models.user import User, UserRole
-from app.services import chat_turn
+from app.services import auth, chat_turn
 from app.services.assistant_runtime import BASE_TOOL_NAMES
 from app.services.authz import AccessRole, BookAccess
 from app.services.chat_turn import TurnContext
 from app.services.chats import ChatError, ChatErrorReason
+from app.services.db_import_export import export_all, import_all
 from app.services.llm_servers import LlmServerError, LlmServerErrorReason
-from app.services.prompt_composition import BASE_SYSTEM_PROMPT
+from app.services.prompt_composition import BASE_SYSTEM_PROMPT, compose_system_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -215,15 +229,22 @@ async def _context(
     *,
     backend_type: str = "openai",
     system_prompt: str = "",
+    author_prompt: str | None = None,
     resolved_key: str | None = "resolved-secret",
     model_name: str = "gpt-x",
+    username: str = "author",
 ) -> TurnContext:
     """Seed a full world (user/book/server/chat) and build a TurnContext directly.
 
     Building the frozen ``TurnContext`` by hand isolates ``run_turn`` from
     ``prepare_turn`` (the skeleton froze the turn as those two entry points).
+
+    ``system_prompt`` seeds the (dormant since feature 021) ``Book.system_prompt``
+    column; ``author_prompt`` seeds the chat author's own ``BookAuthorPrompt``
+    row, which is what the turn composes as its ``author`` layer. ``None`` means
+    "this author has no row at all".
     """
-    user = await _seed_user("author")
+    user = await _seed_user(username)
     book = await _seed_book(user.id, system_prompt=system_prompt)
     server = await _seed_server(backend_type=backend_type)
     chat = await _seed_chat(
@@ -232,6 +253,12 @@ async def _context(
         llm_server_id=server.id,
         model_name=model_name,
     )
+    if author_prompt is not None:
+        await book_author_prompts.create(
+            BookAuthorPrompt(
+                book_id=book.id, user_id=user.id, system_prompt=author_prompt
+            )
+        )
     return TurnContext(chat=chat, server=server, resolved_key=resolved_key)
 
 
@@ -580,7 +607,7 @@ async def test_library_failures_yield_single_error_frame__DoD9_US060_AC1(
 
 
 # DoD-11 (assistant-config.md; decision 9): the turn composes its system prompt
-# from the base constant plus the book's system_prompt (mode/chapter absent) and
+# from the base constant plus the third-layer prompt (mode/chapter absent) and
 # offers exactly BASE_TOOL_NAMES because the mode is null.
 #
 # Updated by 013.codex step 009. The original clause read "offers the WHOLE
@@ -588,18 +615,22 @@ async def test_library_failures_yield_single_error_frame__DoD9_US060_AC1(
 # "null mode == the whole registry" with the code-defined BASE_TOOL_NAMES
 # allowlist, and the two coincided only while the registry held a single entry.
 # Step 009 adds the two bound codex entries, so the null-mode truth is now
-# BASE_TOOL_NAMES. The system-prompt half of the test is unchanged.
+# BASE_TOOL_NAMES.
+#
+# Superseded in place by 021 step 004: the third layer is no longer the book's
+# `system_prompt` but the chat author's own prompt row (021/004 DoD-4/DoD-6), so
+# the same sentinel is seeded there. Assertion strength is unchanged.
 async def test_system_prompt_and_whole_registry_offered__DoD11(
     db: DbConfig, monkeypatch
 ):
-    context = await _context(system_prompt="BOOK_RULES_XYZ")
+    context = await _context(author_prompt="AUTHOR_RULES_XYZ")
     fake = _install_client(monkeypatch, _FakeClient(chunks=["ok"]))
 
     await _run(context, "ask")
 
     system = fake.call["system"]
     assert BASE_SYSTEM_PROMPT in system
-    assert "BOOK_RULES_XYZ" in system
+    assert "AUTHOR_RULES_XYZ" in system
 
     # The null-mode allowlist is offered: the tool callable map and the OpenAI
     # tool definitions both cover exactly BASE_TOOL_NAMES.
@@ -607,3 +638,270 @@ async def test_system_prompt_and_whole_registry_offered__DoD11(
     assert set(fake.call["tools"].keys()) == base_names
     assert {d["function"]["name"] for d in fake.call["tools_definitions"]} == base_names
     assert "web_search" in fake.call["tools"]
+
+
+# ===========================================================================
+# Feature 021, step 004 — the composition switch (BOOK becomes AUTHOR)
+#
+# The turn composes the prompt of the chat's OWN author, read from the
+# BookAuthorPrompt row for (chat.book_id, chat.author_id), as the composer's
+# `author` layer. `Book.system_prompt` is dormant: still written, still
+# exported, read by nothing.
+# ===========================================================================
+
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+async def _seed_prompt(book_id: int, user_id: int, text: str) -> BookAuthorPrompt:
+    """Seed one author's own prompt row for one book (021 step 001's db module)."""
+    return await book_author_prompts.create(
+        BookAuthorPrompt(book_id=book_id, user_id=user_id, system_prompt=text)
+    )
+
+
+async def _two_author_contexts(
+    prompt_a: str, prompt_b: str
+) -> tuple[TurnContext, TurnContext]:
+    """Two authors of ONE book, each with their own chat and their own prompt.
+
+    The owner (author A) and a second author (author B) share a single book;
+    each holds a different stored prompt. Returns (context_a, context_b).
+    """
+    author_a = await _seed_user("author-a")
+    author_b = await _seed_user("author-b")
+    book = await _seed_book(author_a.id)
+    server = await _seed_server()
+    chat_a = await _seed_chat(
+        book_id=book.id,
+        author_id=author_a.id,
+        llm_server_id=server.id,
+        model_name="gpt-x",
+    )
+    chat_b = await _seed_chat(
+        book_id=book.id,
+        author_id=author_b.id,
+        llm_server_id=server.id,
+        model_name="gpt-x",
+    )
+    await _seed_prompt(book.id, author_a.id, prompt_a)
+    await _seed_prompt(book.id, author_b.id, prompt_b)
+    return (
+        TurnContext(chat=chat_a, server=server, resolved_key="resolved-secret"),
+        TurnContext(chat=chat_b, server=server, resolved_key="resolved-secret"),
+    )
+
+
+async def _system_of(monkeypatch, context: TurnContext) -> str:
+    """Run one turn against a fresh fake client and return the `system` it saw."""
+    fake = _install_client(monkeypatch, _FakeClient(chunks=["ok"]))
+    frames = await _run(context, "ask")
+    assert frames[-1].event == "done"
+    return fake.call["system"]
+
+
+async def _seed_http_author(username: str) -> tuple[User, str]:
+    """Seed an author with real credentials on the app's engine; return (user, token).
+
+    Copied from tests/routes/test_books.py's `_seed_user` / `_seed_author`: the
+    schema is built (idempotent `init_db`), the user gets a real bcrypt pwdhash
+    and a per-user signing key, readiness is flipped, and a real access token is
+    minted (auth in route tests is real).
+    """
+    await init_db()
+    user = await users.create(
+        User(
+            username=username,
+            role=UserRole.author,
+            pwdhash=auth.hash_password("password123"),
+            jwt_signing_key=auth.generate_signing_key(),
+            last_key_update=_now(),
+        )
+    )
+    set_db_ready(True)
+    return user, auth.create_access_token(user)
+
+
+# ---------------------------------------------------------------------------
+# DoD-4 — the turn composes the prompt of the chat's OWN author
+# ---------------------------------------------------------------------------
+
+
+# 021/004 DoD-4: two authors of one book, each holding a different stored prompt,
+# produce two DIFFERENT composed prompts -- each turn carries its own chat's
+# author's text and nothing of the other's. (This deliberately reverses UC-093 /
+# US-108's "one book prompt applied to every chat in the book".)
+async def test_two_authors_of_one_book_get_different_prompts__DoD4(
+    db: DbConfig, monkeypatch
+):
+    context_a, context_b = await _two_author_contexts(
+        "AUTHOR_A_RULES", "AUTHOR_B_RULES"
+    )
+
+    system_a = await _system_of(monkeypatch, context_a)
+    system_b = await _system_of(monkeypatch, context_b)
+
+    # Each turn composed its own author's prompt as the author layer...
+    assert system_a == compose_system_prompt(
+        base=BASE_SYSTEM_PROMPT, author="AUTHOR_A_RULES"
+    )
+    assert system_b == compose_system_prompt(
+        base=BASE_SYSTEM_PROMPT, author="AUTHOR_B_RULES"
+    )
+    # ...and nothing of the other author's.
+    assert "AUTHOR_B_RULES" not in system_a
+    assert "AUTHOR_A_RULES" not in system_b
+    # Same book, two different composed prompts.
+    assert system_a != system_b
+    assert context_a.chat.book_id == context_b.chat.book_id
+    assert context_a.chat.author_id != context_b.chat.author_id
+
+
+# 021/004 DoD-4: the prompt is looked up for the chat's (book, author) pair, so a
+# prompt the SAME author holds in a DIFFERENT book never reaches this book's turn.
+async def test_authors_prompt_in_another_book_is_not_used__DoD4(
+    db: DbConfig, monkeypatch
+):
+    context = await _context(author_prompt="THIS_BOOKS_RULES")
+    other_book = await _seed_book(context.chat.author_id)
+    await _seed_prompt(other_book.id, context.chat.author_id, "OTHER_BOOKS_RULES")
+
+    system = await _system_of(monkeypatch, context)
+
+    assert system == compose_system_prompt(
+        base=BASE_SYSTEM_PROMPT, author="THIS_BOOKS_RULES"
+    )
+    assert "OTHER_BOOKS_RULES" not in system
+
+
+# ---------------------------------------------------------------------------
+# DoD-5 — an author with no prompt row composes with no author layer at all
+# ---------------------------------------------------------------------------
+
+
+# 021/004 DoD-5: a turn whose author has no prompt row composes with NO author
+# layer -- no `### AUTHOR` heading, no section, no extra separator -- and every
+# other layer is unaffected (the base layer is exactly what it is with no author
+# argument at all).
+async def test_author_without_prompt_row_gets_no_author_layer__DoD5(
+    db: DbConfig, monkeypatch
+):
+    context = await _context(author_prompt=None)
+
+    system = await _system_of(monkeypatch, context)
+
+    assert system == compose_system_prompt(base=BASE_SYSTEM_PROMPT)
+    assert "### AUTHOR" not in system
+    assert BASE_SYSTEM_PROMPT in system
+
+
+# 021/004 DoD-5 (Interface intent: "No row, or a blank prompt, contributes
+# nothing"): a stored-but-blank prompt composes exactly like no row at all.
+@pytest.mark.parametrize(
+    "stored", ["", "   ", "\n\t  \n"], ids=["empty", "spaces", "mixed_ws"]
+)
+async def test_blank_stored_prompt_composes_like_no_row__DoD5(
+    db: DbConfig, monkeypatch, stored
+):
+    context = await _context(author_prompt=stored)
+
+    system = await _system_of(monkeypatch, context)
+
+    assert system == compose_system_prompt(base=BASE_SYSTEM_PROMPT)
+    assert "### AUTHOR" not in system
+
+
+# ---------------------------------------------------------------------------
+# DoD-6 — Book.system_prompt no longer influences composition
+# ---------------------------------------------------------------------------
+
+
+# 021/004 DoD-6 (021/context.md decision 2 -- the column goes dormant): setting
+# Book.system_prompt to a distinctive value changes nothing in the composed
+# prompt; the author's own text is what is composed.
+async def test_book_column_does_not_reach_composition__DoD6(
+    db: DbConfig, monkeypatch
+):
+    context = await _context(
+        system_prompt="DISTINCTIVE_BOOK_COLUMN_VALUE", author_prompt="AUTHOR_RULES"
+    )
+
+    system = await _system_of(monkeypatch, context)
+
+    assert "DISTINCTIVE_BOOK_COLUMN_VALUE" not in system
+    assert system == compose_system_prompt(
+        base=BASE_SYSTEM_PROMPT, author="AUTHOR_RULES"
+    )
+
+
+# 021/004 DoD-6: with no author prompt at all, a distinctive Book.system_prompt
+# still contributes nothing -- the composed prompt is byte-for-byte what an empty
+# column produces, so the column cannot be the third layer by any path.
+async def test_book_column_value_changes_nothing__DoD6(db: DbConfig, monkeypatch):
+    with_value = await _context(
+        system_prompt="DISTINCTIVE_BOOK_COLUMN_VALUE", username="author-with"
+    )
+    without_value = await _context(system_prompt="", username="author-without")
+
+    system_with = await _system_of(monkeypatch, with_value)
+    system_without = await _system_of(monkeypatch, without_value)
+
+    assert system_with == system_without
+    assert "DISTINCTIVE_BOOK_COLUMN_VALUE" not in system_with
+    assert system_with == compose_system_prompt(base=BASE_SYSTEM_PROMPT)
+
+
+# ---------------------------------------------------------------------------
+# DoD-7 — the column is nevertheless still alive
+# ---------------------------------------------------------------------------
+
+
+# 021/004 DoD-7: a book created through the ordinary path (POST /api/books) still
+# carries `system_prompt` -- the required column is still written at creation
+# (services/books.py is out of scope and keeps writing ""), so it is dormant, not
+# dropped.
+async def test_created_book_still_carries_the_column__DoD7(http_client):
+    _, token = await _seed_http_author("dormant-column-owner")
+
+    resp = await http_client.post(
+        "/api/books",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "title": "A Book",
+            "description": "a description",
+            "collaboration_mode": "free",
+            "visibility": "private",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+    row = await books.get_by_id(int(resp.json()["id"]))
+    assert row is not None
+    # Present and non-null: a required str, written "" at creation.
+    assert isinstance(row.system_prompt, str)
+    assert row.system_prompt == ""
+
+
+# 021/004 DoD-7: the column still round-trips through export and import -- the
+# archive is imported into a FRESH database, so the value can only be there if
+# export wrote it and import read it back (021/context.md decision 2: keep the
+# JSONL codec so existing exports still import).
+async def test_column_round_trips_through_export_and_import__DoD7(
+    db: DbConfig, tmp_path: Path
+):
+    owner = await _seed_user("archivist")
+    book = await _seed_book(owner.id, system_prompt="DORMANT_BUT_ARCHIVED")
+
+    archive = await export_all()
+
+    # A pristine database: nothing of the original rows is present.
+    await init_engine(DbConfig(db_path=tmp_path / "restored.db"))
+    await init_db()
+    assert await books.get_by_id(book.id) is None
+
+    await import_all(archive)
+
+    restored = await books.get_by_id(book.id)
+    assert restored is not None
+    assert restored.system_prompt == "DORMANT_BUT_ARCHIVED"

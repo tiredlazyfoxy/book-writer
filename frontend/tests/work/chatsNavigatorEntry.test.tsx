@@ -37,9 +37,13 @@ import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
 
 // The shell load reads `getBookDetail`; the Book-state landing (the redirect target)
-// also reads the two option arrays — supplied as their real spec-data pairs.
+// also reads the two option arrays — supplied as their real spec-data pairs — and, since
+// 021.per-author-system-prompt / step 006, the caller's own prompt through the two prompt
+// exports. A factory that omits one strips it to `undefined`, so all of them are enumerated.
 vi.mock("../../src/api/books", () => ({
   getBookDetail: vi.fn(),
+  getOwnSystemPrompt: vi.fn(),
+  updateOwnSystemPrompt: vi.fn(),
   COLLABORATION_MODE_OPTIONS: [
     { value: "free", label: "Free" },
     { value: "proposal", label: "Proposal" },
@@ -83,6 +87,19 @@ function LocationProbe(): ReactElement {
 
 beforeEach(() => {
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1"));
+  // The Book-state landing loads the caller's own prompt on mount — a prompt-shaped
+  // resolved value ("" + `modified_at: null` = no stored prompt) keeps that load off the
+  // network and out of the rejected-promise path.
+  vi.mocked(booksApi.getOwnSystemPrompt).mockResolvedValue({
+    book_id: "bk-1",
+    system_prompt: "",
+    modified_at: null,
+  });
+  vi.mocked(booksApi.updateOwnSystemPrompt).mockResolvedValue({
+    book_id: "bk-1",
+    system_prompt: "",
+    modified_at: null,
+  });
   vi.mocked(chatsApi.listChats).mockResolvedValue([]);
   vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
 });

@@ -1,6 +1,7 @@
 import { request } from "./client";
 import type {
   AddMemberRequest,
+  BookAuthorPromptResponse,
   BookDetailResponse,
   BookListResponse,
   BookResponse,
@@ -8,6 +9,7 @@ import type {
   CreateBookRequest,
   SetVisibilityRequest,
   TransferOwnershipRequest,
+  UpdateBookAuthorPromptRequest,
   Visibility,
 } from "../types/books";
 
@@ -129,4 +131,38 @@ export async function setVisibility(
   signal?: AbortSignal,
 ): Promise<BookResponse> {
   return request<BookResponse>(`${BASE}/${bookId}/visibility`, { method: "PATCH", body, signal });
+}
+
+// The per-author system prompt (feature 021). Both calls address **the caller's own**
+// prompt for the book — never the book's, and never another author's; the endpoint has
+// no way to name a user, which is why these are `…OwnSystemPrompt` and not
+// `…BookSystemPrompt`. Consumed unchanged by both writable surfaces (the Shell settings
+// page and the working page's Book-state view).
+
+/**
+ * `GET /api/books/{id}/system-prompt` — the caller's own system prompt for the book.
+ * No row yet is a normal `200` with `system_prompt: ""` — not a `404`.
+ */
+export async function getOwnSystemPrompt(
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<BookAuthorPromptResponse> {
+  return request<BookAuthorPromptResponse>(`${BASE}/${bookId}/system-prompt`, { signal });
+}
+
+/**
+ * `PUT /api/books/{id}/system-prompt` — upsert the caller's own system prompt for the
+ * book. Returns the **stored** prompt, so callers re-seed from the response rather
+ * than re-reading. `system_prompt: ""` clears the prompt — there is no DELETE.
+ */
+export async function updateOwnSystemPrompt(
+  bookId: string,
+  body: UpdateBookAuthorPromptRequest,
+  signal?: AbortSignal,
+): Promise<BookAuthorPromptResponse> {
+  return request<BookAuthorPromptResponse>(`${BASE}/${bookId}/system-prompt`, {
+    method: "PUT",
+    body,
+    signal,
+  });
 }
