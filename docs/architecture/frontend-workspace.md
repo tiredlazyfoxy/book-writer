@@ -1,12 +1,14 @@
 # Frontend Workspace — entries, routes, and the working page
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017; UC-021..037, UC-042, UC-051, UC-071, UC-083, UC-089, UC-090, UC-091, UC-092
+**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017, FEAT-018, FEAT-019; UC-021..037, UC-042, UC-051, UC-069, UC-070, UC-071, UC-076, UC-077, UC-081, UC-083, UC-089, UC-090, UC-091
 
 The book domain's frontend topology: which Vite entries exist, what each serves, and how the working page is built. This is a deep-dive off `frontend.md`, which keeps the MobX/Mantine/API rules that everything here obeys.
 
+**The draft tier moved out.** The restore buffer, the module-state modules beside it, the canvas target registry and the reconciliation view are in **`frontend-work-drafts.md`** — along with UC-092 / US-107, which it now realizes. Features 011 and 013 tripled that material, and it is a subsystem rather than a section of a topology document. This document keeps the entries, the routes and the panes.
+
 ## Five Vite entries
 
-`frontend.md` describes three entries. The book domain takes it to five:
+The book domain took the build from three entries to five; `frontend.md` → `vite.config.ts` carries the config, this table carries what each one serves:
 
 | Entry | Serves | Contents |
 |---|---|---|
@@ -18,7 +20,7 @@ The book domain's frontend topology: which Vite entries exist, what each serves,
 
 **Why the reader is its own entry.** ACT-006 is a different audience that shares nothing with authoring — no codex, no notes, no flags, no book state, no settings, no chat (UC-029 states the exclusion list explicitly). Serving them the authoring bundle would ship every one of those surfaces to someone who may never see any of them, and would make "does a reader have this component?" a runtime question instead of a build-time one.
 
-**Why the working page is its own entry.** It is the heavy surface — an editor, a navigator, and eventually a streaming chat client — and it is the one surface most sessions spend all their time in. Isolating it keeps the Shell (bookshelf, settings, browse views) small and fast to load, which is what someone picking a book actually needs.
+**Why the working page is its own entry.** It is the heavy surface — an editor, a navigator, and a streaming chat client (all three now built) — and it is the one surface most sessions spend all their time in. Isolating it keeps the Shell (bookshelf, settings, browse views) small and fast to load, which is what someone picking a book actually needs.
 
 **Product vocabulary maps onto this cleanly**: `docs/product/`'s "working SPA" is the `work` entry; its "settings-side" surfaces are the Shell.
 
@@ -27,25 +29,29 @@ The book domain's frontend topology: which Vite entries exist, what each serves,
 Stated plainly, because both are real:
 
 - **Crossing from the book hub into the workspace is a full page load**, not a client-side route change. Accepted: it happens once per working session, and the alternative is one bundle carrying every surface.
-- **Auth, `api/` bootstrap and theme setup are repeated per entry.** They already are, for the three existing entries; two more entries repeat the same small cost. The shared code lives in `src/` root (`auth.ts`, `api/`, `theme.ts`) and is imported by each entry, so it is duplicated in bundles, not in source.
+- **Auth, `api/` bootstrap and theme setup are repeated per entry.** They already were, for the three original entries; two more entries repeat the same small cost. The shared code lives in `src/` root (`auth.ts`, `api/`, `theme.ts`) and is imported by each entry, so it is duplicated in bundles, not in source.
 
 ### Build and serving changes
 
-- `vite.config.ts` grows two Rollup inputs (`work`, `read`) alongside `user` / `admin` / `login`.
-- The custom **`spaFallback`** dev plugin (`frontend.md` → `vite.config.ts`) must rewrite deep links under `/work` and `/read` as well, or client-side routes 404 in dev.
-- nginx serves two more static builds and keeps proxying `/api` (`dev-environment.md`, `system-overview.md`).
+- **Done (feature 010).** `vite.config.ts` carries five Rollup inputs — `work` and `read` alongside `user` / `admin` / `login`.
+- **Done (feature 010).** The custom **`spaFallback`** dev plugin (`frontend.md` → `vite.config.ts`) branches `/work` and `/read` before its catch-all `else`, so their deep links resolve in dev instead of 404ing.
+- **Pending, and blocked on something that does not exist.** nginx must serve two more static builds and keep proxying `/api`. Nothing was changed for it, because **`nginx/` and both `docker-compose*.yml` are absent from this repository** — verified at feature 010. The `/work` and `/read` static roots must therefore be added **when that serving layer is first created**, not retrofitted. The same pending item applies wherever `dev-environment.md` and `system-overview.md` describe nginx static roots; they describe a serving layer that is designed but not yet built.
 
 ## Route map
 
 ### Shell (`/`)
 
-| Route | Surface |
-|---|---|
-| `/` | Bookshelf — books owned (UC-022) and shared (UC-030); create a book (UC-021) |
-| `/books/:bookId` | Book hub — chapter skeleton (UC-031..034), open / close / reopen (UC-035..037) |
-| `/books/:bookId/settings` | Archive (UC-023), transfer (UC-024), co-authors (UC-026/027), visibility (UC-028), collaboration mode (UC-042) |
-| `/books/:bookId/codex` | Read-only codex browse (UC-071), members-only |
-| `/books/:bookId/continuity` | Read-only chapter summaries + note changesets (UC-089, UC-051), members-only |
+| Route | Surface | Built? |
+|---|---|---|
+| `/` | Bookshelf — books owned (UC-022) and shared (UC-030); create a book (UC-021) | **yes** (feature 009) |
+| `/books/:bookId` | Book hub — chapter skeleton (UC-031..034), open / close / reopen (UC-035..037) | no |
+| `/books/:bookId/settings` | Archive (UC-023), transfer (UC-024), co-authors (UC-026/027), visibility (UC-028), collaboration mode (UC-042), **the caller's own system prompt** (feature 021) | **yes** (feature 009) |
+| `/books/:bookId/codex` | Read-only codex browse (UC-071), members-only | no |
+| `/books/:bookId/continuity` | Read-only chapter summaries + note changesets (UC-089, UC-051), members-only | no |
+
+Feature 009 delivered the bookshelf and the settings page on the **existing `index.html` Shell entry** — no new entry was needed. The book hub and the two read-only mirrors are still unbuilt, as is the whole `read/` reader entry (its `main.tsx` and a table-of-contents placeholder exist; see `frontend.md` → Folder layout).
+
+**Why the system-prompt editor exists on two surfaces (feature 021).** The same per-author prompt is editable here on `BookSettingsPage` **and** on the working page's Book-state view, deliberately. The settings page aggregates **owner-only** capabilities, but **every author now owns a prompt**, so the editor must also live where **every member** lands — UC-091's Book-state landing view. The two surfaces share the DTOs and the `api/` functions at `src/` root but **not a state class and not a component**: crossing from the `work` entry into the `user` entry would break the folder layout, and each page owns its own state per the page-is-a-route rule. Two editors for one value is duplication only if the reason is unwritten.
 
 The codex and continuity routes here are **read-only mirrors**. All *management* of codex entries, state notes, summaries and flags happens on the working page — a rule product states directly ("all management/editing of codex, state notes, summaries and flags happens ONLY on the working SPA"). Keeping the Shell copies read-only means there is exactly one editing surface per artifact, so draft-until-saved and the restore buffer have one place to live.
 
@@ -60,12 +66,23 @@ The codex and continuity routes here are **read-only mirrors**. All *management*
 | `/work/:bookId/chapters` | chapter list |
 | `/work/:bookId/chapter/:id` | one chapter |
 | `/work/:bookId/characters`, `/locations`, `/facts` | codex lists, one per `kind` |
+| `/work/:bookId/codex/new?kind=<character\|location\|fact>` | a **blank** codex entry of the chosen kind |
 | `/work/:bookId/codex/:id` | one codex entry |
 | `/work/:bookId/variants` | variants list |
 | `/work/:bookId/variants/:chapterId` | one chapter's variants and revisions |
-| `/work/:bookId/chats` | chat list — picking one opens it in the **chat pane**, and the route stays put |
+| `/work/:bookId/chats` | **redirect only** — the chat list lives in the chat pane; see below |
+
+**`codex/new` exists because a blank entry has no id (feature 013).** UC-076 requires a blank entry of a chosen kind to be openable *before any row exists*, and `/codex/:id` cannot express "no id yet". The **kind rides in a query param** rather than in the path because it is view state chosen at navigation time, not an identifier; the route stays deep-linkable either way. It is declared **ahead of** `codex/:id` so the static segment wins.
 
 **The chat id is not in the URL.** The chat pane resolves its own active chat, per book, and does not participate in routing at all.
+
+**`/work/:bookId/chats` is a redirect — resolving this document's own contradiction (feature 011).** The route table used to read as though the chat *list* rendered in the content pane, while the navigator section below says Chats "does not render into the content pane". Two sentences of the same document disagreed. **Product settles it**: US-095.AC-1 and UC-081 step 1 both say "the chat pane's list". As shipped:
+
+- the **list lives in the chat pane**;
+- the **Chats navigator entry is a control over pane state, not a router link** — it uses the `paneTarget: "chat"` discriminator feature 010 already froze on `WorkNavigator`'s items, and renders as a `<button>` that reveals the list without navigating;
+- **`/work/:bookId/chats` survives only as a redirect**, so the deep link this document documented neither 404s nor renders a chat surface in the content pane.
+
+Recorded with its product basis so the next reader does not have to re-adjudicate it.
 
 **Why routes and not query params — the remount collision is not real.** The obvious objection is that a subject route change would remount the page and destroy the chat pane, breaking UC-083's independence. It does not, because **chats are server-persisted per book** (`domain-chat.md`): there is no in-memory conversation to lose. On mount the chat pane re-resolves its active chat from a stored active-chat id for that book, falling back to the **most recent chat by timestamp** when there is none. A remount costs a reload, not a conversation.
 
@@ -77,6 +94,8 @@ Routes are the better fit on their own merits: a chapter and a codex entry are a
 
 Query params keep their existing job inside this page: **filter, sort and mode within a list**, handled in the event handler that changed them, never by a `useEffect` watching the query string (`frontend.md`).
 
+**Feature 013 is the repo's first query-param consumer anywhere in the frontend** — there were zero uses of `useSearchParams` / `URLSearchParams` before it — and the first param is the codex list's **search needle**. The rule held: the query string is read **once**, in the state instance's initializer, so a deep-linked `?q=` filters the first fetch, and it is written **in the submit handler**, never watched. The *mechanism* that makes this possible under the MobX split — the returned-search-string seam — is in `frontend.md` → "Routes and pages"; it is a general rule, not a codex one, so it lives with the rules.
+
 ### Reader (`/read`)
 
 | Route | Surface |
@@ -86,6 +105,8 @@ Query params keep their existing job inside this page: **filter, sort and mode w
 
 Two routes, and there must never be a third that shows anything else. The exclusion list in UC-029 is the spec: no codex, notes, flags, book state, settings or chat.
 
+**Neither route is built.** The `read` entry exists as a **stub** — a table-of-contents placeholder with no router and no gate (`frontend.md` → Folder layout). It was landed with feature 010 only so the fifth Rollup input and the `spaFallback` branch had something to serve. Do not read the stub's shallowness as the designed reader; the two routes above are still the design.
+
 ## The working page
 
 Three regions:
@@ -93,22 +114,37 @@ Three regions:
 ```
 ┌──────────────┬────────────────────────────┬─────────────────────┐
 │  Navigator   │       Content pane         │     Chat pane       │
-│              │                            │                     │
-│ Book state   │   a LIST  ── or ──  an     │  ┌───────────────┐  │
-│ Characters   │                    ITEM    │  │ empty slot    │  │
-│ Locations    │                            │  │ until Stage 5 │  │
-│ Facts        │   draft-until-saved        │  │ (FEAT-013)    │  │
-│ Chapters     │   restore buffer per item  │  └───────────────┘  │
-│ Variants     │                            │                     │
+│              │       <Outlet/>            │                     │
+│ Book state   │   a LIST  ── or ──  an     │  list · settings    │
+│ Characters   │                    ITEM    │  transcript         │
+│ Locations    │   (codex: realized)        │  thinking block     │
+│ Facts        │                            │  composer           │
+│ Chapters     │   draft-until-saved        │                     │
+│ Variants     │   restore buffer per item  │                     │
 │ Chats ───────┼────────────────────────────►  chats open HERE    │
 └──────────────┴────────────────────────────┴─────────────────────┘
 ```
+
+The shell keyed on `:bookId` owns all three regions and does not remount when the content-pane subject changes.
 
 ### Why the workspace lands in Stage 2, not Stage 5
 
 Round 5 established the content pane as **a real editor, free-editable by the user**. Manual block writing (FEAT-009) and manual codex editing (FEAT-017) happen *there*, and both are Stage 2. So the two-pane shell, the navigator, the content pane, the Book-state landing view (UC-091), draft-until-saved and the restore buffer (UC-092) are all **Stage-2 architecture**.
 
-The chat pane's **slot exists in the layout from Stage 2 and stays empty until Stage 5** adds FEAT-013 into it. The alternative — building throwaway standalone editing pages for Stage 2 and replacing them with the workspace at Stage 5 — means writing the same editor twice and migrating the restore buffer between them.
+The chat pane's slot existed in the layout from Stage 2 and was expected to stay empty until Stage 5. The alternative — building throwaway standalone editing pages for Stage 2 and replacing them with the workspace at Stage 5 — means writing the same editor twice and migrating the restore buffer between them. **The slot filled early**: feature 011 landed the chat pane against the Stage-2 shell (see "Chat pane" below), which is the outcome the layout decision was designed to make cheap.
+
+### The shell, the outlet, and who loads what
+
+**The workspace shell renders the repository's first `<Outlet/>` (feature 010).** The precedent is now **deliberately split**, and both halves are correct:
+
+- **`AdminShell` keeps `children`** — its content is passed in by the route element and it has no nested-route structure to project.
+- **`WorkspaceShell` uses `<Outlet/>`** because it is **keyed on `:bookId`** and must not remount when the subject route changes. `children` would force the shell's own element to be rebuilt per subject, destroying the navigator's loaded book and the chat pane's state — exactly what keying on `:bookId` exists to prevent.
+
+An in-code comment on `AdminShell` asserts a repo-wide "no `<Outlet/>` anywhere" property. **That comment is stale** and is flagged here rather than silently left to mislead; the property is now per-shell, not repo-wide.
+
+**Subject pages load their own data by URL id.** The shell's `getBookDetail` load serves the **navigator and header chrome only**; the Book-state landing view **fetches the book again** for itself. This looks like a redundant fetch and is a deliberate one: `useOutletContext` was **rejected because it is React context**, which `frontend.md` bans outright, and warm-starting a page from a parent's data would break "each page loads its own data by URL id, every page is deep-linkable."
+
+**The shell keyed on `:bookId` is treated as the page-level mount** for `frontend.md`'s "`useEffect` only at page level" rule. It is the thing that remounts on a path-param change and owns the load/cleanup lifecycle, so its mount effect is a page-level effect even though a nested route renders inside it. Both of these are non-obvious readings of existing rules, recorded because later features copy them.
 
 ### Navigator (UC-090)
 
@@ -118,7 +154,23 @@ The chat pane's **slot exists in the layout from Stage 2 and stays empty until S
 - **Characters / Locations / Facts** are the one `CodexEntry` table filtered by `kind` — a fixed taxonomy, not three entities.
 - **Chapters** is read/write prose; Book state is the continuity picture. Product records the overlap as accepted and deliberate, not duplication.
 - **Variants** is an addition to the product-final list — see "Divergence" below.
-- **Chats** is the one entry that does **not** render into the content pane: a picked chat opens in the **chat pane** (UC-090 step 5, US-105.AC-3).
+- **Chats** is the one entry that does **not** render into the content pane: a picked chat opens in the **chat pane** (UC-090 step 5, US-105.AC-3). It is a pane control, not a router link — see the route map above.
+
+#### What each section actually shows today
+
+The navigator was built whole at feature 010 with **one** section carrying data and every other one a labelled empty state naming its owner. Two features have filled sections since; the current state is:
+
+| Section | State |
+|---|---|
+| Book state | **has data** — the book's own fields and members (feature 010), plus the caller's own system prompt (feature 021) |
+| Characters / Locations / Facts | **has data** (feature 013) |
+| Chats | **has data** (feature 011), in the chat pane |
+| Chapters | labelled empty state — owner `014.chapter-skeleton` |
+| Variants | labelled empty state — owner `018.chapter-history-variants` |
+
+Within Book state, one deferral survives and is deliberate: **US-106.AC-2/AC-3** — per chapter, its title, summary, after-chapter note changeset and active warnings — is deferred to **`016.chapter-close-continuity`** and ships as a labelled empty state, because no chapter, summary or flag endpoint exists to aggregate. Feature 010's record that the landing view aggregated the **book's own fields only** is retained here as history; it was true of that feature and is no longer true of the page.
+
+A labelled empty state naming its owning feature is the convention, not a placeholder oversight: the navigator's shape is fixed by UC-090 and building it whole once is cheaper than growing it seven times, but an unlabelled blank pane reads as a bug.
 
 **"Warning" is the author-facing word for a flag.** The entity, table, DTOs and API stay `flag` (`domain-continuity.md`); every string the author reads says *warning*. FEAT-016's own product wording is recorded as pending reconciliation, so the UI adopts the new term without half-renaming the code.
 
@@ -132,54 +184,58 @@ The pane holds **either a list or a single item** (UC-090, UC-083). A loaded sub
 | A chapter in **`closing`** | **read-only** — the owner is approving continuity for this exact body (`domain-chapter.md`) |
 | Any `planned` or `closed` chapter | **read-only** (US-097.AC-1) |
 | A codex entry, not archived | editable, per collaboration mode (US-079) |
-| Book state | state notes editable (UC-050); everything else read-only |
+| Book state | state notes editable (UC-050) **and the caller's own system prompt** (feature 021); everything else read-only |
 | Any list | read-only |
 
-A read-only subject refuses writes **from the author and from the assistant alike** (US-097.AC-2, US-059.AC-3). Enforcing it in one place — the subject model, not per-component — is what makes that symmetry hold when the assistant arrives at Stage 5, and it is why adding `closing` to the chapter state machine cost one row here rather than an audit of every write path.
+**The Book-state row gained exactly one editable region (feature 021).** The caller's own per-author system prompt is editable there; the rest of the view stays read-only. It is deliberately **outside the draft-until-saved restore buffer**: the buffer exists for large content-pane artifacts whose loss is expensive, while this is a short settings field edited from **two** surfaces (here and the Shell's book settings), and buffering it on one but not the other would be incoherent. Consequently the field has **no `baseVersion`, no stale-buffer detection, no divergence view and no 409 path** — the row has exactly one writer, its owner. An editable field missing from this table is drift, and the exclusion is sanctioned in `frontend-work-drafts.md` → "Sanctioned exclusions" the same way the buffer's inclusions are.
+
+**`src/work/subject.ts` is the single enforcement point** for this table — the one place editability is decided, not per-component. That is what makes the symmetry in US-097.AC-2 / US-059.AC-3 hold, and it is why adding `closing` to the chapter state machine cost one row here rather than an audit of every write path. `resolveEditability` returns the verdict and the author-facing read-only reason; `checkWritePermission` is the writer-agnostic gate derived from it.
+
+**It is now wired, and its open note is closed (feature 013).** Written by feature 010 and until then imported only by `restoreBuffer.ts`, `subject.ts` is now the live subject model: `resolveEditability` drives the codex entry page's **read-only banner**, and `LoadedSubject` is what the canvas target registry holds and what the assistant turn request is built from. Its in-code note — that "the free/proposal collaboration-mode nuance is `013.codex`'s to apply" — is **closed**: the nuance is applied **server-side**, where a co-author's write in a proposal-mode book is refused with **403**, so `subject.ts` needed no change at all. The assistant and the author are refused **by the same rule at the same place**, which is exactly what US-097.AC-2's symmetry asked for. A file written for a future feature and then satisfied differently must say so, or its note reads as unfinished work forever.
+
+**Two implementations, two vocabularies, on purpose.** The table now has a second implementation: `backend/app/services/codex_tools.py::_refuse_write` is the assistant's **server-side mirror** of `frontend/src/work/subject.ts::checkWritePermission`. They speak different languages by design:
+
+| Writer | Refusal lives in | Refusal looks like |
+|---|---|---|
+| The author's save | `services/codex.py` | the **403 / 400 / 409** HTTP taxonomy that service owns |
+| The assistant's canvas write | `services/codex_tools.py::_refuse_write` | a **tool string the model reads** |
+
+The assistant's refusal is a string rather than a status because **a raising tool would abort the turn** — the model must be told *no* and allowed to continue, where the author's client must be told *no* and shown why. Same rule, same subject model, two surfaces. `assistant-runtime.md` holds the server half.
 
 The subject is **independent of the active chat**: loading a chapter does not change which chat is open, and switching chats does not change the subject. Because both sides are persisted — the chapter on the server, the chat on the server, the unsaved draft in the restore buffer — that independence survives navigation and reload rather than depending on either staying mounted.
 
-## Draft-until-saved and the restore buffer
+### The pane's first real pages (feature 013)
 
-**Realizes:** UC-092, US-107; closes the CF-r6 conflict question with `domain-model.md`
+The content pane is `<AppShell.Main><Outlet/></AppShell.Main>` and stays that way — **no content-pane state class was introduced.** Each page owns its own state, per the page-is-a-route rule, and the pane itself holds none. Two pages realize the "a LIST — or — an ITEM" shape:
 
-Edits in the content pane are **drafts until explicitly saved**. Nothing reaches the server, and nothing reaches a co-author, until the author saves (US-103.AC-3, US-107.AC-4).
+- **`CodexListPage`** — **one parameterized page** serving `/characters`, `/locations` and `/facts`, with the `kind` fixed by the route rather than by a prop the user can change. Three routes, one component, because the three lists differ only in a filter value.
+- **`CodexEntryPage`** — serving both `/codex/:id` and `/codex/new?kind=…`, the latter as a blank entry with no row behind it.
 
-### Buffer design
+This is the pattern chapters and variants follow: a page per route, its own state class beside it, its own load in its own page-level effect, and nothing owned by the pane.
 
-| Property | Decision |
+### Chat pane (feature 011)
+
+The slot is no longer empty. Feature 010's `ChatPaneSlot` placeholder is gone — the slot is now a one-line adapter onto the real pane, and the pane's parts live in `src/work/components/chat/`:
+
+| Part | Role |
 |---|---|
-| Storage | **`localStorage`** — device-local browser storage |
-| Scope | one buffer **per item**, keyed `(bookId, subjectKind, subjectId)` |
-| Contents | the draft text, the `Chapter.version` (or codex entry `modified_at`) it forked from, and when it was written |
-| Privacy | private to the author, on that device; **invisible to co-authors** (US-107.AC-3) |
-| Lifetime | survives navigating away, a full reload, and closing the browser (US-107.AC-1/AC-2) |
-| Loss | **lost if browser data is cleared** — accepted and stated to the author |
-| Status | **never a substitute for saving** |
+| `ChatPane.tsx` | the pane itself — header, controls, and which sub-surface is showing |
+| `ChatList.tsx` | the book's chats, with the active marker, per-row archive/restore and an archived toggle |
+| `ChatSettingsPanel.tsx` | per-chat model and sampling, shared by the new-chat form and the settings view |
+| `MessageList.tsx` | the transcript, plus the in-flight bubble while a turn streams |
+| `ThinkingBlock.tsx` | the collapsible reasoning region |
+| `Composer.tsx` | the prompt input with send / stop and the retry banner |
+| `chatPaneState.ts` | the pane's single state class |
 
-**`localStorage`, not `sessionStorage`**, because product requires the buffer to survive a full reload and be there "next day" — `sessionStorage` dies with the tab. **Not the server**, because the buffer is explicitly device-local and private; persisting drafts server-side would make them co-author-visible content the moment anything queried them, which is the opposite of the requirement.
+**One state instance, owned by the shell.** `WorkspaceShell` owns the `ChatPaneState`, starts its load in its existing mount effect, and passes the instance down; the navigator gets a zero-arg handler, not the state. The full pattern and its reasoning are in `frontend.md` → Components, because it is a general rule with a worked example here rather than a workspace-specific arrangement.
 
-**Keyed per item, not per pane**, so editing chapter 3, jumping to a codex entry and coming back restores chapter 3's draft rather than the last thing typed anywhere.
+**The pane is a client of the assistant, not its design.** Prompt composition, the tool loop, mode gating and the five-frame SSE vocabulary (`thinking` / `delta` / `done` / `error` / `canvas`) are in `assistant-runtime.md`. What this document fixes is that the pane exists, that chats open in it, and that a chat is independent of the content-pane subject.
 
-**Accepted limitation — quota.** `localStorage` is a few megabytes per origin, and a chapter body is not small. When a write hits quota, the oldest buffers are evicted, oldest-first, and the author is told. Silently dropping the buffer they are currently typing into would be the one unacceptable outcome, so the *current* item's buffer is never the eviction victim.
+## Draft-until-saved and the restore buffer — moved
 
-### Where the buffer lives in the state ladder
+Edits in the content pane are **drafts until explicitly saved**: nothing reaches the server, and nothing reaches a co-author, until the author saves (US-103.AC-3, US-107.AC-4). That is the one fact this document needs.
 
-**Module-level state in the `work` entry, not `<Page>State`.** `frontend.md`'s ladder puts app-lifetime state at the module level (`auth.ts` is the existing example, and it already reads `localStorage`). The buffer must outlive any page-state instance by definition — surviving a reload is the requirement — so a page-scoped home would be wrong even before the remount question. The buffer module exposes plain functions (`readBuffer(key)`, `writeBuffer(key, draft)`, `clearBuffer(key)`); it is not a reactive store, matching how `auth.ts` is treated.
-
-This is a **sanctioned exception** to `frontend.md`'s "URL query params are the persistence layer" rule. That rule is about *view* state — filter, sort, mode, scroll anchor — which is small, shareable and belongs in a bookmarkable URL. Draft content is none of those things: it is large, private, and must not travel in a link. Recorded here so the exception is deliberate rather than drift.
-
-**The active-chat pointer lives in the same module tier.** The chat pane needs to know which chat to reopen for a book after a remount or a reload. That pointer is one id per book, device-local, stored beside the buffer — not in the URL (a chat is private, so it must not travel in a shared link) and not on the server (it is view focus, not book content). Losing it is harmless: the pane falls back to the **most recent chat by timestamp**, which is what a returning author almost always wants anyway. The conversation itself is never at risk — it is server-persisted (`domain-chat.md`).
-
-### Returning to a stale buffer
-
-When a buffer's recorded base version does not match the server's current version, it is a **visible merge problem — never an auto-merge** (`domain-chapter.md` → "Concurrency"):
-
-1. The pane shows the server's current text **against** the buffered draft.
-2. The author reconciles manually. This path **ships with the buffer** and is not optional.
-3. An LLM-assisted merge is offered as a **Stage-5** capability, once the assistant subsystem exists.
-
-A save carrying a stale base version is refused by the server with **409**; the client's job is to turn that refusal into the reconciliation view above rather than a raw error. This is also what US-041's "warn the second author" looks like in the UI — the warning *is* the divergence view.
+Everything else about it — the buffer design table, the `localStorage` reasoning, the module-state tier it lives in and its two siblings (`activeChat.ts`, `contentSubject.ts`), the principal-text-field rule, the canvas target registry, and the two entrances to the reconciliation view — is in **`frontend-work-drafts.md`**. It moved there when features 011 and 013 turned one section into a subsystem.
 
 ## Divergences from `docs/product/`
 
@@ -197,10 +253,10 @@ Everything in `frontend.md` still binds — they are listed because a page this 
 - **Async resource trio** per loadable — the working page has several (subject, list, book state), so it has several trios and no aggregation type.
 - **No custom `useX` hooks**, no `useCallback` / `useMemo` / `useReducer`. `useEffect` only at page level.
 - **All HTTP in `src/api/`**; entity ids are `string` in every DTO.
-- The eventual chat stream uses `api/sse.ts`'s `streamPost()`, not `EventSource`.
+- The chat stream uses `api/sse.ts`'s `streamPost()`, not `EventSource`. It is the repo's first call site and it bent two conventions — a refresh awaited before the stream opens, and an effect that takes no trailing `signal` because the stream owns its own `AbortController`. Both are sanctioned and both are recorded in `frontend.md` → SSE / streaming, not here, because the next streaming surface will meet them wherever it lives.
 
 ## Out of scope
 
 - **Pane orientation, resize/divider behaviour and ratio persistence.** Product routes these to `/architect` but this pass does not settle them; they are layout mechanics with no dependency on anything above.
-- **Everything inside the chat pane.** The FEAT-013 assistant — context assembly, tool protocol, the agent loop, the SSE event protocol for shared-canvas writes, scoped checks (UC-088), web search (UC-087) — is undesigned and gets its own session before Stage 5 (`domain-chat.md` carries the full boundary). This document fixes only that the slot exists, that chats open in it, and that a chat is independent of the content-pane subject.
+- **The assistant's internals.** They are no longer undesigned — `assistant-runtime.md` and `assistant-config.md` hold them — but they are not this document's. What remains genuinely undesigned there (context assembly, scoped checks UC-088, token budgets, the shared-canvas protocol for **chapters**) is bounded in those files, not here.
 - **The admin moderation view** (FEAT-011, Stage 6) — an Admin SPA surface, not one of these entries.

@@ -56,6 +56,12 @@ It is a typed structure, not a dict, per the no-free-dictionaries rule (`backend
 
 **Why resolve in a dependency rather than in each service?** Because the resolution is request-scoped, identical for every book endpoint, and needs the same DB reads every time. Doing it once per request in one place also means the "book does not exist / caller cannot see it" answer is produced in exactly one place, which is what makes the existence-hiding rule below reliable.
 
+### As delivered — the spine
+
+Feature **`009.books`** (`docs/plans/009.books/`) is the **first implementation** of both halves: the `book_access` dependency that resolves `BookAccess`, and `services/authz.py` holding the `_CAPABILITY_MATRIX` and its single `require(access, capability)` entry point. What it populated is the owner-only lifecycle/settings rows of the matrix below, plus the reader `read_book` rows. Every book-scoped route family shipped since binds to that spine rather than re-deriving a check.
+
+Two parts of the resolver remain deferred to **FEAT-011**: **`admin` role resolution** (nothing resolves a caller to the `admin` role in the book-access sense yet) and the **quarantined / destroyed gates** in "Book state and visibility gates" below. Both are moderation-side, and FEAT-011 is Stage 6.
+
 ## Capability × role matrix
 
 `—` = refused. Where a row says *mode*, the book's `collaboration_mode` decides whether a co-author's change applies immediately (free) or is held as a proposal for the owner (proposal).
@@ -107,6 +113,29 @@ Two chapter rules are **state-machine constraints, not authorization**, and appl
 | **Resolve a flag (UC-068)** | ✓ | — | — | — |
 | **Run a consistency check (UC-064)** | ✓ | — | — | — |
 
+#### The codex capabilities, as built
+
+Feature `013.codex` added **two `Capability` members** and the matrix rows behind them — the first rows of this table with code behind them:
+
+| Capability | Owner | Co-author | Reader | None |
+|---|---|---|---|---|
+| Browse / search the codex (UC-071) | ✓ | ✓ | — | — |
+| Create / edit a codex entry (UC-069, UC-070) | ✓ | ✓ | — | — |
+
+**The `(mode)` qualifier in a co-author cell is not expressible in `_CAPABILITY_MATRIX`.** The matrix maps **capability → role set** and has **no vocabulary for the book's collaboration mode**, so the mode rule lives one layer up, in `services/codex.py` — the same layering feature `011.chat-panel` used for chat row-ownership. That is now a **pattern rather than a one-off**: two features have layered a non-role rule on top of the matrix rather than widening the matrix to carry it. Widening it would mean every capability lookup grew a dimension that almost no capability uses, and the two features that needed one needed *different* extra dimensions (mode, and row ownership).
+
+Status codes the four codex routes produce:
+
+| Situation | Status |
+|---|---|
+| Non-member of a **private** book (all four routes) | **404** — existence hiding |
+| Reader of a **public** book | **403** — the book is legitimately visible, the codex is not |
+| Co-author writing in a **`proposal`-mode** book | **403** — typed reason naming FEAT-010 as unbuilt (`domain-codex.md`) |
+| Stale `modified_at` on an edit | **409** |
+| Kind/name violation, or an edit to an archived entry | **400** |
+
+**Archive (UC-072) is not part of this** — feature `013.codex` added no archive capability and no archive route; it is `017.codex-archive-restore`'s. The matrix row above that pairs archive with create/edit predates the split and should be read as the *design*, not as shipped code.
+
 ### Cloning
 
 | Capability | Owner | Co-author | Reader | Admin |
@@ -119,9 +148,30 @@ Two chapter rules are **state-machine constraints, not authorization**, and appl
 
 Note the resolution recorded as finding R4-2: cloning a public book is a **co-author** capability (ACT-005, a member), not a reader one. ACT-006 has no clone use case, and the members-only codex is therefore never exposed by a clone.
 
-### Chats
+### Chats and per-author prompts — two row-ownership rules
 
-A chat is **private to its author**, including from the owner (US-061.AC-1). No role reaches another user's chat — this is not a matrix row but an ownership rule on `Chat.author_id`, enforced on every chat read and write. Only the *saved output* of a chat is shared (US-061.AC-2).
+Some rows belong to **one member**, not to a role. The matrix cannot express that: it maps **capability → role set** and has **no notion of "author of this row"**. Both rules below are therefore enforced one layer up — the `book_access` dependency establishes *membership*, and the owning service then scopes the row. **No `Capability` member and no `_CAPABILITY_MATRIX` row was added for either.**
+
+One such rule reads as a special case; **two read as a pattern**. The next feature that needs one should copy the shape from here rather than inventing a matrix concept for it.
+
+**Chats — `Chat.author_id`.** A chat is **private to its author**, including from the book's owner (US-061.AC-1). No role reaches another user's chat. Only the *saved output* of a chat is shared (US-061.AC-2). Enforcement is a **service-level ownership check in `services/chats.py`, layered over the `book_access` dependency** (feature `011.chat-panel`). A chat belonging to **another author answers `404`, not `403`** — the same existence-hiding reasoning as a private book under "Failure modes" below: a `403` would confirm that the chat exists and whose it is, which is precisely what US-061.AC-1 is protecting.
+
+FEAT-020's admin-only assistant configuration is **consumed inside an author's own chat**, gated by this same ownership rule — exactly as the FEAT-020 section below predicts. The admin shaped how the assistant behaves; the author runs it on their own material.
+
+**Per-author system prompts — `BookAuthorPrompt`** (feature `021.per-author-system-prompt`, `domain-book.md`). **Every member owns exactly one prompt per book and may read and write only their own.** Nobody — **including the owner** — reads or writes another author's. The `book_access` dependency establishes membership, then the service **scopes every read and write to `access.user_id`**; there is no route shape in which a caller can name someone else's row.
+
+The route pair `GET` / `PUT /api/books/{book_id}/system-prompt` produces:
+
+| Situation | Status |
+|---|---|
+| No token | **401** |
+| Private book the caller has no relationship to | **404** — produced by `resolve_book_access`, **not re-derived** in the service |
+| Logged-in **non-member** of a book they can see | **403** |
+| Member acting on their **own** prompt | **200** |
+
+Producing the `404` in the resolver rather than in the service is what keeps existence hiding to one implementation, per "Enforcement" above.
+
+**Collaboration mode does not apply to a prompt.** A prompt is an author's instruction to **their own assistant**, never book content, so there is nothing for an owner to review and no proposal state to hold — unlike a codex entry or a chapter block, whose text lands in the book. This is why the rule is row ownership and not a *(mode)*-qualified capability.
 
 ## The admin boundary
 
@@ -139,7 +189,9 @@ UC-025 (reassigning a disabled owner's book) is an admin capability over the boo
 
 **Authors never view or configure it**, in any collaboration mode, at any visibility. This is the **same admin-interface-only pattern as FEAT-011's moderation view**, and it is **not a breach of "an admin never participates in a book"** (above): configuring how the assistant behaves is **global assistant config, not book participation**. The admin is not writing into, moderating, or reading any specific book by editing a mode's prompt or creating a sub-agent — they are configuring a platform capability that authors then use inside their own books. Attribution (US-040.AC-2) is untouched, because the admin never becomes an author of any book's content.
 
-The runtime *consumption* of this config (the assistant composing prompts, gating tools, delegating to sub-agents) happens **inside an author's own chat**, gated by the ordinary chat ownership rule (`Chat.author_id`, below) — the author runs the assistant on their own material; the admin only shaped how it behaves. Full model and runtime: `assistant-config.md`.
+The runtime *consumption* of this config (the assistant composing prompts, gating tools, delegating to sub-agents) happens **inside an author's own chat**, gated by the ordinary chat ownership rule (`Chat.author_id`, above) — the author runs the assistant on their own material; the admin only shaped how it behaves. Full config model: `assistant-config.md`; the runtime that consumes it: `assistant-runtime.md`.
+
+**Built as written** (feature `012.assistant-config-editor`): the admin editor implements exactly the rule above — `require_role(admin)`, no `BookAccess` capability, no matrix row, authors never reach it — **with no divergence and no new failure mode**. Stated explicitly so that the absence of an authorization entry for FEAT-020 reads as a match rather than as an oversight.
 
 ## Book state and visibility gates
 
@@ -171,6 +223,8 @@ The `401` / `404` / `403` split is the same taxonomy the existing admin routes u
 Recorded rather than guessed:
 
 - **Whether an archived book refuses writes.** UC-023 says content and history are preserved and archive is reversible; nothing states whether a member may keep writing into an archived book. The matrix above is written for `active`; the archived row inherits it pending a decision.
+
+  **Still open after feature `009.books`, deliberately.** 009 delivered the `BookAccess` resolver and the `authz` spine, and `BookAccess` **does resolve `book_state`** — so the information a refusal would need is already at hand. But 009 built **no write-refusal capability at all**, because **nothing in 009 writes book content**: the behaviour could be neither exercised nor decided there. It is deferred to the write features (`010` / `014`), which are the first to have something to refuse.
 - **The moderation view's route surface and DTOs** — FEAT-011 is Stage 6 and its architecture is out of scope here. This document fixes only that the surface is separate, admin-only, read-only, and reaches the codex.
-- **Who may edit the book- and chapter-level system prompts.** No product requirement covers them at all — see `domain-model.md` → "Product divergences", item 3.
-- **Proposal review for notes and codex entries.** FEAT-010's own `_TBD:` says only block proposals have a use case today; this matrix marks note and codex edits *(mode)* without designing the review surface for them.
+- **Who may edit the *chapter*-level system prompt.** Open — but **for a different reason than when this list was first written**. It was open because no product requirement covered it; FEAT-019 then covered it (any member), and feature `021.per-author-system-prompt` has since removed **the layer a chapter prompt narrowed** (`domain-chapter.md`). The question is no longer "who may edit it" in isolation but *what the field means at all*, and it is `014.chapter-skeleton`'s to answer after `/product-spec` rewrites FEAT-019. **The book-level half of this bullet is settled and has moved into the body** — see "Chats and per-author prompts — two row-ownership rules".
+- **Proposal review for notes and codex entries.** FEAT-010's own `_TBD:` says only block proposals have a use case today; this matrix marks note and codex edits *(mode)* without designing the review surface for them. **Codex has since taken an interim position rather than waiting**: a co-author's write in a proposal-mode book is **refused with `403`** rather than held, because there is nothing to hold it in (see the codex subsection above and `domain-codex.md`). That is a decision about the *gap*, not a design of the review surface — the surface is still open.

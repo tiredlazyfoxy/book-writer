@@ -42,3 +42,12 @@ finalization. The coder appends `## Observations` at the bottom.
 - **FEAT-007 block.** Intended change: add
   `**Delivered:** docs/plans/009.books/ (YYYY-MM-DD)` — noting US-028.AC-2 / AC-3
   remain deferred (blocks/attribution land with chapters). Reason: same convention.
+
+---
+Status: Applied 2026-07-29
+Applied items: 4
+Rejected items: 0
+
+All four architecture items applied **as written**, in `authorization.md` (2), `domain-book.md` → "Visibility" (1) and `frontend-workspace.md` → "Route map → Shell" (1). Additionally, the `/api/books` route family, its DTOs and its 401 / 404-existence-hiding / 403 / 409 taxonomy were indexed in `quick-reference.md`, sourced from this feature's `status.md` (`## Skeleton`); `backend/features.md` records the as-shipped section as **owed** rather than reconstructing it from source.
+
+The two **`docs/product/features.md`** items are **`/product-spec`'s and were not applied** — product finalization has not run, so no `**Delivered:**` markers were written to `docs/product/`.

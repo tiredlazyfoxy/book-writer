@@ -66,17 +66,22 @@ Agents (coder, fast-coder, verifiers, fixers) read commands from this section. I
 ```
 BookWriter/
   backend/            FastAPI app: app/{routes,services,db,models}/, tests/, pyproject.toml, .venv
-  frontend/           Vite MPA: index.html + admin/index.html + login/index.html;
-                      src/{api,types,utils,components,user,admin,login}/, theme.ts, global.css
-                      (the book domain adds work/ and read/ entries — designed, not built:
-                       docs/architecture/frontend-workspace.md)
-  nginx/              dev.conf + prod.conf
+  frontend/           Vite MPA, five entries: index.html + work/index.html + read/index.html
+                      + admin/index.html + login/index.html;
+                      src/{api,types,utils,components,user,work,read,admin,login}/,
+                      theme.ts, global.css
+                      (src/work/ is real — the working page; src/read/ is a STUB:
+                       a table-of-contents placeholder, no router, no gate.
+                       See docs/architecture/frontend-workspace.md)
+  nginx/              PLANNED — NOT YET CREATED. dev.conf + prod.conf
   docs/               product/ + architecture/ + plans/
-  docker-compose.dev.yml, docker-compose.prod.yml
+  docker-compose.dev.yml, docker-compose.prod.yml   PLANNED — NOT YET CREATED
   start.ps1, build.ps1
   .env.local          (gitignored)
   CLAUDE.md
 ```
+
+- **`nginx/` and both `docker-compose*.yml` do not exist in this repository yet.** They are the intended shape of a serving layer that has not been built — do not assume a file there, and do not "fix" a path by pointing at one. When that layer is first created it must add static roots for **`/work` and `/read`** as well as `/`, `/admin` and `/login`; the two newer entries have no location block to be retrofitted into. Reasoning: `docs/architecture/dev-environment.md` → "Docker & production".
 
 - `docs/product/` — what the system is for and how it must behave (`ACT`/`FEAT`/`UC`/`US` ids). Sits **before or alongside** architecture, never after. Written only by the product-spec pipeline; everyone else reads and cites it.
 - `docs/architecture/` — finalized architecture and design documentation

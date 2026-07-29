@@ -332,6 +332,21 @@ file. The coder appends `## Observations` at the bottom.
   closed by a design choice. Nothing for `/product-spec` to do unless the user decides a criterion.
 
 ---
+Status: Applied 2026-07-29
+Applied items: 24
+Rejected items: 0 (1 applied with observations folded in; 3 observations promoted — notes below)
+
+Items 1–6 landed in the **new `assistant-runtime.md`** (carved out of `assistant-config.md` on 2026-07-29, when this feature and `011.chat-panel` built the runtime out past the folder's ~400-line rule); the rest in `domain-chat.md`, `retrieval.md`, `domain-codex.md`, `authorization.md`, `frontend-workspace.md`, `frontend-work-drafts.md` (items 21–23, the draft tier, which moved there in the same split) and `backend/features.md`. The four codex endpoints, their DTOs, the 400 / 403 / 404 / 409 taxonomy, the `canvas` frame and the widened `ToolDef` / `ToolContext` are indexed in `quick-reference.md`.
+
+- **Item 9 (chunker parameters) applied with four coder observations folded in**, so the recorded numbers are not read as more exact than they are: the **single-chunk threshold is measured on the body** (the name prefix is charged to the first window only when a body is split), the **overlap is paragraph-aligned** — a target, not an exact character count — the **name prefix lands on the first chunk only**, and **both maintenance paths refuse a batch whose vector count disagrees with its chunk count** rather than `zip`-truncating.
+- **Items 3 and 5 anchor the folded sections** that `011.chat-panel`'s items 6 and 7 were merged into — the three-case tool gating and the `chat_with_tools` seam with its canvas exception.
+- **Three `retrieval.md` failure-mode corrections were promoted from `## Observations` to the document**, because one of them fixed a doc-vs-code contradiction rather than adding detail: the doc claimed a dimension mismatch on an incremental write "is refused with a typed error", but **the incremental path never raises** — every failure is a typed `IndexOutcome` return, logged at warning level, because its caller is the author's save path. The other two record the post-import rebuild's log-and-swallow contract and the dropping of hits whose source row is gone or archived.
+
+The two **non-architecture follow-ups** in this file were **not actioned** and remain open: `/product-spec` owns FEAT-017 / FEAT-018 / FEAT-020's `**Delivered:**` markers and the status of the knowingly-unmet **US-079.AC-2** (a co-author's write in a `proposal`-mode book is refused with 403, since FEAT-010 has no proposal entity); **UC-078's relevance `_TBD:` stays open** by design — this feature shipped pull-only search with a result limit and no score threshold precisely so a design choice would not close a product question.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` markers were written to `docs/product/`.
+
+---
 
 ## Observations
 

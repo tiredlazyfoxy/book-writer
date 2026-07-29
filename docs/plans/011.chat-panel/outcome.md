@@ -208,6 +208,20 @@ apply at finalization. The planner writes this section; the coder appends `## Ob
     **Reason:** the first real consumer of the field exists now, which raises the cost of leaving the
     gap unrecorded.
 
+---
+Status: Applied 2026-07-29
+Applied items: 22
+Rejected items: 0 (3 folded or modified — notes below)
+
+The **runtime** items landed in the **new `assistant-runtime.md`**, carved out of `assistant-config.md` on 2026-07-29 when this feature and `013.codex` built the runtime out and the combined file outgrew the folder's ~400-line rule. The rest landed in `assistant-config.md`, `domain-chat.md`, `domain-book.md`, `backend/features.md`, `backend/persistence.md`, `frontend.md` and `frontend-work-drafts.md`; the endpoints, DTOs, new `Chat` / `ChatMessage` columns, the five SSE frames and the two `src/api/` seams are indexed in `quick-reference.md`.
+
+Modifications:
+
+- **Item 7 (prompt composition) and item 6 (tool gating) were folded rather than applied serially.** Feature `013.codex` settled both — gating became a **three-case** rule with `BASE_TOOL_NAMES`, closing the `resolve_tools(None)` seam this item opened; and feature `021.per-author-system-prompt` renamed layer 3 from `BOOK` to `AUTHOR`. Applying this feature's interim wording and then overwriting it twice would have produced a doc that was wrong at every intermediate state; the final rule is recorded with **both** as decision history.
+- **Item 22 (the `Book.system_prompt` wire gap) narrowed to `active_notes` only**, same reason as `010.working-page`'s item 11: the column is now dormant, so "whichever feature first lets an author edit the book prompt" describes work that will never happen.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` markers were written to `docs/product/`.
+
 ## Observations
 
 - Step 003: `create_model_client` was added beside `_create_client` sharing the extracted `_construct_client` `backend_type` branch, and `run_turn` enters it as an `async with` so the session closes on every path. The pre-existing `_create_client`/`list_models` session leak (outcome item 10) is left untouched — confirmed out of scope. Possible impact: track item-10's `list_models` leak fix as its own backlog task.

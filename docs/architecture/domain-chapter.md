@@ -17,7 +17,7 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 | `text` | **the single main body** |
 | `summary` | the backward-looking summary (FEAT-012, drafted on close request, owner-approved) |
 | `summary_status` | `draft` \| `approved` \| `stale` — the summary's own continuity status |
-| `system_prompt` | optional; **appends to** the book's, narrowing it |
+| `system_prompt` | optional; **the layer it narrowed no longer exists** — see below. Untouched and unread by the composer |
 | `version` | int, bumped on every applied change |
 | `created_at` / `modified_at` | timestamps |
 
@@ -25,7 +25,17 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 
 **One `text`, not a block table.** See `ChapterChange` below: blocks are *changes applied into* a body, not rows the body is assembled from.
 
-**The chapter system prompt appends to the book's, it does not replace it.** The book-wide voice always applies; a chapter prompt narrows it. Replacing would let one chapter silently escape the book's voice, which is the opposite of what a book-level prompt is for. Neither prompt field has a product requirement behind it — see `domain-model.md` → "Product divergences", item 3.
+**The chapter system prompt has lost its base layer.** It was designed to *append to* the book-wide prompt rather than replace it — the book's voice always applies, a chapter prompt narrows it. **That book-wide layer no longer exists.** Feature `021.per-author-system-prompt` replaced `Book.system_prompt` with a per-author prompt (`domain-book.md` → `BookAuthorPrompt`), so there is nothing left for a chapter prompt to narrow.
+
+Concretely, as of feature `021`:
+
+- The **column is untouched** and **still unread by the composer** — nothing in the runtime reads `Chapter.system_prompt` today.
+- The **in-code docstring on the column still says "appends to the book's" and is now stale.** Feature `021` flagged it deliberately rather than editing it, because the field's replacement wording is a design decision, not a comment fix.
+- **Redefining what a chapter prompt narrows is `014.chapter-skeleton`'s work**, and only *after* `/product-spec` has rewritten FEAT-019 (UC-094 / US-109 rest on the removed layer; **US-109.AC-3** — "with no chapter prompt, only the book's system prompt applies" — names it outright).
+
+**No replacement semantics are invented here.** `014.chapter-skeleton` is about to be planned against this field, and handing it a base layer that was removed would be worse than handing it an explicit open question.
+
+Divergence item 3 in `domain-model.md` (the system prompts had no requirement behind them) is **partly reversed** by the open item 5 there; read both before designing on this field.
 
 `summary` lives on the chapter but belongs to the continuity story; how it is drafted, approved and viewed is `domain-continuity.md`.
 

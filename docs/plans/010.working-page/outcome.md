@@ -89,4 +89,19 @@ apply at finalization. The planner writes this section; the coder appends `## Ob
     needs them must extend the books API response and `src/types/books.d.ts` together.
     **Reason:** UC-091's landing view is the first consumer of both fields and hits the gap directly.
 
+---
+Status: Applied 2026-07-29
+Applied items: 11
+Rejected items: 0 (3 modified — notes below)
+
+Landed in `frontend.md`, `frontend-workspace.md`, `frontend-work-drafts.md` (the draft-tier items moved there when the file was split) and `domain-book.md`.
+
+Modifications, all because later features overtook the wording:
+
+- **Item 11 (the wire gap) narrowed to `active_notes` only.** Feature `021.per-author-system-prompt` made `Book.system_prompt` **dormant**, so documenting how to expose it would point the next reader at a dead column. `domain-book.md` records the `system_prompt` half as **dissolved rather than closed** — replaced, not exposed.
+- **Item 10 (navigator empty states) updated to current state.** Features 011 and 013 filled the Chats and Characters/Locations/Facts sections it described as empty; only the chapter, variants and continuity sections remain empty states naming their owners.
+- **Item 8's "no editable subject wired yet" superseded by feature `013.codex`**, which shipped the codex entry page as the content pane's first real editor.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` markers were written to `docs/product/`.
+
 ## Observations

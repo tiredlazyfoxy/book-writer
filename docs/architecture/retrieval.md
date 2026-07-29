@@ -65,6 +65,23 @@ The strategy differs by corpus because the corpora differ in shape:
 
 **Chunk size and overlap are tuning parameters, not architecture.** They are bounded by the embedding model's input window and belong with the chunker, set when it is built and adjustable without touching anything else. Pinning numbers here would freeze a value that depends on a model the operator chooses at runtime.
 
+### The codex chunker, as built
+
+Feature `013.codex` set the first corpus's values as **named module constants** — adjustable without touching anything else, exactly as the rule above intends:
+
+| Parameter | Value |
+|---|---|
+| Chunk size | **1200 characters** |
+| Overlap | **200 characters** (a target — see below) |
+| Single-chunk threshold | **equal to the chunk size** |
+
+Four properties of the as-built chunker are worth more than the numbers, because a later corpus chunker should copy them:
+
+1. **The single-chunk threshold is measured on the entry's `body`, not on body + name.** So a 1200-character body with a name is **one chunk slightly over 1200 characters**. Once a body *does* overflow, the **name prefix is charged to the first window's budget**, and every chunk is then within the chunk size. The prefix is in the size budget on the **split path only**.
+2. **The overlap is paragraph-aligned: the paragraph boundary is the rule, and the overlap is the tuning quantity.** A window opens with the **shortest run of whole trailing paragraphs** of the previous window that reaches roughly the overlap size, so **the configured overlap is a target, not an exact figure**, and every chunk consists only of complete paragraphs. Two consequences fall out and are accepted: a body whose paragraphs each exceed half a window gets **no overlap** (it cannot have any without breaking the size bound), and a **single paragraph longer than a whole window is still cut mid-paragraph** — the size bound wins when the two rules cannot both hold.
+3. **The name prefix lands on the first chunk only** of a split body. Repeating it on every chunk would put text that is not in the body into every window, skewing every one of them toward the name. **Retrieval consequence, stated so it is not discovered later: a name-only query reaches a long entry through its first chunk only.**
+4. **Both maintenance paths refuse a batch whose vector count disagrees with its chunk count**, rather than pairing what they got. Chunks and vectors are paired **positionally**, so a short batch silently `zip`-truncated would attach the wrong text to the wrong vector and leave the tail unindexed with no error. The incremental path reports this as `unreachable` (see "Failure modes"); the rebuild path refuses the same way.
+
 ## Registry — widening the feature-007 seam
 
 Feature 007's `VECTOR_SOURCE_REGISTRY` holds `(model_class, text_extractor)` tuples. That shape assumed one vector per row. It **widens** at Stage 2 to a typed entry carrying:
@@ -76,11 +93,26 @@ Feature 007's `VECTOR_SOURCE_REGISTRY` holds `(model_class, text_extractor)` tup
 
 This is a deliberate change to a shipped seam, recorded rather than slipped in: the original tuple could not express "one row becomes many vectors", which is exactly what chapter text requires. The registry stays a module-level list that each vector-backed domain feature appends one entry to; `db/vector.py`'s iteration over it is unchanged in spirit.
 
+**As built** (feature `013.codex`), an entry carries exactly those four parts:
+
+| Part | The `codex_entry` entry |
+|---|---|
+| `source_kind` discriminator | `codex_entry` |
+| Model class | `CodexEntry` |
+| Row selector | in `db/codex_entries.py` — **non-archived entries across all books, ordered by id** for determinism |
+| Chunker | the codex chunker above |
+
+**`VECTOR_SOURCE_REGISTRY` now holds exactly one entry.** The selector crosses books deliberately: a full rebuild re-indexes the whole instance, and `book_id` is a per-row column rather than a per-registration filter (`book_id` scoping happens at query time, as a hard filter). Ordering by id makes a rebuild reproducible, which is what makes a rebuild verifiable.
+
+Feature `008.data-domain` shipped a guard test asserting codex's **absence** from the registry — it recorded the deliberate deferral of vector registration out of the data floor. **That test was superseded by its inverse in the same change** that registered the source, rather than deleted: the registry's contents stayed asserted at every point in the sequence.
+
 ## Two maintenance paths
 
 ### Full rebuild — the existing operation
 
 `rebuild_index()` drops and recreates the sidecar table, then walks the registry re-embedding everything. It is reachable two ways, both already wired through one code path (`run_vector_rebuild()`): the admin trigger `POST /api/admin/db/vector/rebuild` (UC-020) and the automatic post-import refresh. Neither changes; they simply stop indexing zero rows.
+
+**`run_vector_rebuild` logs and swallows a rebuild failure.** Importing a database into an instance with **no embedding provider** therefore still completes; the index is simply left empty until an admin rebuild. This is the failure contract that matches the deliberate gate bypass already in the design — the post-import refresh runs *around* the `no-embedding-provider` validation the admin trigger enforces, and an import that aborted because an optional derived index could not be built would make the primary operation depend on the secondary one.
 
 ### Incremental maintenance — new at Stage 2
 
@@ -99,6 +131,14 @@ Delete-then-reinsert rather than update, because the chunk *count* changes when 
 
 **No background job queue is introduced.** This is a single-instance app over local SQLite; a queue would add a moving part, a durability question and an operational surface to solve a problem that a synchronous best-effort call plus the existing admin rebuild already covers. If indexing latency ever becomes visible to authors, that is the point to revisit it.
 
+#### As built — `services/codex_index.py`
+
+The composer is **`services/codex_index.py`**: it takes an entry, runs the chunker, calls `services/embedding.py`, and calls the `db/vector.py` helpers. Three properties are the contract:
+
+- **It never raises.** Every failure — no designated provider, an unreachable one, a dimension mismatch, a sidecar error — is a **typed return value** (`IndexOutcome`), logged at warning level. Its caller is `services/codex.py`'s save path, **which must not see an exception at all**; the "index maintenance never blocks the author's save" policy above is only true if the module that could break it cannot throw.
+- **The call is awaited inside the request, after the SQLite commit.** No task, no queue, no background worker — the synchronous best-effort call the policy above describes, in its literal form.
+- **The archive drop-operation is exposed here**, for `017.codex-archive-restore` to call rather than re-derive. Archiving is not built (`domain-codex.md`), but the index side of it is, and leaving the next feature to write its own delete would give the codex two paths to the same sidecar.
+
 ## Vector dimension
 
 The dimension is a property of the **model**, not of configuration, so it is discovered rather than declared:
@@ -113,29 +153,59 @@ The dimension is a property of the **model**, not of configuration, so it is dis
 One search entry point, book-scoped:
 
 ```
-search(book_id, query_text, kinds, limit) -> list[Hit]
+search(book_id, query_vector, kinds, limit) -> list[Hit]
 Hit: source_kind, source_id, chunk_index, text, score
 ```
 
 `kinds` narrows the corpora (UC-078 asks the codex; UC-086 asks the book's material generally). A hit carries its `source_id` so a consumer can load the authoritative row from SQLite rather than trusting the indexed copy for anything beyond the snippet.
 
+**The db-level function takes a query *vector*, not a query text — a deliberate narrowing at the layer boundary, not drift.** This document's original signature took `query_text`, which **cannot exist as written**: `db/` may not embed, because embedding is a `services/` call and `db → services` is forbidden. So the db function receives an already-embedded vector, and a **service** composes the two halves — `services/codex_tools.py` does it for UC-078, calling `services/embedding.py` and then `db/vector.py:search`.
+
+Sidecar helper set as built, all in `db/vector.py`:
+
+| Helper | Purpose |
+|---|---|
+| `upsert_chunks` | delete-then-insert for **one** source (the incremental write) |
+| `delete_by_source` | drop one source's chunks (archive, delete) |
+| `delete_by_book` | drop a whole book's chunks |
+| `search` | the book-scoped nearest-neighbour query above |
+| table-dimension accessor | reads the live table's vector width, for the mismatch check |
+
 Placement follows the standing layers: the LanceDB session and table handles live in `db/vector.py`; `services/embedding.py` owns the model call; a service composes the two. No LanceDB handle leaves `db/`, for the same reason no `AsyncSession` does.
+
+### A stale hit is dropped by the consumer, not raised
+
+The rule above — load the authoritative row rather than trusting the indexed copy — has a case it did not name: **the load comes back empty or archived.** That is the visible face of a stale index, and it needs an answer, or every consumer invents one.
+
+**As built: a hit whose source row is gone or archived is *dropped* by the consumer**, and **a search whose every hit is stale returns the ordinary "nothing found" result rather than an error.** `services/codex_tools.py:codex_search` does exactly this. Two reasons: a dropped hit has no `kind` and no `name` to render, so there is nothing to show; and the read tool refuses precisely those entries, so dropping keeps the **two tools presenting one world** — an assistant cannot see an entry in search that it is then refused when it reads.
+
+"No results" is the honest answer here, not a degraded one: the index being behind the database is a recoverable, expected state (everything below rests on that), and turning it into a failure would make an optional subsystem's lag look like a broken search.
+
+### The embedder is injected into `db/vector.py`, not imported
+
+`init_vector` receives the **batch embedder and the dimension probe as injected callables from `app/main.py`** — the composition root. Both existing `rebuild_index()` call sites kept their signatures.
+
+**The reasoning has to be written down once, or this reads as a layer violation.** Three facts collide: `rebuild_index` **must embed**; **`db → services` is forbidden**; and one of `rebuild_index`'s two callers, `db/import_export_queries.py:run_vector_rebuild`, **itself lives in `db/`** — so the dependency cannot simply be passed down from the caller either. Injecting the two callables at the composition root satisfies all three: `db/vector.py` names no service, the service that can embed is chosen in the one place that is allowed to know about both layers, and the call sites are unchanged.
 
 ## Failure modes
 
 | Failure | Behaviour |
 |---|---|
-| No embedding server designated | `DbAdminError(no-embedding-provider)` → **400** on rebuild (already shipped). Incremental writes log and skip |
+| No embedding server designated | `DbAdminError(no-embedding-provider)` → **400** on the **admin** rebuild trigger (already shipped). Incremental writes log and skip |
+| **Any failure of the post-import rebuild** (no designated provider, an unreachable one, a sidecar error) | `db/import_export_queries.py:run_vector_rebuild` **logs and swallows** it, so the **import still completes**; the index is left **empty until an admin rebuild** |
 | Embedding server unreachable / errors | Author's save **succeeds**; index left stale; logged |
-| Dimension mismatch on incremental write | Write refused with a typed error; requires a full rebuild |
-| Index empty or stale | Retrieval returns fewer or no hits. Consumers degrade — the assistant loses pulled context, it does not fail |
+| Dimension mismatch on an incremental write | The write is **refused and reported as a typed outcome** (`services/codex_index.py:IndexOutcome`), logged at warning level; a **full rebuild is required** to correct the index |
+| Mis-sized embed batch (vector count ≠ chunk count) | Reported as **`unreachable`** and refused, on both maintenance paths. Never `zip`-truncated — see "The codex chunker, as built", property 4 |
+| Index empty or stale | Retrieval returns fewer or no hits. Consumers degrade — the assistant loses pulled context, it does not fail. A hit whose source row is gone or archived is **dropped by the consumer**; an all-stale result is **no results, not a failure** |
 | Sidecar corrupted or missing | Rebuild from SQLite. The index holds nothing that SQLite does not |
+
+**The incremental path never raises, and that is design rather than leniency.** Every row above that touches an incremental write resolves to a **typed return value plus a log line**, because the caller is the author's save path (`services/codex_index.py`, above) and an exception reaching it would turn a derived-index problem into a refused save. The write really is refused — nothing partial or wrong is inserted — it is simply *reported* rather than *thrown*.
 
 The last row is the property the whole design rests on: **every failure above is recoverable by rebuilding**, because the index is derived.
 
 ## Out of scope
 
-- **How retrieved material is ranked, merged, budgeted and placed into a prompt.** That is FEAT-013 assistant internals — context assembly, token budgets, tool protocol — and is undesigned until its own session before Stage 5 (`domain-chat.md` carries the full boundary). This document ends at "here are the relevant chunks".
-- **UC-078's relevance criterion.** Product records it as an open `_TBD:` (challenge C27 — "what makes an entry *relevant* enough to reach the chat"). It is a product question with no measurable criterion offered, and choosing a threshold here would resolve it by design. Not done.
-- **Web search (UC-087).** Not retrieval over the book's own material; part of the deferred assistant design.
+- **How retrieved material is ranked, merged, budgeted and placed into a prompt.** Still out of scope here. The **tool protocol** half of it is no longer undesigned — `assistant-runtime.md` holds the shipped runtime, including the mode-gated codex tools that call this pipeline — but **context / content assembly and token budgeting remain deferred** (`domain-chat.md` carries the full remaining boundary). This document ends at "here are the relevant chunks"; `assistant-runtime.md` begins at "here is the tool that asked for them".
+- **UC-078's relevance criterion.** Product records it as an open `_TBD:` (challenge C27 — "what makes an entry *relevant* enough to reach the chat"). It is a product question with no measurable criterion offered, and choosing a threshold here would resolve it by design. **It stays open, and feature `013.codex` kept it open on purpose:** the shipped codex search is **pull-only**, with a **result limit and no score threshold**. A limit bounds cost; a threshold would be an answer to "relevant enough", which is the question product has not settled. Nothing for `/product-spec` to do here unless the user decides a criterion.
+- **Web search (UC-087).** Not retrieval over the book's own material, so it is out of *this* document's scope regardless of its status. It is no longer deferred — it shipped with the assistant runtime and is documented in `assistant-runtime.md`.
 - **Reranking, hybrid keyword+vector search, cross-encoder scoring.** None is required by any stated requirement. Nearest-neighbour over one book's chunks is what UC-078 and UC-086 ask for; anything more is added when a stated need appears.

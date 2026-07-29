@@ -2,7 +2,19 @@
 
 Part of the backend architecture — see `../backend.md` for the index.
 
-These are the as-shipped records for features 003/004/006/007 — the `User` and `LlmServer` domain models, the LLM-server connection subsystem, and database consistency & management.
+These are the as-shipped records for the backend's shipped route families and subsystems: features 003/004/006/007 (the `User` and `LlmServer` domain models, LLM-server connections, database consistency & management), and features 011/012/013/021 (the FEAT-020 assistant configuration, the codex and retrieval subsystems, and the per-author system prompt).
+
+## Deployment requirement — llama.cpp must run with `--reasoning-format none`
+
+**Realizes:** FEAT-013 (operational constraint). Recorded first because it is invisible in code and its failure mode is silent.
+
+Assistant *thinking* is visible to an author **only when the llama.cpp server inlines reasoning into `content`** — that is, only when the server runs with `--reasoning-format none`. This is not a preference; it is the only shape BookWriter can consume.
+
+The reason is inside the `llm-client` dependency. `chat_with_tools(stream=True)` routes through the library's `_stream_openai_tools_response`, which reads only `delta["tool_calls"]` and `delta["content"]` and **never** `delta["reasoning_content"]`. Reasoning sent out-of-band is therefore discarded *inside the library* and reaches neither the `on_delta` callback, nor the call's return value, nor the trace — there is no place in BookWriter's code where it could be recovered. The library does have a reasoning-aware parser, but it is reachable only from plain `chat()`, which has no tool loop and so cannot serve a turn.
+
+The consequence, as shipped: BookWriter splits `<think>` / `</think>` **itself**, in `services/chat_turn.py`'s `ThinkSplitter`, out of the inlined content stream. A server configured **without** the flag does not error — it **degrades silently to content-only**, and the author simply never sees a thinking block. An operator has no signal that anything is wrong. That silent feature loss is why the requirement is documented at this level rather than left in a deployment script.
+
+The index-level pointer is in `../backend.md` → "LLM client".
 
 ## Domain models
 
@@ -69,7 +81,7 @@ Embedding role is per-row (`is_embedding` + `embedding_model`), and **at most on
 
 ### Route surface — `/api/admin/llm-servers`
 
-Nine endpoints, every one behind `Depends(require_role(admin))`. The **static `/embedding` routes are declared before `/{server_id}`** so path capture doesn't swallow them. Error → status taxonomy: missing-field / invalid-backend-type / env-not-set → **400**, not-found → **404**, probe-failed → **502**, delete + clear-embedding → **204**, non-admin → **403**. See `quick-reference.md` for the endpoint and DTO table.
+Nine endpoints, every one behind `Depends(require_role(admin))`. The **static `/embedding` routes are declared before `/{server_id}`** so path capture doesn't swallow them. Error → status taxonomy: missing-field / invalid-backend-type / env-not-set → **400**, not-found → **404**, probe-failed → **502**, delete + clear-embedding → **204**, non-admin → **403**. See **`docs/architecture/quick-reference.md`** for the endpoint and DTO table — that is this folder's dense agent-first index of concrete endpoints and DTOs, and is **not** `docs/product/quick-reference.md` (the product id registry). Every endpoint/DTO table referenced from this file lives there.
 
 ## Database consistency & management
 
@@ -116,9 +128,9 @@ All six endpoints are behind `Depends(require_role(admin))`, and the **static ro
 
 `POST /api/admin/db/vector/rebuild` and the post-import rebuild share **one path**: `run_vector_rebuild()` → `db.vector.rebuild_index()`. Both the explicit admin trigger and the implicit post-restore refresh converge on the same operation, so there is a single place where the sidecar is regenerated.
 
-### The vector-pipeline boundary (deliberately partial — **closed 2026-07-24**)
+### The vector-pipeline boundary (deliberately partial — **closed on paper 2026-07-24, closed in code 2026-07-27**)
 
-**Status:** this boundary is the one the 2026-07-24 architect pass closed. The record below describes what feature 007 shipped and why it stopped where it did; `retrieval.md` is now the current design and supersedes the "DEFERRED" bullet.
+**Status:** this boundary is fully closed. The 2026-07-24 architect pass closed it *on paper* (`retrieval.md` is the current design and supersedes the "DEFERRED" bullet below); feature `013.codex` closed it **in code** — `services/embedding.py` exists, `db/vector.py` is widened, and the registry has its first entry. See "The retrieval subsystem" below for the as-shipped record. The record that follows describes what feature 007 shipped and why it stopped where it did.
 
 Feature 007 delivers the rebuild **operation**, the index **reset**, and the **empty `VECTOR_SOURCE_REGISTRY`** seam — but **not** the embed-content bridge. Concretely:
 
@@ -131,3 +143,83 @@ Chosen so that the operation and its real dependency on the 006 embedding design
 ### Convergence note — a future refactor (not built)
 
 A shared `validate_archive` could later unify two currently-separate refusal paths: 003's setup-import (`services.setup.import_database` → `SetupError`) and 007's admin-import (`db_admin.import_database` → `DbAdminError(invalid-archive)`). Both wrap the same `import_all` and differ only in the readiness-flip and the error type. Recorded as a deferred refactor, deliberately not built now.
+
+## Books and membership (feature `009.books`) — **as-shipped record owed**
+
+**This is a known gap, not an oversight.** Feature `009.books` shipped the books/membership route family — book creation and listing, the detail and reader projections, the settings mutations (archive/unarchive, transfer, add/remove member, visibility) — together with `services/authz.py`, the authorization spine every later book-scoped family depends on. Every other shipped family is inventoried in this file; this one is not.
+
+It is missing because **no `outcome.md` item asked for it**: 009's outcome targeted `authorization.md`, `domain-book.md`, `frontend-workspace.md` and `docs/product/`, and named this file nowhere. The record is therefore **owed**, and deliberately left blank rather than reconstructed from source at finalization time — writing it from a source read would risk stating something the feature did not actually ship.
+
+Until it is written, the authoritative sources are `docs/plans/009.books/status.md` (`## Files Changed` and `## Skeleton`) and `authorization.md` for the capability matrix and the `book_access` dependency.
+
+## Assistant configuration — the FEAT-020 admin editor
+
+**Realizes:** FEAT-020. Shipped by feature `012.assistant-config-editor`.
+
+The fourth admin route family: admin-managed configuration of assistant **modes** and **sub-agents**, and of which tools and sub-agents each may use. It spans all four layers —
+
+- `db/assistant_modes.py`, `db/sub_agents.py`, `db/mode_tools.py`, `db/subagent_tools.py`, `db/mode_subagents.py` (session-free, one per table),
+- `services/assistant_config.py` (the CRUD and the validate-then-write save path),
+- `models/schemas/assistant_config.py` (the DTOs),
+- `routes/admin/assistant_config.py` (HTTP only).
+
+**Route family** — prefix `/api/admin/assistant-config`, eight endpoints, every one behind `Depends(require_role(admin))`: `GET /tools`, `GET /modes`, `PUT /modes/{mode_key}`, `GET /sub-agents`, `POST /sub-agents`, `PUT /sub-agents/{sub_agent_id}`, `POST /sub-agents/{sub_agent_id}/disable` and `.../enable`.
+
+**Error → status taxonomy:** validation refusals — an unknown tool name, an unknown or disabled sub-agent, an unknown mode key, a blank name, a half-set model pair — → **400**; an absent mode or sub-agent → **404**; a **duplicate sub-agent name** → **409**; non-admin → **403**, produced by `require_role` rather than by the service.
+
+The **409** is worth naming: it is the **first 409 outside user administration**, and it follows the `services/admin.py` `username_taken` precedent deliberately rather than inventing a taxonomy — a uniqueness collision on a human-chosen name is the same failure in both places and should answer the same way.
+
+The configuration **model** — the fixed five modes, the natural-key PK, disable-not-delete on sub-agents, the code-defined `TOOL_REGISTRY`, the three selection tables and the replace-set save semantics — is **not duplicated here**. See `assistant-config.md`. The runtime that consumes this configuration is a different subsystem again: see `assistant-runtime.md`.
+
+## The codex route family
+
+**Realizes:** FEAT-017, FEAT-018. Shipped by feature `013.codex`.
+
+The fifth route family and the first author-facing (non-admin) one after books. It spans `db/codex_entries.py` and `db/codex_entry_versions.py`, `services/codex.py` (CRUD, version rows, the collaboration-mode rule) and `services/codex_index.py` (incremental vector maintenance), `models/schemas/codex.py`, and `routes/codex.py`.
+
+**Four endpoints:**
+
+- `GET /api/books/{book_id}/codex` — list/search
+- `POST /api/books/{book_id}/codex` — create
+- `GET /api/books/{book_id}/codex/{entry_id}` — read one
+- `PUT /api/books/{book_id}/codex/{entry_id}` — edit
+
+**Error → status taxonomy:** **400** for a kind/name violation or an edit of an archived entry; **403** for a reader of a public book and for the proposal-mode refusal; **404** for a non-member of a private book (existence hiding, on all four routes) and for an entry that does not resolve inside the book; **409** for a stale `modified_at`.
+
+**Deliberate absences** — each has an owner, so a later feature does not re-litigate them:
+
+- **No DELETE.** A codex entry is *archived*, not deleted — and archive itself is `017.codex-archive-restore`'s, not this family's.
+- **No history endpoints.** `019.codex-history` builds the view and restore surface; the `CodexEntryVersion` rows it will read are nevertheless **written here**, on every edit.
+- **No cross-book copy.**
+
+The entity model, versioning and collaboration-mode reasoning live in `domain-codex.md`; the vector side lives in `retrieval.md`. Neither is duplicated here.
+
+## The retrieval subsystem
+
+**Realizes:** FEAT-017 (search), UC-078. Shipped by feature `013.codex`.
+
+`services/embedding.py` (the single point where text becomes vectors, resolving the FEAT-004 designated embedding server) and the widened `db/vector.py` (the LanceDB sidecar: chunk table, upsert/delete/search helpers, the widened `VECTOR_SOURCE_REGISTRY`), with `services/codex_index.py` as the incremental-maintenance composer.
+
+**This closes the "bridge deferred to the first vector-backed domain model" note feature 007 left in this file** — see "The vector-pipeline boundary" above. It is now closed *in code*, not only on paper: the embed-content bridge exists, dimension probing exists, and the registry has its first entry.
+
+Full design — chunking, incremental maintenance, dimension handling, the injected-embedder placement and the failure modes — is in `retrieval.md`.
+
+## Per-author system prompt
+
+**Realizes:** FEAT-019 (book half, as redefined). Shipped by feature `021.per-author-system-prompt`.
+
+Replaces the book-wide system prompt with one prompt **per author, per book**. It spans `models/book_author_prompt.py`, `db/book_author_prompts.py`, `models/schemas/book_author_prompts.py`, `services/book_author_prompts.py` and `routes/book_author_prompts.py`.
+
+**Two endpoints:** `GET` and `PUT /api/books/{book_id}/system-prompt`.
+
+**Response shape:** `book_id`, `system_prompt`, and a nullable `modified_at`. There is **no `user_id`** on it, deliberately — the subject is always the caller, so returning an id would invite the reading that another author's prompt is addressable through this route. It is not.
+
+**Error → status taxonomy:** **401** with no token; **404** for a private book the caller has no relationship to (produced by `resolve_book_access`, not re-derived here); **403** for a logged-in non-member of a book they can see; **200** for a member acting on their own prompt — on both the create and the update path.
+
+**Deliberate absences**, each with its reason, because these are exactly what a later feature would otherwise re-open:
+
+- **No DELETE.** The empty string *is* "no prompt"; a required column with `""` as a legal value needs no deletion verb.
+- **No `POST`.** `PUT` is the upsert and answers **200** whether the row existed or not, so a client never has to know which case it is in.
+- **No field on `BookDetailResponse`.** A per-caller value cannot ride on a book-shaped DTO — two authors reading the same book would need different bodies for the same resource. It gets its own endpoint for that reason.
+
+The divergence this creates against `docs/product/` FEAT-019 is recorded in `domain-model.md` → "Product divergences" (the fifth item, still open).

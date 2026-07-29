@@ -6,11 +6,14 @@ Finalized architecture and design documentation for BookWriter. This is the auth
 
 BookWriter is a multi-user app for LLM-assisted authoring of long-form texts. These docs cover technology, structure and conventions — **and, since 2026-07-24, the book domain's architecture.**
 
-**Covered now** (the Stage-2 architect gate, 2026-07-24): the entity map for `FEAT-006..018` drawn whole (`domain-model.md` — the index — plus the five `domain-*.md` area files), book-scoped authorization (`authorization.md`), the retrieval/embedding pipeline (`retrieval.md`), and the frontend workspace topology (`frontend-workspace.md`).
+**Covered now** (updated 2026-07-29, after features `009.books`, `011.chat-panel`, `012.assistant-config-editor`, `013.codex` and `021.per-author-system-prompt` shipped): the entity map for `FEAT-006..018` drawn whole (`domain-model.md` — the index — plus the five `domain-*.md` area files), book-scoped authorization (`authorization.md`), the retrieval/embedding pipeline (`retrieval.md`), the frontend workspace topology (`frontend-workspace.md`) and its device-local draft tier (`frontend-work-drafts.md`), plus the as-built records in `backend/features.md` and the concrete endpoint/DTO/table index in `quick-reference.md`.
 
-**One FEAT-013 slice now covered (2026-07-24): FEAT-020** — the admin assistant config (modes, sub-agents, the code-defined tool registry, the selection tables) **and** the runtime that consumes it (prompt composition, tool gating, the `chat_with_tools` loop, sub-agent delegation, model resolution). It lives in `assistant-config.md`.
+**The FEAT-013 assistant is now largely covered, across two files that split by concern:**
 
-**Not covered — do not infer it:** the **rest of the FEAT-013 assistant** (context/content assembly, the shared-canvas SSE protocol, the main-chat model selection, web search, token budgets). It is undesigned and gets its own session before Stage 5 — see `domain-chat.md` for the full boundary. `Chat` / `ChatMessage` appear in the entity map; the rest of their subsystem does not exist on paper.
+- **`assistant-config.md` — the FEAT-020 configuration model.** Modes, sub-agents, the code-defined `TOOL_REGISTRY`, the three selection tables, replace-set save semantics, the admin write-edge validation.
+- **`assistant-runtime.md` — the runtime that consumes it.** Mode determination and the `TurnRequest` wire shape, the four-layer system-prompt composition, the three-case tool gating, the `chat_with_tools` protocol, sub-agent delegation, **per-chat model selection**, **web search**, the **five-frame** SSE vocabulary (`thinking` / `delta` / `done` / `error` / `canvas`), and the **shared-canvas write protocol for codex entries**.
+
+**Still not covered — do not infer it:** **context / content assembly** (US-057, UC-085/086/078 internals), the shared-canvas write protocol for **chapters** (UC-055), **token-level canvas streaming**, and **token budgeting**. A working chat pane and a working canvas write invite the reading that the context model shipped with them; it did not. See `domain-chat.md` for the boundary and `assistant-runtime.md` → "Out of scope" for the same list with reasoning.
 
 The standing rule survives: don't invent the domain *model* here — derive it from `docs/product/`, and cite what you derived it from. A design doc realizing product requirements carries a header naming them:
 
@@ -20,13 +23,22 @@ The standing rule survives: don't invent the domain *model* here — derive it f
 
 Start from `docs/product/quick-reference.md` (the canonical id registry) and `docs/product/relationships.md` (the dependency graph, build order, accepted overlaps and conflicts — note the `FEAT-012 → FEAT-017` inversion). `features.md` holds the FEAT blocks only; **the dependency graph moved to `relationships.md` in product round 5.** Where a requirement carries a `_TBD:`, it is genuinely undecided: raise it, don't resolve it by choosing a design.
 
-Where this architecture **diverged from** `docs/product/`, the divergence is recorded in `domain-model.md` → "Product divergences" — **four items**, all **reconciled by `/product-spec` round 7 (2026-07-24)** and retained there as decision history. One of them (CF1) resolves a coherence finding product left open. Never edit `docs/product/` to close one.
+Where this architecture **diverged from** `docs/product/`, the divergence is recorded in `domain-model.md` → "Product divergences" — **five items: four closed, one open.**
+
+- **Four closed.** Items 1–4 were **reconciled by `/product-spec` round 7 (2026-07-24)** and are retained there as decision history. One of them (CF1) resolves a coherence finding product left open. (Item 3 is additionally annotated as partly reversed by the fifth.)
+- **One open.** The fifth — feature `021.per-author-system-prompt` replaced FEAT-019's **book-wide, owner-only** system prompt with a **per-author, per-book** one (`BookAuthorPrompt`) — is **OPEN, awaiting `/product-spec`**. US-108.AC-2 is reversed outright rather than superseded, and no product id is cited for the new entity, deliberately: citing UC-093 / US-108 would claim satisfaction of criteria this design contradicts. `/product-spec` must rewrite FEAT-019; the ids it mints are what a later feature will cite.
+
+**Never edit `docs/product/` to close a divergence** — not the open one, not any future one. Surfacing it is the orchestrator's follow-up; closing it is `/product-spec`'s.
 
 The root-level `product.md` is a human-facing business narrative, **not** development guidance — ignore it; the canonical product layer is `docs/product/`.
 
 ## Contents and reading order
 
-For the document catalogue and reading order, see `README.md` (the canonical index). Note the backend layer is now an index plus a `backend/` sub-tree: `backend.md` holds the cross-cutting rules and decision history, with `backend/persistence.md`, `backend/auth-ids.md`, `backend/features.md` and `backend/book-domain.md` under it.
+For the document catalogue and reading order, see `README.md` (the canonical index). Three structural facts a reader needs before navigating:
+
+- **The backend layer is an index plus a `backend/` sub-tree.** `backend.md` holds the cross-cutting rules and decision history, with `backend/persistence.md`, `backend/auth-ids.md`, `backend/features.md` and `backend/book-domain.md` under it.
+- **The assistant is a pair, split by concern (2026-07-29).** `assistant-config.md` is the stored configuration and the admin write edge; `assistant-runtime.md` is a turn. The split happened when features 011 and 013 built the runtime out and the combined file outgrew the ~400-line rule. Adding to the wrong half is the easy mistake — ask whether the thing you are writing is *configured* or *executed*.
+- **The working page is a pair too (2026-07-29).** `frontend-workspace.md` keeps entries, routes and panes; `frontend-work-drafts.md` holds the device-local draft tier — the restore buffer, the module-state members beside it, the canvas target registry and reconciliation.
 
 ## Write-rules
 
@@ -34,7 +46,7 @@ For the document catalogue and reading order, see `README.md` (the canonical ind
 - State decisions **with reasoning** — "we chose X because Y," never a bare assertion.
 - Be explicit about what is **out of scope**, and about which product requirements a doc does *not* yet cover.
 - **Cite product ids.** A doc designing for the book domain carries a `**Realizes:** FEAT-###, UC-###` header. `docs/product/` is read-only from here — never edit it to fit a design; if a requirement is wrong or missing, surface it for `/product-spec`.
-- **Line limit: keep each file under ~400 lines.** If a topic outgrows that, split off the largest subsystem into its own cohesive file (e.g. carve a `frontend-*.md` deep-dive out of `frontend.md`) and link it from the parent and from this index. `quick-reference.md`, once it exists, is the one intentional exception — it is dense by design.
+- **Line limit: keep each file under ~400 lines.** If a topic outgrows that, split off the largest subsystem into its own cohesive file and link it from the parent and from `README.md`. This has now happened twice — `assistant-runtime.md` out of `assistant-config.md`, and `frontend-work-drafts.md` out of `frontend-workspace.md` — and both splits kept the reasoning with the thing it explains rather than leaving a stub behind. **`quick-reference.md` is the one intentional exception** and is dense by design: it is where concrete endpoints, DTOs, columns and status codes go *instead of* being repeated into every design doc, which is what keeps the rest of the folder inside the limit.
 - Never silently overwrite an existing doc — surface changes so the diff is easy to review.
 - Build/test commands are the root `CLAUDE.md`'s job; reference them, don't duplicate them here.
 - Do not add a new top-level doc unilaterally — it must be called out in the briefing; otherwise surface the need in the hand-back.

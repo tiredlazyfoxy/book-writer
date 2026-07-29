@@ -151,6 +151,20 @@ authorization entry as an oversight.
   is the orchestrator's follow-up.
 
 ---
+Status: Applied 2026-07-29
+Applied items: 10
+Rejected items: 0 (item 10 was a deliberate no-op; 1 folded, 2 re-routed — notes below)
+
+Landed in `assistant-config.md`, `backend/features.md`, `backend/persistence.md`, `system-overview.md`, `domain-chat.md` and `README.md`.
+
+- **Item 2 (the `resolve_tools(None)` seam) was folded** into the final three-case tool-gating rule in `assistant-runtime.md`, rather than recorded as an open seam. This feature named `013.codex` as the seam's owner; `013.codex` closed it in the same finalization pass, so recording it as pending would have been false the moment it was written. Both sides are kept as decision history.
+- **Items 5 and 6's endpoint and DTO tables were routed to `docs/architecture/quick-reference.md`**, not to `assistant-config.md`. That file keeps the *reasoning* — full-replace `PUT`, the `null` + `null` = inherit rule, the two deliberate absences (no single-mode `GET`, no `DELETE` anywhere) — while the eight endpoints, the nine DTOs and the 400 / 404 / 409 taxonomy live in the dense index beside every other route family.
+- **This answers item 7's "Note for the architect."** `docs/architecture/quick-reference.md` **does** exist and **is** the folder's endpoint/DTO index; it was simply **missing from `README.md`'s Documents list**, which is why the planner could not find it and read `backend/features.md:72`'s pointer as dangling. Both halves are now fixed: the file is indexed in `README.md`, and the dangling reference in `backend/features.md` was repaired. The planner's decision to escalate rather than guess was correct.
+- **Item 10 (authorization no-op) recorded as built-as-written** — `authorization.md` needed no restructuring; the implementation matched the written rule with no divergence and no new failure mode.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` marker was written to `docs/product/`, and the product-side `_TBD:` on FEAT-020's default tool state remains product's to close.
+
+---
 
 ## Observations
 

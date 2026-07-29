@@ -220,6 +220,18 @@ The coder appends `## Observations` at the bottom.
   `/product-spec`'s to write, per `docs/product/CLAUDE.md` → "Citation convention" — and only once
   FEAT-019 has been rewritten to describe what was actually built.
 
+---
+Status: Applied 2026-07-29
+Applied items: 13
+Rejected items: 0 (1 recorded as OPEN — note below)
+
+Landed in `domain-book.md` (the `BookAuthorPrompt` entity, the dormant-`Book.system_prompt` section and the dissolved wire gap), `assistant-runtime.md` (layer 3 renamed `BOOK` → `AUTHOR`, with the old FEAT-019 justification removed rather than left standing), `domain-chapter.md`, `domain-model.md`, `authorization.md` (the second row-ownership rule), `backend/features.md`, `backend/book-domain.md` (the nineteenth registry entry) and `frontend-workspace.md` (the two-surface editor). The route pair, the response shape, its three deliberate absences and the `BookAuthorPrompt` columns are indexed in `quick-reference.md`.
+
+- **Item 9 (the fifth product divergence) is recorded as OPEN, awaiting `/product-spec`**, per the user's explicit decision to finalize architecture before product. `domain-model.md` → "Product divergences" now reads **four closed, one open**, and `docs/architecture/CLAUDE.md` says the same, so no agent reads the four-closed count as still current. FEAT-019's UC-093 / US-108 describe a book-wide, owner-only prompt that no longer exists and **US-108.AC-2 is reversed outright**; no product id is cited for `BookAuthorPrompt`, deliberately.
+- The **`/product-spec` and `/roadmap` follow-ups were not actioned** — the FEAT-019 rewrite, the superseded `fast/003.book-system-prompt` brief, `014.chapter-skeleton`'s re-scoping and `roadmap.md`'s Stage-3 exit criterion all belong to those pipelines. Nothing in `docs/product/` or `docs/plans/roadmap.md` was edited from here.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` marker was written to `docs/product/`.
+
 ## Observations
 
 - Step 005: `frontend.md` → "Forms" states the rule as "server-side field errors are stored separately

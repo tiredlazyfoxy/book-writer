@@ -78,3 +78,18 @@ apply at finalization. Grouped by target architecture file. The coder appends
   at finalization.
 
 <!-- coder appends ## Observations below -->
+
+---
+Status: Applied 2026-07-29
+Applied items: 11
+Rejected items: 0 (3 modified — notes below)
+
+Landed in `backend/book-domain.md`, `backend/persistence.md`, `assistant-config.md`, `domain-model.md`, `domain-codex.md`, `domain-chat.md`; the new column facts also surface in `quick-reference.md` → "Tables & enums".
+
+Modifications, all because this outcome was written **before** feature `013.codex` shipped:
+
+- **The two "record the deferral" items were reversed.** `backend/book-domain.md` → "Vector registry" and `backend/persistence.md` → "Vector storage" record the **two-step delivery** instead: feature 008 created `codex_entries` as an ordinary data class and registered no vector source (carrying a guard test asserting codex's *absence*); feature 013 widened the entry shape, added the single `codex_entry` entry and superseded that guard with its inverse. Recording only the deferral would now be false.
+- **`domain-model.md` → "Two registry obligations"** likewise records the vector-source obligation as **met**, not deferred, for the same reason.
+- **`backend/persistence.md`'s "18 entries" figure was corrected to 19** — feature `021.per-author-system-prompt` added `book_author_prompts` at index 9.
+
+`/product-spec` finalization has **not** run for this feature, so no `**Delivered:**` markers were written to `docs/product/`.
