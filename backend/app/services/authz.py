@@ -68,6 +68,14 @@ class Capability(str, enum.Enum):
     edit_chapter_sketch = "edit_chapter_sketch"
     remove_chapter = "remove_chapter"
     set_chapter_order = "set_chapter_order"
+    # 015 step 001 — the two remaining rows of ``authorization.md``'s chapter
+    # matrix. ``set_chapter_state`` is **one** member for the one matrix row
+    # "Open / close / reopen a chapter (UC-035..037)"; ``write_chapter_text``
+    # is the "Write into the open chapter (UC-038)" row. Neither the
+    # archived-book gate (D10) nor the collaboration-mode gate (D11) mints a
+    # capability — both are service-level checks.
+    set_chapter_state = "set_chapter_state"
+    write_chapter_text = "write_chapter_text"
 
 
 @dataclass(frozen=True)
@@ -135,6 +143,20 @@ _CAPABILITY_MATRIX: dict[Capability, frozenset[AccessRole]] = {
         {AccessRole.owner, AccessRole.co_author}
     ),
     Capability.set_chapter_order: frozenset({AccessRole.owner}),
+    # Chapter writing (015, FEAT-009 / UC-035..038): opening, closing and
+    # reopening a chapter is **owner-only** — one row, one member — while
+    # writing the open chapter's body is the owner's and a co-author's.
+    # The co-author cell of the write row is *(mode)*-qualified in
+    # ``authorization.md``, and that qualifier is **not expressible here** for
+    # the same reason the codex rows record: this table maps capability → role
+    # set and has no vocabulary for the book's collaboration mode. That rule,
+    # and the archived-book gate (``BookAccess.book_state``), are layered in
+    # ``services/chapters.py``. Transitions are deliberately **not**
+    # mode-qualified — an owner is never held for review.
+    Capability.set_chapter_state: frozenset({AccessRole.owner}),
+    Capability.write_chapter_text: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
 }
 
 

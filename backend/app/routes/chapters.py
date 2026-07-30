@@ -1,5 +1,6 @@
 """Chapter route family for ``/api/books/{book_id}/chapters`` (feature 014,
-step 003).
+step 003; extended by feature 015, step 003 with the body and transition
+handlers).
 
 HTTP only: parse the request, call **one** :mod:`app.services.chapters` function,
 map the typed refusal to a status, and return (see ``docs/architecture/backend.md``
@@ -21,22 +22,33 @@ route — otherwise ``order`` would be captured as a ``chapter_id``. There is no
 ``PUT /{chapter_id}`` in this family today, so the collision is latent rather than
 live, but the literal segment is declared first anyway so the next feature to add a
 chapter ``PUT`` cannot silently break reorder (``003.context.md``; DoD-16). The same
-rule ``routes/books.py`` documents for ``/shared``.
+rule ``routes/books.py`` documents for ``/shared``. 015's five additions are all
+``/{chapter_id}/<literal>`` — ``/text``, ``/open``, ``/close``, ``/reopen`` — so none
+of them can shadow or be shadowed by anything in the family, and the ``/order`` rule
+above is untouched. They are grouped **after** 014's six so the module reads
+skeleton-then-writing.
 
-Typed-error → status map: ``not_found`` → **404** (an unknown chapter id, a
-non-numeric one, or one belonging to another book — produced by the *service's*
-resolver, since the ``book_access`` dependency only ever sees ``{book_id}``);
-``not_planned`` → **409** (the caller *has* the capability; what refuses them is a
-state-machine constraint, so 403 would be a lie — ``context.md`` → "Status
-taxonomy"); ``invalid_reorder_set`` → **400** (the body is structurally valid, so
-this is not a 422). ``authz.BookAuthorizationError`` → **403**, which is how a
-reader is refused a write and a co-author is refused a reorder (US-033.AC-2).
+Typed-error → status map, covering all nine ``ChapterErrorReason`` members:
+``not_found`` → **404** (an unknown chapter id, a non-numeric one, or one belonging
+to another book — produced by the *service's* resolver, since the ``book_access``
+dependency only ever sees ``{book_id}``); ``not_planned``, ``chapter_not_open``,
+``chapter_not_closed``, ``another_chapter_open`` and ``stale_version`` → **409** (the
+caller *has* the capability; what refuses them is a state-machine or concurrency
+constraint, so 403 would be a lie — ``context.md`` → "Status taxonomy");
+``book_archived`` and ``proposal_mode_refused`` → **403** (under archive, and for a
+co-author in a ``proposal``-mode book, *no one* holds the write capability, which is
+an access answer rather than a resource-state one — decisions D10 / D11). Note these
+two 403s travel through :func:`_map_chapter_error`, **not**
+:func:`_map_authz_error`, so their typed message survives to the client;
+``invalid_reorder_set`` → **400** (the body is structurally valid, so this is not a
+422). ``authz.BookAuthorizationError`` → **403**, which is how a reader is refused a
+write and a co-author is refused a reorder (US-033.AC-2) or a state transition.
 
 Success codes: **201** on create, **204** on delete, 200 everywhere else.
 
-The router object and its prefix, the six route registrations (path, method,
+The router object and its prefix, the eleven route registrations (path, method,
 status code), every handler signature and return annotation, and the reason →
-status map with both mapping helpers are frozen (014 step 003).
+status map with both mapping helpers are frozen (014 step 003; 015 step 003).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -44,9 +56,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.models.schemas.chapters import (
     ChapterListResponse,
     ChapterResponse,
+    ChapterTextResponse,
     CreateChapterRequest,
     ReorderChaptersRequest,
     UpdateChapterSketchRequest,
+    UpdateChapterTextRequest,
 )
 from app.services import authz
 from app.services import chapters as chapters_service
@@ -54,10 +68,25 @@ from app.services import chapters as chapters_service
 router = APIRouter(prefix="/api/books", tags=["chapters"])
 
 _CHAPTER_ERROR_STATUS: dict[chapters_service.ChapterErrorReason, int] = {
+    # 014's three reasons — unchanged.
     chapters_service.ChapterErrorReason.not_found: status.HTTP_404_NOT_FOUND,
     chapters_service.ChapterErrorReason.not_planned: status.HTTP_409_CONFLICT,
     chapters_service.ChapterErrorReason.invalid_reorder_set: (
         status.HTTP_400_BAD_REQUEST
+    ),
+    # 015's six — the four state-machine refusals are 409, the two access-shaped
+    # refusals are 403 (feature 015, step 003).
+    chapters_service.ChapterErrorReason.chapter_not_open: status.HTTP_409_CONFLICT,
+    chapters_service.ChapterErrorReason.chapter_not_closed: (
+        status.HTTP_409_CONFLICT
+    ),
+    chapters_service.ChapterErrorReason.another_chapter_open: (
+        status.HTTP_409_CONFLICT
+    ),
+    chapters_service.ChapterErrorReason.stale_version: status.HTTP_409_CONFLICT,
+    chapters_service.ChapterErrorReason.book_archived: status.HTTP_403_FORBIDDEN,
+    chapters_service.ChapterErrorReason.proposal_mode_refused: (
+        status.HTTP_403_FORBIDDEN
     ),
 }
 
@@ -216,6 +245,143 @@ async def delete_chapter(
     """
     try:
         await chapters_service.remove_chapter(access, chapter_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
+@router.get("/{book_id}/chapters/{chapter_id}/text")
+async def get_chapter_text(
+    chapter_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterTextResponse:
+    """One chapter's stored body
+    (``GET /api/books/{book_id}/chapters/{chapter_id}/text`` → 200).
+
+    Delegates to ``chapters_service.get_chapter_text(access, chapter_id)``. The
+    body is a **sub-resource**, not a field of ``ChapterResponse`` (decision
+    D13): 014's chapter DTO deliberately carries no ``text`` so a list render
+    cannot drag whole bodies onto the wire, and the body's own concurrency token
+    (``version``) belongs on the resource that has one.
+
+    A read is never refused for the book's state or collaboration mode — an
+    ``archived`` book still serves its chapters (decision D10).
+    """
+    try:
+        return await chapters_service.get_chapter_text(access, chapter_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
+@router.put("/{book_id}/chapters/{chapter_id}/text")
+async def update_chapter_text(
+    chapter_id: str,
+    payload: UpdateChapterTextRequest,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterTextResponse:
+    """Replace an ``open`` chapter's whole body against a version token
+    (``PUT /api/books/{book_id}/chapters/{chapter_id}/text`` → 200, UC-038 /
+    UC-039 / US-040 / US-041).
+
+    Delegates to
+    ``chapters_service.save_chapter_text(access, chapter_id, payload)``.
+    ``PUT`` because the request replaces the whole resource — there is exactly
+    one body write path and it always carries the entire body (decision D1); the
+    append-vs-replace distinction is an editing operation on the client's draft
+    and never reaches HTTP.
+
+    Refusals, all produced by the service and mapped here: a stale
+    ``expected_version`` and a chapter that is not ``open`` → **409**; an
+    ``archived`` book (D10) and a co-author writing in a ``proposal``-mode book
+    (D11) → **403** through :func:`_map_chapter_error`, *not* through
+    :func:`_map_authz_error`, so the typed reason's message reaches the client
+    verbatim. A reader is refused **403** by ``authz.require`` through
+    :func:`_map_authz_error`. A malformed body is **422** from the request model
+    before this handler runs.
+    """
+    try:
+        return await chapters_service.save_chapter_text(
+            access, chapter_id, payload
+        )
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
+@router.post("/{book_id}/chapters/{chapter_id}/open")
+async def open_chapter(
+    chapter_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterResponse:
+    """Open a ``planned`` chapter for writing
+    (``POST /api/books/{book_id}/chapters/{chapter_id}/open`` → 200, UC-035 /
+    US-036).
+
+    Delegates to ``chapters_service.open_chapter(access, chapter_id)`` and
+    returns 014's ``ChapterResponse`` — the transition changes ``state`` and
+    nothing else, so it mints no DTO of its own.
+
+    ``POST`` with **no request body**: this is a command, not a representation to
+    replace. A chapter that is not ``planned`` and a book that already holds an
+    ``open`` (or ``closing``) chapter both answer **409**; a co-author is refused
+    **403** by ``authz.require`` (owner-only), an ``archived`` book **403** by
+    the typed reason.
+    """
+    try:
+        return await chapters_service.open_chapter(access, chapter_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
+@router.post("/{book_id}/chapters/{chapter_id}/close")
+async def close_chapter(
+    chapter_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterResponse:
+    """Close the ``open`` chapter
+    (``POST /api/books/{book_id}/chapters/{chapter_id}/close`` → 200, UC-036
+    partly / US-038.AC-1, AC-2).
+
+    Delegates to ``chapters_service.close_chapter(access, chapter_id)``. **No
+    request body.** In this feature the destination is ``closed`` **directly**;
+    the ``closing`` state, continuity drafting and the approval gate are
+    ``016``'s (decision D8 — "the close seam"), and this handler is the seam:
+    ``016`` changes the service's destination, not this route.
+
+    A chapter that is not ``open`` answers **409**; a co-author **403**; an
+    ``archived`` book **403**.
+    """
+    try:
+        return await chapters_service.close_chapter(access, chapter_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
+@router.post("/{book_id}/chapters/{chapter_id}/reopen")
+async def reopen_chapter(
+    chapter_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterResponse:
+    """Reopen a ``closed`` chapter
+    (``POST /api/books/{book_id}/chapters/{chapter_id}/reopen`` → 200, UC-037 /
+    US-039).
+
+    Delegates to ``chapters_service.reopen_chapter(access, chapter_id)``. **No
+    request body.** A chapter that is not ``closed`` answers **409**, as does a
+    reopen while another chapter of the book is ``open`` or ``closing`` (the
+    one-open-chapter rule, CF1); a co-author is refused **403**, an ``archived``
+    book **403**.
+    """
+    try:
+        return await chapters_service.reopen_chapter(access, chapter_id)
     except authz.BookAuthorizationError as err:
         raise _map_authz_error(err)
     except chapters_service.ChapterError as err:

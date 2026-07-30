@@ -129,3 +129,62 @@ export interface ChapterAuthorPromptResponse {
 export interface UpdateChapterAuthorPromptRequest {
   system_prompt: string;
 }
+
+// ---------------------------------------------------------------------------
+// The chapter BODY sub-resource (`…/chapters/{chapter_id}/text`) — feature 015
+// step 004, mirroring backend `ChapterTextResponse` / `UpdateChapterTextRequest`
+// (`backend/app/models/schemas/chapters.py`, 015 steps 001 + 003) 1:1.
+//
+// A SUB-RESOURCE, not a widening of `ChapterResponse` (015 decision D13): 014's
+// response is served by a single mapper feeding both the list and the item, so a
+// `text` field added for the item would drag every chapter body onto the wire for
+// every list render. The seven DTOs above are untouched by this step.
+//
+// `state` REUSES `ChapterLifecycleState` declared above — no second union, and
+// `src/work/subject.ts` is still neither imported nor edited from here.
+//
+// Skeleton (015/004): declarations, complete as written — there is nothing to
+// leave unimplemented in a `.d.ts`.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET` / `PUT /api/books/{book_id}/chapters/{chapter_id}/text` result — mirrors
+ * backend `ChapterTextResponse` field-for-field. The book id is **not** repeated
+ * here; it is already in the path.
+ *
+ * `state` rides along with the body so the page's body region can gate itself
+ * without depending on which of its loads resolved first, and so the version and
+ * the state that qualify a save always arrive together.
+ *
+ * `version` is the body's concurrency token and is a **`number`**, not a string:
+ * the string-id rule exists because snowflakes exceed JavaScript's safe-integer
+ * range, and an ordinary incremented counter does not. `restoreBuffer.ts`'s
+ * `BufferBaseVersion` already accepts `number` for exactly this field.
+ *
+ * Carries **no `can_write`** affordance hint (decision D14) — a body
+ * representation is a resource, not a caller-relative list envelope. `text` is
+ * Markdown (D2) and `""` is a legitimate value.
+ */
+export interface ChapterTextResponse {
+  chapter_id: string;
+  state: ChapterLifecycleState;
+  text: string;
+  version: number;
+  modified_at: ISODateString | null;
+}
+
+/**
+ * `PUT /api/books/{book_id}/chapters/{chapter_id}/text` body — mirrors backend
+ * `UpdateChapterTextRequest`. The **whole** body plus the version it was composed
+ * against (decision D1: there is exactly one body write endpoint and it replaces
+ * the whole text; append-vs-replace is a draft-side editing operation).
+ *
+ * `text` has no constraint — `""` is legitimate (the author clearing the
+ * chapter). `expected_version` is required and there is **no force flag**: a value
+ * that is not the chapter's current version is refused `409`, which is what makes
+ * the concurrency contract a contract.
+ */
+export interface UpdateChapterTextRequest {
+  text: string;
+  expected_version: number;
+}

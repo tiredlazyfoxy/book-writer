@@ -101,6 +101,59 @@ class ChapterResponse(BaseModel):
     modified_at: datetime | None
 
 
+class ChapterTextResponse(BaseModel):
+    """The body sub-resource of one chapter — ``GET`` / ``PUT``
+    ``/api/books/{book_id}/chapters/{chapter_id}/text`` (015 decision D13).
+
+    A **sub-resource**, deliberately not a widening of :class:`ChapterResponse`:
+    014's response is served by a single mapper feeding both the list and the
+    item, so a ``text`` field added for the item would drag every chapter body
+    onto the wire for every list render. Keeping the body separate also puts the
+    body's own concurrency token on the resource that actually has one.
+
+    - ``chapter_id`` — ``str`` (the snowflake-to-string rule; the service mapper
+      is the single place that conversion happens). The book id is **not**
+      repeated here — it is already in the path.
+    - ``state`` — the chapter's :class:`app.models.chapter.ChapterState`. It
+      rides along with the body so the client's body region can gate itself
+      without depending on which of the page's loads resolved first, and so the
+      version and the state that qualify a save always arrive together.
+    - ``text`` — the whole stored body (Markdown, 015 decision D2).
+    - ``version`` — ``Chapter.version``, the body's concurrency token. An
+      ordinary small counter, **not** a snowflake, so it stays a JSON number.
+    - ``modified_at`` — nullable, matching the column.
+
+    Carries **no ``can_write``** affordance hint (decision D14): a body
+    representation is a resource, not a caller-relative list envelope.
+    """
+
+    chapter_id: str
+    state: ChapterState
+    text: str
+    version: int
+    modified_at: datetime | None
+
+
+class UpdateChapterTextRequest(BaseModel):
+    """Body of ``PUT /api/books/{book_id}/chapters/{chapter_id}/text`` — the
+    whole new chapter body plus the version it was composed against (UC-038 /
+    UC-039, US-040, US-041; 015 decision D1).
+
+    - ``text`` — the **whole** body. There is deliberately **no constraint**:
+      ``""`` is a legitimate value (an author clearing the chapter — D9's
+      degenerate case), so a blank body must reach the service rather than be
+      refused as 422.
+    - ``expected_version`` — required. The ``Chapter.version`` the client's draft
+      was composed against; the service refuses a save whose value is not the
+      chapter's current version with **409**. There is **no force flag and no
+      way to opt out** of the check — that is what makes the concurrency
+      contract a contract.
+    """
+
+    text: str
+    expected_version: int
+
+
 class ChapterListResponse(BaseModel):
     """List envelope for ``GET /api/books/{book_id}/chapters`` and for the
     reorder result.

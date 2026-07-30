@@ -10,17 +10,25 @@ import {
   Divider,
   Group,
   Loader,
+  Paper,
   Stack,
   Text,
   Textarea,
   Title,
 } from "@mantine/core";
+import Markdown from "react-markdown";
 import { registerContentSubject, unregisterContentSubject } from "../contentSubject";
 import type { ContentSubjectSource } from "../contentSubject";
+import { ChapterBodyEditor } from "../components/chapter/ChapterBodyEditor";
+import { resolveEditability } from "../subject";
 import {
   ChapterPageState,
+  editBodyDraft,
   loadChapter,
+  loadChapterBody,
   loadSystemPrompt,
+  resolveBodyConflict,
+  saveChapterBody,
   saveSketch,
   saveSystemPrompt,
 } from "./chapterPageState";
@@ -68,10 +76,37 @@ import {
  * and "your own, not shared" is the honest claim. There is NO delete control
  * (DoD-9 — saving `""` is how a prompt is cleared).
  *
- * **What it must NOT render.** The chapter's BODY TEXT, in any form, editable or
- * not — it is `015.chapter-writing-free-mode`'s and `ChapterResponse` does not
- * carry it. No restore-buffer surface, no divergence/reconciliation view, no
- * delete control, no chapter-state transition control.
+ * **The body section (`015.chapter-writing-free-mode` step 006).** A THIRD sibling
+ * section, never nested inside the chapter section's success path, so the body's
+ * own trio loads and fails independently of the other two in both directions
+ * (015/006 DoD-1): its own loading branch, its own load-error alert, and then
+ * either — for an `open` chapter, which is what `state.canEditBody` answers off the
+ * BODY response's state — the `ChapterBodyEditor` KEYED ON
+ * `state.bodyEditorGeneration` (D15: an external draft write re-syncs TipTap by
+ * remount; the counter is read HERE and nowhere else, never rendered and never
+ * compared), seeded with `state.bodyDraft`, wired to `editBodyDraft` (the single
+ * entry point every draft change routes through), plus a `Save body` control gated
+ * on `state.canSaveBody` and a surface for `state.bodyServerErrors` — or, for a
+ * `planned` / `closing` / `closed` chapter, the stored body through
+ * `react-markdown` with NO editor and NO save control at all, under
+ * `resolveEditability`'s author-facing read-only reason, verbatim (D16 / DoD-8).
+ *
+ * **The divergence view and the eviction notice (step 007).** Both live INSIDE the
+ * body section, never as an early `return` from the component, so the rest of the
+ * page keeps rendering (DoD-11). Inside that section the branch order is loading →
+ * load-error → `state.isReconcilingBody` → the `state.canEditBody` fork, so while
+ * the divergence view is open the editor is NOT mounted and `Save body` is NOT
+ * rendered: the two side controls are the view's only controls. The view is a
+ * normal landing, not an error state — plain in-flow layout (no modal, no overlay,
+ * no focus trap), `yellow` rather than `red`, exactly two choices with neither
+ * pre-selected and no third merged outcome, and both sides shown as raw readable
+ * text with no diff library and no highlighting. The eviction notice names the
+ * evicted keys whenever `state.evictedBufferKeys` is non-empty, independently of
+ * the divergence flag.
+ *
+ * **What it must NOT render.** No canvas / undo / selection wiring (step 012 —
+ * `onSelectionChange` is a no-op today). No delete control, no chapter-state
+ * transition control (step 008).
  *
  * **Hard rules.** `observer` (applied here). Handlers are inner functions closing
  * over the state — no `useCallback` / `useMemo` / `useReducer`, no custom `useX`
@@ -100,6 +135,8 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
     registerContentSubject(source);
     void loadChapter(state, book, chapterId, ctrl.signal);
     void loadSystemPrompt(state, book, chapterId, ctrl.signal);
+    // The third load joins the same single controller and aborts with the others.
+    void loadChapterBody(state, book, chapterId, ctrl.signal);
     return () => {
       unregisterContentSubject(source);
       ctrl.abort();
@@ -123,12 +160,44 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
     void saveSystemPrompt(state, book, chapterId);
   };
 
+  /** Save the body; the draft AND its base version are read off the state. */
+  const handleSaveBody = () => {
+    if (!state.canSaveBody) return;
+    void saveChapterBody(state, book, chapterId);
+  };
+
+  /** Take the SERVER's side whole: the draft and its buffer are discarded (015/007). */
+  const handleKeepServerBody = () => {
+    void resolveBodyConflict(state, "server", book, chapterId);
+  };
+
+  /** Take the DRAFT's side whole: the server's version is adopted, then the draft re-saved. */
+  const handleKeepDraftBody = () => {
+    void resolveBodyConflict(state, "draft", book, chapterId);
+  };
+
   const chapter = state.chapter;
   const chapterLoading = state.chapterStatus === "idle" || state.chapterStatus === "loading";
   const promptLoading =
     state.systemPromptStatus === "idle" || state.systemPromptStatus === "loading";
   const sketchErrorMessages = Object.values(state.sketchServerErrors);
   const promptErrorMessages = Object.values(state.systemPromptServerErrors);
+
+  const body = state.body;
+  const bodyLoading = state.bodyStatus === "idle" || state.bodyStatus === "loading";
+  const bodyErrorMessages = Object.values(state.bodyServerErrors);
+  // The read-only reason is `work/subject.ts`'s copy, rendered VERBATIM — no new
+  // string is written here — and it is derived from the BODY response's state, like
+  // `canEditBody`, never from `chapter.state` (which is what `sketchDisabledReason`
+  // answers about; the two are independent).
+  const bodyReadOnlyReason =
+    body === null
+      ? null
+      : resolveEditability({
+          kind: "chapter",
+          entityId: chapterId,
+          chapterState: body.state,
+        }).readOnlyReason;
 
   return (
     <Container size="lg" py="md">
@@ -216,6 +285,142 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
             </Stack>
           </>
         )}
+
+        <Divider />
+
+        {/* THE CHAPTER BODY (015/006) — a THIRD trio and a SIBLING section: it is
+            deliberately outside the chapter section's success path, so a body
+            failure cannot blank the chapter or the prompt and neither of those can
+            hide the body (DoD-1). The editor is mounted ONLY for an `open` chapter
+            (D16); every other state renders the stored body read-only. */}
+        <Stack gap="xs">
+          <Title order={5}>Chapter body</Title>
+
+          {/* THE EVICTION NOTICE (015/007) — an eviction is data loss on some OTHER
+              item, so it is never silent: the keys that went are named. Rendered
+              independently of the divergence flag and of every body branch, since a
+              write that evicted happened whatever the region is showing now. */}
+          {state.evictedBufferKeys.length > 0 && (
+            <Alert color="yellow" title="Other unsaved drafts were removed">
+              <Stack gap={2}>
+                <Text size="sm">
+                  Storage was full, so these buffered drafts were removed to keep this one:
+                </Text>
+                {state.evictedBufferKeys.map((evictedKey) => (
+                  <Text key={evictedKey} size="sm">
+                    {evictedKey}
+                  </Text>
+                ))}
+              </Stack>
+            </Alert>
+          )}
+
+          {bodyLoading ? (
+            <Group justify="center" py="md" gap="xs">
+              <Loader size="sm" />
+              <Text size="sm" c="dimmed">
+                Loading…
+              </Text>
+            </Group>
+          ) : state.bodyStatus === "error" || body === null ? (
+            <Alert color="red" title="Could not load the chapter body">
+              <Text size="sm">{state.bodyError}</Text>
+            </Alert>
+          ) : state.isReconcilingBody ? (
+            /* THE DIVERGENCE VIEW (015/007) — reached from BOTH entrances: a stale
+               buffer found at load (the load-bearing one, where no save was
+               attempted) and a `409` from the save. Checked BEFORE the `canEditBody`
+               fork, so it replaces the editor AND its `Save body` control while it is
+               open, and a stale buffer on a no-longer-`open` chapter still reaches a
+               view rather than raising a flag nothing renders.
+
+               It is the NORMAL landing for the navigated-away-mid-turn path, not an
+               error state (`frontend-work-drafts.md`): plain in-flow layout — no
+               modal, no drawer, no overlay, no focus trap — `yellow` rather than
+               `red`, and rendered INSIDE the body section, so the chapter, the sketch
+               and the prompt sections all keep rendering beside it.
+
+               The two sides are shown as RAW text, not through `react-markdown`:
+               they are compared literally, and rendering one of them would hide
+               exactly the differences the author is choosing between. Two choices,
+               neither pre-selected, and no third — a merged body is something the
+               author types (no diff library, no highlighting, no merged pane). */
+            <Stack gap="md">
+              <Title order={4}>Unsaved changes diverged</Title>
+              <Alert color="yellow" title="This chapter's body changed since your draft">
+                This chapter&apos;s body changed on the server while your draft was unsaved.
+                Nothing has been merged — choose which version to keep.
+              </Alert>
+              <Group align="stretch" grow>
+                <Paper withBorder p="sm">
+                  <Stack gap="xs">
+                    <Title order={5}>Current server version</Title>
+                    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                      {state.bodyConflict?.text ?? ""}
+                    </Text>
+                    <Button variant="light" onClick={handleKeepServerBody}>
+                      Keep the server version
+                    </Button>
+                  </Stack>
+                </Paper>
+                <Paper withBorder p="sm">
+                  <Stack gap="xs">
+                    <Title order={5}>Your draft</Title>
+                    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                      {state.bodyDraft}
+                    </Text>
+                    <Button onClick={handleKeepDraftBody}>Keep my draft</Button>
+                  </Stack>
+                </Paper>
+              </Group>
+            </Stack>
+          ) : state.canEditBody ? (
+            <>
+              {bodyErrorMessages.length > 0 && (
+                <Alert color="red" title="Could not save the chapter body">
+                  <Stack gap={4}>
+                    {bodyErrorMessages.map((message) => (
+                      <Text key={message} size="sm">
+                        {message}
+                      </Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+              {/* KEYED ON THE GENERATION COUNTER (D15) — the only thing the view
+                  reads it for. A remount is how TipTap learns about a draft written
+                  from outside it; a keystroke never bumps it, so the caret survives.
+                  `onSelectionChange` is a no-op today: the seam's four props are all
+                  required and D5's selection wiring is step 012's. */}
+              <ChapterBodyEditor
+                key={state.bodyEditorGeneration}
+                initialMarkdown={state.bodyDraft}
+                onChange={(markdown) => {
+                  editBodyDraft(state, book, chapterId, markdown);
+                }}
+                onSelectionChange={() => {}}
+                ariaLabel="Chapter body"
+              />
+              <Group>
+                <Button onClick={handleSaveBody} disabled={!state.canSaveBody}>
+                  Save body
+                </Button>
+              </Group>
+            </>
+          ) : (
+            <>
+              {/* NOT `open` (D16 / DoD-8): the stored body through `react-markdown`
+                  with NO plugins configured (the repo's inherited default), no
+                  editor and no save control at all — plus the stated reason. */}
+              {bodyReadOnlyReason !== null && (
+                <Text size="sm" c="dimmed">
+                  {bodyReadOnlyReason}
+                </Text>
+              )}
+              <Markdown>{body.text}</Markdown>
+            </>
+          )}
+        </Stack>
 
         <Divider />
 

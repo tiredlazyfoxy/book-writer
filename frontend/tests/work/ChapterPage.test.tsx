@@ -69,9 +69,10 @@
  * does not carry it, so nothing here asserts on it.
  *
  * `api/chapters` is mocked module-factory form (never `fetch`). A factory replaces the
- * WHOLE module, so all EIGHT frozen exports are enumerated — including the four this
- * page never calls; omitting one strips it to `undefined` and the page would fail for
- * the wrong reason (`008.context.md` -> Testing). `ApiError` is the REAL class from
+ * WHOLE module, so all TEN frozen exports are enumerated — 014's eight (including the
+ * four this page never calls) plus the body read/save pair `015`/004 added; omitting one
+ * strips it to `undefined` and the page would fail for the wrong reason
+ * (`008.context.md` -> Testing). `ApiError` is the REAL class from
  * `api/client`: DoD-4 and DoD-8 both need one. `api/books` and `api/chats` are mocked
  * because DoD-1 mounts the whole `WorkRoutes` table, whose shell loads the book and owns
  * the chat pane.
@@ -85,10 +86,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router-dom";
+import type { ChangeEvent } from "react";
 import type {
   ChapterAuthorPromptResponse,
   ChapterLifecycleState,
   ChapterResponse,
+  ChapterTextResponse,
 } from "../../src/types/chapters";
 import type { BookDetailResponse } from "../../src/types/books";
 import { ApiError } from "../../src/api/client";
@@ -105,9 +108,13 @@ import {
 } from "../../src/work/contentSubject";
 import { renderWithProviders } from "../support/render";
 
-// A module-factory mock replaces the WHOLE module. All EIGHT frozen exports of
-// `api/chapters` are enumerated, not just the four this page calls: a factory that
-// omitted one would leave it `undefined` for every module importing this namespace.
+// A module-factory mock replaces the WHOLE module. All TEN frozen exports of
+// `api/chapters` are enumerated, not just the ones this page's 014 surface calls: a
+// factory that omitted one would leave it `undefined` for every module importing this
+// namespace. The last two are the body read/save pair (`015`/004's freeze); the page's
+// body region (`015`/006) issues the read on mount, so it must resolve here rather than
+// blow up in the mount effect. Nothing in THIS file asserts on either of them — they are
+// harness only, armed benignly in `beforeEach` below.
 vi.mock("../../src/api/chapters", () => ({
   listChapters: vi.fn(),
   getChapter: vi.fn(),
@@ -117,7 +124,38 @@ vi.mock("../../src/api/chapters", () => ({
   reorderChapters: vi.fn(),
   getOwnChapterSystemPrompt: vi.fn(),
   updateOwnChapterSystemPrompt: vi.fn(),
+  getChapterText: vi.fn(),
+  updateChapterText: vi.fn(),
 }));
+
+/**
+ * The body editor (`015`/005) is stubbed over its frozen four-prop seam, exactly as the
+ * body region's own spec stubs it: a control whose accessible name is `ariaLabel`, whose
+ * value is `initialMarkdown`, and whose edits call `onChange` with a plain string.
+ * ProseMirror is never driven under jsdom — the feature's recorded testing decision.
+ * Nothing in this file queries it; the stub exists so that a body load which RESOLVES
+ * cannot pull the real editor into this file's mounts.
+ */
+vi.mock("../../src/work/components/chapter/ChapterBodyEditor", async () => {
+  const { createElement } = await import("react");
+
+  interface StubProps {
+    initialMarkdown: string;
+    onChange: (markdown: string) => void;
+    onSelectionChange: (selectedText: string) => void;
+    ariaLabel: string;
+  }
+
+  function ChapterBodyEditor(props: StubProps) {
+    return createElement("textarea", {
+      "aria-label": props.ariaLabel,
+      value: props.initialMarkdown,
+      onChange: (event: ChangeEvent<HTMLTextAreaElement>) => props.onChange(event.target.value),
+    });
+  }
+
+  return { ChapterBodyEditor };
+});
 
 // DoD-1 mounts the whole `WorkRoutes` table: its `/:bookId` shell loads the book, and
 // `WorkRoutes` also imports the Book-state page, which reads the two option arrays and
@@ -183,6 +221,23 @@ function makePrompt(overrides: Partial<ChapterAuthorPromptResponse> = {}): Chapt
     system_prompt: STORED_PROMPT,
     modified_at: "2026-07-01T12:00:00Z",
     ...overrides,
+  };
+}
+
+/**
+ * The body read's benign answer — harness only, asserted on nowhere in this file. It is
+ * deliberately an EMPTY body in a NON-`open` state: `015`/006's frozen surface mounts the
+ * editor and the `Save body` control only for an `open` body, so this default adds no
+ * control, no editable region and no text to any mount here, and every assertion in this
+ * file goes on meaning exactly what it meant before the body region existed.
+ */
+function makeBody(): ChapterTextResponse {
+  return {
+    chapter_id: CHAPTER_ID,
+    state: "planned",
+    text: "",
+    version: 0,
+    modified_at: null,
   };
 }
 
@@ -475,6 +530,12 @@ beforeEach(() => {
       };
     },
   );
+
+  // The body region loads on mount (`015`/006). Pure harness mocking: the read resolves
+  // with an empty, non-`open` body so nothing rejects unhandled and no body control joins
+  // the surface; the write is armed only so it can never reject if it is ever reached.
+  vi.mocked(chaptersApi.getChapterText).mockResolvedValue(makeBody());
+  vi.mocked(chaptersApi.updateChapterText).mockResolvedValue(makeBody());
 
   // Pure harness mocking for DoD-1's whole-route mount.
   vi.mocked(chaptersApi.listChapters).mockResolvedValue({ chapters: [], can_reorder: false });

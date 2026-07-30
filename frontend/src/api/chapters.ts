@@ -3,10 +3,12 @@ import type {
   ChapterAuthorPromptResponse,
   ChapterListResponse,
   ChapterResponse,
+  ChapterTextResponse,
   CreateChapterRequest,
   ReorderChaptersRequest,
   UpdateChapterAuthorPromptRequest,
   UpdateChapterSketchRequest,
+  UpdateChapterTextRequest,
 } from "../types/chapters";
 
 // Chapter resource module (book-nested `/api/books/{book_id}/chapters` surface,
@@ -158,4 +160,119 @@ export async function updateOwnChapterSystemPrompt(
     `${BASE}/${bookId}/chapters/${chapterId}/system-prompt`,
     { method: "PUT", body, signal },
   );
+}
+
+// ---------------------------------------------------------------------------
+// The chapter's BODY and the chapter's STATE (feature 015 step 004) — the five
+// write calls the working page's chapter surfaces make, over backend 015 step
+// 003's endpoints:
+//
+//   GET  /api/books/{bookId}/chapters/{chapterId}/text     -> ChapterTextResponse
+//   PUT  /api/books/{bookId}/chapters/{chapterId}/text     -> ChapterTextResponse
+//   POST /api/books/{bookId}/chapters/{chapterId}/open     -> ChapterResponse
+//   POST /api/books/{bookId}/chapters/{chapterId}/close    -> ChapterResponse
+//   POST /api/books/{bookId}/chapters/{chapterId}/reopen   -> ChapterResponse
+//
+// The eight functions above are UNCHANGED by this step — including
+// `listChapters` / `reorderChapters` resolving to the whole envelope.
+//
+// NAMING: each is named for what it acts on — the chapter's `Text` or the
+// chapter's `State` — following this module's own `<verb>Chapter<Field>` shape
+// (`updateChapterSketch`). A bare `open(...)` / `openChapter(...)` would read as
+// opening a page in an app whose whole vocabulary is panes and routes; these act
+// on the stored lifecycle state and say so.
+//
+// NO error handling, NO retry and NO refusal parsing live here: `request<T>`
+// already normalizes a non-2xx into an `ApiError` carrying `status` (the pages
+// branch on `409` vs `403`) and the server's reason text.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/books/{bookId}/chapters/{chapterId}/text` — the chapter's stored
+ * body, its state and its version token, together.
+ *
+ * A sub-resource of the chapter (D13), so a page showing a body issues this in
+ * addition to `getChapter`. Resolves to the response as the server sent it — the
+ * api layer neither unwraps nor reshapes it.
+ */
+export async function getChapterText(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterTextResponse> {
+  return request<ChapterTextResponse>(`${BASE}/${bookId}/chapters/${chapterId}/text`, {
+    signal,
+  });
+}
+
+/**
+ * `PUT /api/books/{bookId}/chapters/{chapterId}/text` — replace the whole body,
+ * carrying `expected_version` for the staleness check (D1).
+ *
+ * A stale `expected_version`, a chapter that is not `open`, a proposal-mode or
+ * archived-book refusal all arrive as an `ApiError` (`409` / `403`) from
+ * `request<T>`; nothing is caught here. Returns the STORED body, so callers
+ * re-seed from the response rather than from their draft.
+ */
+export async function updateChapterText(
+  bookId: string,
+  chapterId: string,
+  body: UpdateChapterTextRequest,
+  signal?: AbortSignal,
+): Promise<ChapterTextResponse> {
+  return request<ChapterTextResponse>(`${BASE}/${bookId}/chapters/${chapterId}/text`, {
+    method: "PUT",
+    body,
+    signal,
+  });
+}
+
+/**
+ * `POST /api/books/{bookId}/chapters/{chapterId}/open` — move a `planned`
+ * chapter to `open` (UC-035). Sends **no request body**: this is a command, not a
+ * representation to replace. Owner-only server-side; a co-author's call comes
+ * back `403`, and a book that already has an `open` (or `closing`) chapter makes
+ * it `409`. Returns 014's chapter response.
+ */
+export async function openChapterState(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterResponse> {
+  return request<ChapterResponse>(`${BASE}/${bookId}/chapters/${chapterId}/open`, {
+    method: "POST",
+    signal,
+  });
+}
+
+/**
+ * `POST /api/books/{bookId}/chapters/{chapterId}/close` — move the `open`
+ * chapter to `closed` directly (UC-036 / US-038.AC-1; the `closing` gate is
+ * `016`'s). Sends **no request body**. Returns 014's chapter response.
+ */
+export async function closeChapterState(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterResponse> {
+  return request<ChapterResponse>(`${BASE}/${bookId}/chapters/${chapterId}/close`, {
+    method: "POST",
+    signal,
+  });
+}
+
+/**
+ * `POST /api/books/{bookId}/chapters/{chapterId}/reopen` — move a `closed`
+ * chapter back to `open` (UC-037), subject to the same one-open-chapter guard.
+ * Sends **no request body**. Returns 014's chapter response.
+ */
+export async function reopenChapterState(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterResponse> {
+  return request<ChapterResponse>(`${BASE}/${bookId}/chapters/${chapterId}/reopen`, {
+    method: "POST",
+    signal,
+  });
 }
