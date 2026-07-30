@@ -8,7 +8,7 @@ The book/document domain is **specified** in `docs/product/` — 18 features and
 
 The domain's *architecture* is **designed as of 2026-07-24** — read it before touching book entities. `docs/architecture/domain-model.md` is the index over `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`; alongside it sit `authorization.md` (book-scoped permissions), `retrieval.md` (the embedding pipeline) and `frontend-workspace.md` (the working page). Entities are drawn for `FEAT-006..018` whole, even though only the Stage-2 tables get built first.
 
-**Still not designed, deliberately:** FEAT-013's assistant *internals* — context assembly, the tool/agent loop, the SSE event protocol for shared-canvas writes, web search, model selection. The `Chat` / `ChatMessage` entities exist in the map; the subsystem gets its own `/architect` session before Stage 5. Don't infer that part from the requirements.
+**Still not designed, deliberately:** FEAT-013's assistant *internals* — context assembly, the tool/agent loop, web search, model selection. The `Chat` / `ChatMessage` entities exist in the map; the subsystem gets its own `/architect` session before Stage 5. Don't infer that part from the requirements.
 
 The design knowingly diverged from `docs/product/` in four places; **`/product-spec` round 7 (2026-07-24) reconciled all four** — `docs/product/` now carries the enforced wording, and `domain-model.md` → "Product divergences" retains them as decision history. Read that section for the *why* behind the FEAT-014, UC-037, UC-060 and round-6 navigator decisions.
 

@@ -8,15 +8,15 @@ The entity definitions, their reasoning and their lifecycles live in `domain-mod
 
 ## Module map
 
-The existing four-layer split absorbs the domain without change — one `db/` module per entity, one service per aggregate, routes under `/api`. The table below is **as-shipped through features 008–013 and 021** (2026-07-25..29); modules that are still designed-only are marked. Names come from those features' `## Files Changed` records, not from a projection.
+The existing four-layer split absorbs the domain without change — one `db/` module per entity, one service per aggregate, routes under `/api`. The table below is **as-shipped through features 008–013, 021, 014 and 015** (2026-07-25..30); modules that are still designed-only are marked. Names come from those features' `## Files Changed` records, not from a projection.
 
 | Layer | Modules |
 |---|---|
-| `models/` | **shipped:** `book.py`, `book_member.py`, `book_author_prompt.py`, `chapter.py`, `chapter_change.py`, `chapter_text_revision.py`, `chapter_notes.py`, `flag.py`, `codex_entry.py`, `codex_entry_version.py`, `chat.py` (declares **both** `Chat` and `ChatMessage`), plus the five FEAT-020 config tables `assistant_mode.py`, `sub_agent.py`, `mode_tool.py`, `subagent_tool.py`, `mode_subagent.py` |
-| `models/schemas/` | **shipped:** `books.py`, `book_author_prompts.py`, `chats.py`, `codex.py`, `tools.py`, `assistant_config.py` |
-| `db/` | **shipped:** one session-free module per table — `books.py`, `book_members.py`, `book_author_prompts.py`, `chapters.py`, `chapter_changes.py`, `chapter_text_revisions.py`, `chapter_note_changesets.py`, `flags.py`, `codex_entries.py`, `codex_entry_versions.py`, `chats.py`, `chat_messages.py`, `assistant_modes.py`, `sub_agents.py`, `mode_tools.py`, `subagent_tools.py`, `mode_subagents.py` — same shape as `db/users.py` / `db/llm_servers.py`. Cross-cutting: `vector.py` (widened for the sidecar, feature 013) and `import_export_queries.py`. |
-| `services/` | **shipped:** `authz.py` (the capability table), `books.py` (lifecycle, membership, visibility), `book_author_prompts.py` (the per-author prompt), `chats.py` (chat CRUD + the row-ownership rule), `chat_turn.py` (the streaming turn), `codex.py` (codex CRUD, versions, collaboration mode), `codex_index.py` (incremental vector maintenance), `embedding.py` (text → vectors), `assistant_config.py` (the FEAT-020 admin editor), plus the assistant-runtime trio `assistant_runtime.py`, `subagent_delegation.py`, `codex_tools.py` and the supporting `tools.py` / `web_search.py` / `prompt_composition.py`. **Not yet built:** chapters (skeleton, state machine, the merge path), continuity, flags. |
-| `routes/` | **shipped:** `books.py`, `book_author_prompts.py`, `chats.py`, `codex.py`, `admin/assistant_config.py`. HTTP only, under `/api`; the book-access dependency resolves a typed `BookAccess`, the service decides the capability. |
+| `models/` | **shipped:** `book.py`, `book_member.py`, `book_author_prompt.py`, `chapter.py`, `chapter_author_prompt.py`, `chapter_change.py`, `chapter_text_revision.py`, `chapter_notes.py`, `flag.py`, `codex_entry.py`, `codex_entry_version.py`, `chat.py` (declares **both** `Chat` and `ChatMessage`), plus the five FEAT-020 config tables `assistant_mode.py`, `sub_agent.py`, `mode_tool.py`, `subagent_tool.py`, `mode_subagent.py` |
+| `models/schemas/` | **shipped:** `books.py`, `book_author_prompts.py`, `chapters.py`, `chapter_author_prompts.py`, `chats.py`, `codex.py`, `tools.py`, `assistant_config.py` |
+| `db/` | **shipped:** one session-free module per table — `books.py`, `book_members.py`, `book_author_prompts.py`, `chapters.py` (gained `update` / `delete` at feature 014), `chapter_author_prompts.py`, `chapter_changes.py`, `chapter_text_revisions.py`, `chapter_note_changesets.py`, `flags.py`, `codex_entries.py`, `codex_entry_versions.py`, `chats.py`, `chat_messages.py`, `assistant_modes.py`, `sub_agents.py`, `mode_tools.py`, `subagent_tools.py`, `mode_subagents.py` — same shape as `db/users.py` / `db/llm_servers.py`. Cross-cutting: `vector.py` (widened for the sidecar, feature 013) and `import_export_queries.py`. |
+| `services/` | **shipped:** `authz.py` (the capability table), `books.py` (lifecycle, membership, visibility), `book_author_prompts.py` (the per-author prompt), `chapters.py` (the skeleton — add, sketch, remove, order — plus, at feature 015, the body write path and the open / close / reopen state machine), `chapter_author_prompts.py` (the per-chapter prompt), `chats.py` (chat CRUD + the row-ownership rule), `chat_turn.py` (the streaming turn), `codex.py` (codex CRUD, versions, collaboration mode), `codex_index.py` (incremental vector maintenance), `embedding.py` (text → vectors), `assistant_config.py` (the FEAT-020 admin editor), plus the assistant-runtime quartet `assistant_runtime.py`, `subagent_delegation.py`, `codex_tools.py`, `chapter_tools.py` (feature 015) and the supporting `tools.py` / `web_search.py` / `prompt_composition.py`. **Not yet built as of feature 015:** continuity and flags. |
+| `routes/` | **shipped:** `books.py`, `book_author_prompts.py`, `chapters.py`, `chapter_author_prompts.py`, `chats.py`, `codex.py`, `admin/assistant_config.py`. HTTP only, under `/api`; the book-access dependency resolves a typed `BookAccess`, the service decides the capability. |
 
 Three cross-cutting additions worth naming because they are shared rather than per-entity:
 
@@ -26,22 +26,32 @@ Three cross-cutting additions worth naming because they are shared rather than p
 
 ## The book-domain table registry
 
-**As shipped** (features `008.data-domain` and `021.per-author-system-prompt`). `TABLE_REGISTRY` (`services/db_import_export.py`) carries a codec pair per table, appended **in FK dependency (import) order** after the two pre-existing entries. This is the canonical printed order, **19 entries**:
+**As shipped** (features `008.data-domain`, `021.per-author-system-prompt` and `014.chapter-skeleton`). `TABLE_REGISTRY` (`services/db_import_export.py`) carries a codec pair per table, appended **in FK dependency (import) order** after the two pre-existing entries — with **one named exception**, below. This is the canonical printed order, **20 entries**:
 
 ```
 users, llm_servers,                       # pre-existing (features 003, 004)
 assistant_modes, sub_agents,              # FEAT-020 instance-global config (assistant-config.md)
 mode_tools, subagent_tools, mode_subagents,
-books, book_members, book_author_prompts,
+books, book_members, book_author_prompts, chapter_author_prompts,
 chapters, chapter_changes, chapter_text_revisions, chapter_note_changesets,
 codex_entries, codex_entry_versions,
 flags,
 chats, chat_messages
 ```
 
-Feature 008 landed **16** of them in one pass — the five FEAT-020 config pairs plus eleven book-domain pairs — in exactly the order above. Feature 011 added columns to `chats` / `chat_messages` and their codecs but **no table**, so it left the order untouched. Feature 021 added the nineteenth, `book_author_prompts`.
+Feature 008 landed **16** of them in one pass — the five FEAT-020 config pairs plus eleven book-domain pairs — in exactly the order above. Feature 011 added columns to `chats` / `chat_messages` and their codecs but **no table**, so it left the order untouched. Feature 021 added the nineteenth, `book_author_prompts`, and feature 014 the twentieth, `chapter_author_prompts`.
 
 `book_author_prompts` sits **immediately after `book_members`**, and the position is deliberate on two grounds: FK import order requires it (it references `books` and `users`, both already earlier), and keeping the two `(book_id, user_id)` link tables adjacent is where a reader looks for either of them. The new table needed **model registration only** — `init_db()`'s `create_all` is additive, so `db/engine.py`'s ADDITIVE MIGRATION SEAM stayed `pass`.
+
+### The one exception to FK ordering — `chapter_author_prompts`
+
+`chapter_author_prompts` sits **immediately after `book_author_prompts`** (feature `014.chapter-skeleton`), and the reason for that position is **adjacency, not FK order**: the two per-author-prompt tables are the same shape one level apart, and the second is where a reader who found the first will look for it.
+
+**State the cost plainly, because it is a real exception to the rule this list is otherwise written by.** `chapter_author_prompts` references `chapters`, and `chapters` sits **after** `book_author_prompts` — so this one entry **precedes its own parent table**. Feature `014`'s step-001 skeleton record caught that and froze the position deliberately anyway, because the exception is **inert**: there is **no `PRAGMA foreign_keys=ON` anywhere in the backend**, and import is a per-table streaming UPSERT, so a row arriving ahead of its parent is neither rejected nor blocked. It changes no behaviour.
+
+**The invariant itself stands.** Every other entry is in FK dependency order, and the next table added belongs in FK dependency order unless someone deliberately repeats this trade and records it here too. This is one named, sanctioned exception — not a licence to read the ordering as approximate.
+
+Like `book_author_prompts`, the new table needed **model registration only**: `init_db()`'s `create_all` is additive, so `db/engine.py`'s ADDITIVE MIGRATION SEAM stayed `pass`. `Chapter.system_prompt` **keeps its codec** despite being dormant, so archives written before feature 014 still import — see `persistence.md` → "A superseded column keeps its codec".
 
 The five **`FEAT-020` config tables are instance-global** (the same class as `users` / `llm_servers`), so they append **before `books`** in the global-config block, not inside the book domain — a sub-agent's `to_dict` references an `LlmServer`, and the link tables reference modes and sub-agents. `TOOL_REGISTRY` is **code, not a table** and is not registered or exported (like `VECTOR_SOURCE_REGISTRY`). Full reasoning and the codec obligations are in `assistant-config.md` → "Persistence and registry obligations"; the ordering is repeated here because this file is the canonical home of the registry order.
 
@@ -68,7 +78,9 @@ The reason is the backend's own SQLite constraint, recorded in `features.md` →
 
 ## Chapter concurrency — the 409 rule
 
-`Chapter.version` is bumped on every applied change, and a write carrying a stale `base_version` is **refused with 409**, never merged server-side. This is a service-layer rule (the merge is a single transaction: snapshot → apply placement → bump version), and it is what US-041's concurrent-edit warning is built from. Full reasoning, including why a uniform refusal was chosen over a placement-dependent one, is in `domain-chapter.md` → "Concurrency".
+`Chapter.version` is bumped on every applied change, and a write carrying a stale `base_version` is **refused with 409**, never merged server-side. This is a service-layer rule, and it is what US-041's concurrent-edit warning is built from.
+
+**As built (feature `015.chapter-writing-free-mode`) the merge is *not* a transaction** — this paragraph previously said it was. `db/` is session-free with one module per entity and **no multi-table transaction primitive exists in the codebase**, so `services/chapters.py` issues **three ordered `db/` calls**: `ChapterChange` → `ChapterTextRevision` → `Chapter`, history before mutation. The accepted failure modes, and why "a snapshot with no applied change" is unrepresentable, are in `domain-chapter.md` → "As built there is no transaction". Full reasoning, including why a uniform refusal was chosen over a placement-dependent one, is in `domain-chapter.md` → "Concurrency".
 
 ## Schema drift — no new code
 

@@ -40,7 +40,8 @@ User ──owns──────────► Book ◄───────�
         │               │                                │        new Book,
         ├─ ChapterChange│                                │        no link)
         ├─ ChapterTextRevision                           │
-        └─ ChapterNoteChangeset                          │
+        ├─ ChapterNoteChangeset                          │
+        └─ ChapterAuthorPrompt ──► User                  │
                         └─ CodexEntryVersion             └─ ChatMessage
 ```
 
@@ -64,6 +65,7 @@ LlmServer ◄──(nullable model assignment)── SubAgent
 | `Chapter` | one chapter, one main body | `domain-chapter.md` | Stage 2 | later (UC-086) |
 | `ChapterChange` | every write into a chapter body | `domain-chapter.md` | Stage 2 | no |
 | `ChapterTextRevision` | pre-apply body snapshots | `domain-chapter.md` | Stage 3 | no |
+| `ChapterAuthorPrompt` | one author's per-chapter assistant instruction | `domain-chapter.md` | delivered — feature `014` | no |
 | `ChapterNoteChangeset` | a chapter's note delta | `domain-continuity.md` | Stage 4 *(table at Stage 2)* | later (UC-086) |
 | `Flag` | chapter annotation ("warning") | `domain-continuity.md` | Stage 4 | no |
 | `CodexEntry` | character / location / fact | `domain-codex.md` | Stage 2 | **yes — first** |
@@ -108,7 +110,7 @@ Every entity in those files follows the existing system-wide rules — none of t
 
 Both are non-optional and both are due **in the same change as the model**, not batched for later. **Both are now met for the whole domain** — the record below states what was delivered and when, because the sequence matters.
 
-- **Import/export — met.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. Feature `008.data-domain` honoured it per step for all sixteen tables it added, and feature `021.per-author-system-prompt` added the nineteenth. **The registry now carries 19 entries and every domain table is in it.** See `backend/book-domain.md` → "The book-domain table registry" for the canonical order.
+- **Import/export — met.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. Feature `008.data-domain` honoured it per step for all sixteen tables it added, feature `021.per-author-system-prompt` added the nineteenth, and feature `014.chapter-skeleton` the twentieth (`chapter_author_prompts`). **The registry now carries 20 entries and every domain table is in it.** See `backend/book-domain.md` → "The book-domain table registry" for the canonical order — including the one **sanctioned exception** to its FK-dependency ordering, recorded there.
 - **Vector sources — met, in two steps.** A vector-backed model appends a `VECTOR_SOURCE_REGISTRY` entry. `CodexEntry` is the first. It was **delivered across two features, not deferred indefinitely**: feature `008.data-domain` created the `codex_entries` table and registered no vector source, and feature `013.codex` registered it, widening the entry shape at the same time. The obligation is **discharged**, not outstanding. Chapter text, summaries and notes follow for UC-086. See `retrieval.md`.
 
 ## Product divergences this design assumes
@@ -132,7 +134,7 @@ Item 5 also **partly reverses item 3**; item 3 is annotated accordingly.
 
 ✓ Reconciled — product round 7 (2026-07-24, `987a75a`): a **new feature FEAT-019 was allocated** (UC-093 / UC-094, US-108 / US-109) to give the system-prompt fields a requirement, and it settled the three previously-undecided sub-questions above — book prompt owner-only / chapter prompt any member, both carry over on clone, neither inspected by the FEAT-016 check.
 
-⚠ **Amended 2026-07-29 (feature `021.per-author-system-prompt`).** The **book half of this settlement no longer holds.** "Owner-only, one prompt per book" was replaced by **every member owning exactly one prompt per book and reading and writing only their own**; nobody, including the owner, reaches another author's. `Book.system_prompt` is dormant and read by nothing. The **chapter half is unaffected as a rule** but has lost the layer it narrowed — see item 5 and `domain-book.md`. The clone answer (both carry over) and the consistency-check answer (neither is inspected) are untouched by that reversal.
+⚠ **Amended 2026-07-29 (feature `021.per-author-system-prompt`).** The **book half of this settlement no longer holds.** "Owner-only, one prompt per book" was replaced by **every member owning exactly one prompt per book and reading and writing only their own**; nobody, including the owner, reaches another author's. `Book.system_prompt` is dormant and read by nothing. The **chapter half went the same way** at feature `014.chapter-skeleton`: "editable by any member" survives, but the field it applied to does not — the prompt is now a per-author row per chapter. See item 5, `domain-book.md` and `domain-chapter.md`. The clone answer (both carry over) and the consistency-check answer (neither is inspected) are untouched by that reversal.
 
 ✓ The deferred follow-up recorded here — that the FEAT-019 authorization rule and the `**Realizes:** FEAT-019` headers were **not yet** in `authorization.md` / `domain-book.md` / `domain-chapter.md` — is **closed**. Feature `021.per-author-system-prompt` satisfied it: the authorization rule (row ownership scoped to `access.user_id`, with its `401` / `404` / `403` / `200` taxonomy) is recorded in `authorization.md`, and the entity is recorded in `domain-book.md`.
 
@@ -142,14 +144,18 @@ Item 5 also **partly reverses item 3**; item 3 is annotated accordingly.
 
 Product round 7 **additionally** reconciled two design decisions this pass had *not* flagged as divergences, so items 1–4 should not be read as the full set of places product trailed the design. First, the **block-as-`ChapterChange`** model: product's UC-039 had described addressable, separately-versioned blocks, whereas this design treats a block edit as an ordinary change through the one write path (product recorded the correction as C-r7-2). Second, the **`closing` chapter state**: product had carried only three chapter states, and round 7 adopted the fourth (product C-r7-4). Both were the design all along; product caught up rather than the design changing.
 
-**5. FEAT-019's book-wide, owner-only system prompt is replaced by a per-author prompt.** ⚠ **OPEN — awaiting `/product-spec`.** By explicit user decision during triage of `fast/003.book-system-prompt` (2026-07-27..29) and delivered by feature `021.per-author-system-prompt`, the book-wide prompt is gone: every member of a book owns **exactly one `BookAuthorPrompt`** for it, and may read and write **only their own**. `Book.system_prompt` survives as a dormant column (there is no supported DROP COLUMN path — see `backend.md` → decision history) and is read by nothing.
+**5. FEAT-019's system prompts go per-author — both halves, book and chapter.** ⚠ **OPEN — awaiting `/product-spec`.** By explicit user decision during triage of `fast/003.book-system-prompt` (2026-07-27..29) and delivered by feature `021.per-author-system-prompt`, the book-wide prompt is gone: every member of a book owns **exactly one `BookAuthorPrompt`** for it, and may read and write **only their own**. `Book.system_prompt` survives as a dormant column (there is no supported DROP COLUMN path — see `backend.md` → decision history) and is read by nothing.
 
 What this contradicts in `docs/product/`:
 
 - **UC-093** and **every criterion of US-108** — a book-wide prompt applied to all chats, editable by the owner alone. **US-108.AC-2** (a co-author attempting to edit it is refused) is not merely superseded but **reversed**: a co-author has their own prompt and may edit it.
-- It **removes the base layer that UC-094 / US-109 narrow**. `Chapter.system_prompt` was defined as appending to the book's; there is no book-wide layer left for it to append to. **US-109.AC-3** in particular — that with no chapter prompt "only the book's system prompt applies" — rests on a layer that no longer exists. What a chapter prompt narrows is now an open question, and it is `014.chapter-skeleton`'s to answer *after* FEAT-019 is rewritten.
+- It **removes the base layer that UC-094 / US-109 narrow**. `Chapter.system_prompt` was defined as appending to the book's; there is no book-wide layer left for it to append to. **US-109.AC-3** in particular — that with no chapter prompt "only the book's system prompt applies" — rests on a layer that no longer exists.
 
-**State it plainly: unlike items 1–4, this divergence is not reconciled.** `docs/product/` still carries the pre-021 wording. Rewriting FEAT-019 is `/product-spec`'s alone; neither this document nor any plan may edit `docs/product/` to close it. A reader must not assume the product layer describes what was built.
+**The chapter half went per-author too (feature `014.chapter-skeleton`, 2026-07-30).** The question left open above is answered, and the answer is a replacement rather than a redefinition: **UC-094 and every criterion of US-109 (AC-1, AC-2, AC-3) are superseded.** They describe a chapter prompt that narrows the book's rather than replacing it, and AC-3 says that with no chapter prompt "only the book's system prompt applies". There is no book's. What shipped instead is **`ChapterAuthorPrompt`** (`domain-chapter.md`): any book **member** owns exactly one prompt per chapter and reads and writes only their own; nobody, including the book's owner, reaches another author's. `Chapter.system_prompt` is dormant on the same terms as `Book.system_prompt` — retained because there is no DROP COLUMN path, and read by nothing.
+
+**No `[test]` DoD item in feature `014` cites UC-094 or any US-109 criterion as met** — the same convention `021` used for the book half, and for the same reason: citing an id would claim satisfaction of a criterion this design contradicts.
+
+**State it plainly: unlike items 1–4, this divergence is not reconciled — and it now covers both halves of FEAT-019.** `docs/product/` still carries the pre-021 wording for the book half and the pre-014 wording for the chapter half. The entry stays **awaiting `/product-spec`** until FEAT-019 is rewritten **whole**; a partial rewrite would leave the same half-open state that made this extension necessary. Rewriting it is `/product-spec`'s alone; neither this document nor any plan may edit `docs/product/` to close it. A reader must not assume the product layer describes what was built.
 
 ## Recorded gaps
 

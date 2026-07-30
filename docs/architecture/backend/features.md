@@ -2,7 +2,7 @@
 
 Part of the backend architecture — see `../backend.md` for the index.
 
-These are the as-shipped records for the backend's shipped route families and subsystems: features 003/004/006/007 (the `User` and `LlmServer` domain models, LLM-server connections, database consistency & management), and features 011/012/013/021 (the FEAT-020 assistant configuration, the codex and retrieval subsystems, and the per-author system prompt).
+These are the as-shipped records for the backend's shipped route families and subsystems: features 003/004/006/007 (the `User` and `LlmServer` domain models, LLM-server connections, database consistency & management), and features 011/012/013/021/014/015 (the FEAT-020 assistant configuration, the codex and retrieval subsystems, the per-author system prompt, the chapter skeleton, and the chapter writing surface).
 
 ## Deployment requirement — llama.cpp must run with `--reasoning-format none`
 
@@ -223,3 +223,63 @@ Replaces the book-wide system prompt with one prompt **per author, per book**. I
 - **No field on `BookDetailResponse`.** A per-caller value cannot ride on a book-shaped DTO — two authors reading the same book would need different bodies for the same resource. It gets its own endpoint for that reason.
 
 The divergence this creates against `docs/product/` FEAT-019 is recorded in `domain-model.md` → "Product divergences" (the fifth item, still open).
+
+## The chapter route family and the per-chapter system prompt
+
+**Realizes:** FEAT-008 (UC-031..034), FEAT-019 (chapter half, as redefined). Shipped by feature `014.chapter-skeleton`.
+
+The sixth route family: the chapter **skeleton** — add, read, edit a sketch, remove, reorder — plus a per-chapter system-prompt pair. Two subsystems, one feature:
+
+- the skeleton — `models/schemas/chapters.py`, `services/chapters.py`, `routes/chapters.py`, and `db/chapters.py`'s new `update` / `delete`;
+- the prompt — `models/chapter_author_prompt.py`, `db/chapter_author_prompts.py`, `models/schemas/chapter_author_prompts.py`, `services/chapter_author_prompts.py`, `routes/chapter_author_prompts.py`.
+
+**Six skeleton endpoints:** `GET` and `POST` on `/api/books/{book_id}/chapters`; `GET`, `PATCH` and `DELETE` on `/{chapter_id}`; and `PUT` on `/order` — **`201`** on create, **`204`** on delete, and the literal **`/order` segment declared before the parameterised one** so path capture does not swallow it (the same ordering rule as the LLM-server and admin-DB families). **The prompt pair:** `GET` / `PUT /api/books/{book_id}/chapters/{chapter_id}/system-prompt`.
+
+**DTO shapes**, each with the decision inside it:
+
+- **`ChapterResponse`** — ids as strings; **no `text`, no `summary`, no `summary_status`**. The body belongs to `015.chapter-writing-free-mode` and the summary to `016.chapter-close-continuity`; shipping the fields empty would have invited clients to bind to them first and discover their semantics later.
+- **`ChapterListResponse`** — the ordered array **plus `can_reorder`**, a **caller-relative affordance hint**. The client mirrors it to show or hide the control and **never enforces on it**; the server re-checks the capability on every reorder.
+- **`CreateChapterRequest`** — no ordinal: a new chapter is **appended**, and the server assigns the position.
+- **`UpdateChapterSketchRequest`** — **no version token.** Sketch edits are last-write-wins and do **not** bump `Chapter.version`, which tracks the body only.
+- **`ReorderChaptersRequest`** — the **full** ordered id list. The server rewrites ordinals `1..N` and refuses a list that is not exactly the book's current chapter set.
+- **`ChapterAuthorPromptResponse`** — **no `user_id`**, on `BookAuthorPromptResponse`'s reasoning: the subject is always the caller, and returning an id would invite the reading that another author's prompt is addressable here.
+
+**Error → status taxonomy:** the **401 / 404 / 403** trio comes from `authorization.md` unchanged, plus **409** for a non-`planned` chapter on the sketch and remove paths (the caller has the capability; the resource is in the wrong state) and **400** for an invalid reorder set — a structurally valid body that failed a cross-row invariant, where a `422` would misreport *where* validation happened.
+
+**Deliberate absences**, each with its reason, because these are what a later feature would otherwise re-open:
+
+- **No `chapter_access` dependency.** The routes nest under `{book_id}` so `book_access` binds unchanged; each service verifies `chapter.book_id == access.book_id` itself. See `authorization.md` → "No `chapter_access` dependency — deliberately".
+- **No `DELETE` and no `POST` on the prompt path.** `""` *is* "no prompt", and `PUT` is the upsert answering **200** on both the create and the update path — the `book_author_prompts` precedent.
+- **No chapter field on any book DTO.**
+- **No per-chapter move endpoint.** One bulk `PUT`, so two concurrent callers cannot interleave into an ordinal set that neither of them chose.
+- **No ordinal renumbering on delete.** Removal leaves a gap; only a reorder rewrites `1..N`. Renumbering on delete would silently move every later chapter for an operation the author framed as removing one.
+
+Endpoints and DTO field lists are in `docs/architecture/quick-reference.md`. The entity model is `domain-chapter.md`; the capabilities and the row-ownership rule are `authorization.md`.
+
+## The chapter writing surface
+
+**Realizes:** FEAT-009 (UC-035..039), FEAT-013 (UC-054, UC-055 — the chapter half). Shipped by feature `015.chapter-writing-free-mode`.
+
+The seventh route family, and the first that writes into a book's **text**. It spans `services/chapters.py`'s body and transition entry points, `routes/chapters.py`'s five new handlers, `models/schemas/chapters.py`'s two new DTOs, and — on the assistant side — `services/chapter_tools.py` with its **four `TOOL_REGISTRY` additions** (`assistant-runtime.md`).
+
+**Five endpoints, all `200`:** `GET` and `PUT` on `/api/books/{book_id}/chapters/{chapter_id}/text`, and `POST` on `/open`, `/close` and `/reopen` under the same chapter.
+
+**`POST` for the transitions** because they are **commands with no body**, not representations to replace. **`PUT` for the body** because it **replaces the whole resource** — placement is computed server-side from the whole body (`domain-chapter.md`), so nothing partial is transmitted.
+
+**DTO shapes:**
+
+- **`ChapterTextResponse`** — `chapter_id` as a **string**, `state`, `text`, **`version` as a JSON number**, `modified_at`.
+- **`UpdateChapterTextRequest`** — `text`, `expected_version`.
+
+Two decisions inside them. **`version` stays a number while ids are strings** because the string-id rule exists for snowflakes exceeding JS's 2^53 — a **counter does not**, and stringifying it would obscure why the rule exists. **`state` rides on the body response** because the version and the state that qualify a save must arrive **with the payload they qualify**.
+
+**Error → status taxonomy:** the **401 / 404 / 403** trio from `authorization.md` unchanged (including the **archived-book** and **proposal-mode** `403`s), **409** for every state-machine and stale-version refusal, **422** for a malformed body. The full table is in `authorization.md` → the chapter capabilities.
+
+**Deliberate absences** — the part a later feature would otherwise re-litigate:
+
+- **The body is a sub-resource, not a field on `ChapterResponse`.** `014` excluded `text` so a list render would not drag bodies onto the wire, and `014` has **one `_to_response` serving both the list and the item** — so a body added for the item is a body on **every row**.
+- **No `can_write` on the body response and no `can_manage_state` on the chapter response.** `014`'s `can_reorder` is justified because a **list envelope** is "the answer to this caller's request"; a **resource representation is not**, and `021` refused a caller-relative field on one. The client gates on **chapter state alone** and surfaces the server's `403` — `013.codex`'s shipped precedent.
+- **No partial or line-addressed write endpoint.** Placement is computed server-side from the whole body.
+- **No `chapter_access` dependency** — `014`'s rule, unchanged.
+- **No new table, no new JSONL codec and no migration statement.** `chapter_changes` and `chapter_text_revisions` shipped with `008.data-domain` and got their **first writer** here; `db/engine.py`'s ADDITIVE MIGRATION SEAM stayed `pass`.
+- **Chapter text is not vector-indexed.** `VECTOR_SOURCE_REGISTRY` still holds `CodexEntry` only. Indexing chapter bodies is a **retrieval** decision, not a chapter one, and it is not roadmapped.

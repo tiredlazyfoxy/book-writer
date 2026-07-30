@@ -313,3 +313,17 @@ chapter is this turn about", which is undesigned FEAT-013 context assembly. `021
   is absent the editable set is `editable === "none" ? [] : [editable]`. Possible impact: state it in
   `frontend-workspace.md` → "Content pane — subject and editability" so a later partial row copies
   the shape instead of turning `editable` into an array.
+
+---
+Status: Applied 2026-07-30
+Applied items: 13 (1, 1b, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+Rejected items: 0
+
+Note — **item 9 was applied with a corrected rationale.** Its stated justification for placing
+`chapter_author_prompts` immediately after `book_author_prompts` — "FK import order requires it… it
+references `chapters` and `users`, both already earlier" — is false: `chapters` sits *after*
+`book_author_prompts`, so the shipped position registers a child table one slot ahead of its parent.
+`backend/book-domain.md` now records the position's real reason (keeping the two per-author-prompt
+tables adjacent) and names the FK-ordering exception plainly, including why it is inert. The
+position itself, and everything else item 9 asked for, was applied as written. Item 8 was applied
+with the step-008 observation folded in as its concrete API shape.

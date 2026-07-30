@@ -17,7 +17,7 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 | `text` | **the single main body** |
 | `summary` | the backward-looking summary (FEAT-012, drafted on close request, owner-approved) |
 | `summary_status` | `draft` \| `approved` \| `stale` — the summary's own continuity status |
-| `system_prompt` | optional; **the layer it narrowed no longer exists** — see below. Untouched and unread by the composer |
+| `system_prompt` | **superseded and read by nothing** — retained rather than dropped; the per-chapter prompt is `ChapterAuthorPrompt`, below |
 | `version` | int, bumped on every applied change |
 | `created_at` / `modified_at` | timestamps |
 
@@ -25,17 +25,35 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 
 **One `text`, not a block table.** See `ChapterChange` below: blocks are *changes applied into* a body, not rows the body is assembled from.
 
-**The chapter system prompt has lost its base layer.** It was designed to *append to* the book-wide prompt rather than replace it — the book's voice always applies, a chapter prompt narrows it. **That book-wide layer no longer exists.** Feature `021.per-author-system-prompt` replaced `Book.system_prompt` with a per-author prompt (`domain-book.md` → `BookAuthorPrompt`), so there is nothing left for a chapter prompt to narrow.
+### The chapter prompt moved off `Chapter.system_prompt`
 
-Concretely, as of feature `021`:
+**`Chapter.system_prompt` is superseded and read by nothing.** It was designed to *append to* the book-wide prompt rather than replace it — the book's voice always applies, a chapter prompt narrows it. Feature `021.per-author-system-prompt` removed that base layer by replacing `Book.system_prompt` with a per-author prompt (`domain-book.md` → `BookAuthorPrompt`). Feature `014.chapter-skeleton` then replaced the chapter field itself rather than redefining what it narrows: the per-chapter prompt is now a row of its own, **`ChapterAuthorPrompt`**.
 
-- The **column is untouched** and **still unread by the composer** — nothing in the runtime reads `Chapter.system_prompt` today.
-- The **in-code docstring on the column still says "appends to the book's" and is now stale.** Feature `021` flagged it deliberately rather than editing it, because the field's replacement wording is a design decision, not a comment fix.
-- **Redefining what a chapter prompt narrows is `014.chapter-skeleton`'s work**, and only *after* `/product-spec` has rewritten FEAT-019 (UC-094 / US-109 rest on the removed layer; **US-109.AC-3** — "with no chapter prompt, only the book's system prompt applies" — names it outright).
+**The column is retained rather than dropped, deliberately.** `db/engine.py` exposes only an *additive* migration seam and the project has no Alembic, so there is **no supported `DROP COLUMN` path**. It is still declared, and it still round-trips through its JSONL codec so that archives written before `014` still import — the same treatment `Book.system_prompt` received in `021` (`backend/persistence.md` → "A superseded column keeps its codec").
 
-**No replacement semantics are invented here.** `014.chapter-skeleton` is about to be planned against this field, and handing it a base layer that was removed would be worse than handing it an explicit open question.
+**The in-code docstring on the column is still stale, and three features have now left it that way.** `backend/app/models/chapter.py` still says the field appends to the book's. Feature `021` flagged it and deliberately did not edit it, because the field's replacement wording was a design decision rather than a comment fix. Feature `014` did not edit it either — `models/chapter.py` was outside every step's Source files, since the skeleton half needed no schema change and the prompt half went to a new table. Feature `015.chapter-writing-free-mode` did not edit it either; that module never entered its Source files. The flag stands open across all three, recorded here so that a fourth reader does not take the docstring for the column's meaning.
 
-Divergence item 3 in `domain-model.md` (the system prompts had no requirement behind them) is **partly reversed** by the open item 5 there; read both before designing on this field.
+### ChapterAuthorPrompt
+
+| Field | Type / notes |
+|---|---|
+| `id` | snowflake PK |
+| `chapter_id` | FK → `Chapter.id` |
+| `user_id` | FK → `User.id` |
+| `system_prompt` | required; `""` means "no prompt" |
+| `created_at` / `modified_at` | timestamps |
+
+One row per `(chapter, author)`, holding that author's own standing instruction to the assistant for that chapter. Delivered by feature `014.chapter-skeleton`.
+
+**A surrogate snowflake PK plus a unique `(chapter_id, user_id)`** — `BookMember`'s shape, adopted for `BookMember`'s stated reasons (`domain-book.md`): the id convention is system-wide with no permanent exceptions, and a surrogate id keeps the import/export codec identical in shape to every other table. The unique constraint carries "exactly one prompt per author per chapter". This mirrors `BookAuthorPrompt` exactly one level down. **`""` rather than a nullable column** so that "no prompt" has one representation and not two.
+
+**There is no book-wide layer left to append to.** The prompt a chapter row holds is not a narrowing of anything — the book-wide prompt is gone, and what this value combines with, if anything, is composition's question and is not answered here.
+
+Who may read and write a row is a **row-ownership rule, not a capability** — see `authorization.md` → "Chats and per-author prompts — three row-ownership rules".
+
+**Composition is wired (feature `015.chapter-writing-free-mode`).** `014` shipped storing and serving the prompt and deferred reading it into a turn, because that needed an answer to "which chapter is this turn about" — which it took to be undesigned FEAT-013 context assembly. **`015` dissolved the blocker without designing context assembly**: it registers the open chapter as the content-pane subject, so the turn request itself names the chapter, and the row is passed as **layer 4** of the system-prompt composition, read for the chat's own author. See `assistant-runtime.md` → "System-prompt composition". Context assembly remains undesigned.
+
+**No product id is cited for this entity, deliberately.** UC-094 and every criterion of US-109 describe a chapter prompt that narrows a book-wide prompt which no longer exists, so citing them would claim satisfaction of criteria this design contradicts — the same convention feature `021` used for `BookAuthorPrompt`. Recorded as part of the open fifth divergence in `domain-model.md` → "Product divergences", which also annotates item 3 as partly reversed.
 
 `summary` lives on the chapter but belongs to the continuity story; how it is drafted, approved and viewed is `domain-continuity.md`.
 
@@ -64,6 +82,18 @@ planned ──open (owner)──► open ─────────────
 **Writes are refused in `closing` for a specific reason:** the owner is approving continuity data that describes a particular body. Letting anyone edit that body while it is being approved would produce an approved summary of text that no longer exists — exactly the failure FEAT-016's check is meant to catch, manufactured by the workflow itself.
 
 The close gate is a **Stage-4 behaviour** (Stage 2 ships an ungated close, per the roadmap's explicit close-gate seam), but the `closing` value and the status columns below **land at Stage 2**. See "Landing the continuity columns early".
+
+### The close seam, as built (feature `015.chapter-writing-free-mode`)
+
+The seam is now concrete rather than a roadmap note. As shipped, `POST …/close` requires `state == open` and writes **`closed` directly**: nothing reads or writes `closing`, no continuity is drafted, and no approval is required.
+
+**`016.chapter-close-continuity` changes exactly two things** — the destination becomes `closing`, and a second endpoint moves `closing → closed` after the owner approves. Everything else `016` might expect to build **already exists**, and `015` built it that way deliberately so `016` does not retrofit it:
+
+- every **one-open-chapter guard already tests `state in {open, closing}`**, on **both** the open and the reopen path;
+- the **body-write refusal already refuses a `closing` chapter**;
+- **`determine_mode` already maps a `closing` chapter to the seeded `close-chapter` mode** (`assistant-runtime.md`).
+
+**US-038.AC-3 is cited by nothing in `015`.** Its steps belong to the gated close, which is `016`'s. This is staging, not divergence.
 
 ### CF1 — reopen is refused while another chapter is open
 
@@ -108,6 +138,27 @@ Unified, every change carries **author, date and placement for free**, proposal 
 
 **This answers FEAT-009's open `_TBD:` "what a block contains (format, length, structure)."** A block is a `ChapterChange` with `placement_kind = append`: free text, no length rule, no internal structure, placed at the end of the body. The `_TBD:` lives in `docs/product/` and is not this document's to close there — but the architecture no longer has a hole where it was.
 
+### What a Stage-2 row actually contains — placement is computed, not chosen
+
+**Realizes:** feature `015.chapter-writing-free-mode`. `018` reads these rows back and FEAT-010 writes `pending` ones, so what a free-mode row holds — and which fields are never populated yet — is the first thing either will need.
+
+A free-mode save is **one `PUT` carrying the whole body plus `expected_version`**, producing **one `ChapterChange` row per save whose placement is computed server-side**:
+
+- **`append`** when the new body **starts with** the loaded body — the appended remainder is the change's text, and the line bounds are null;
+- **`range`** otherwise — `line_from = 1`, `line_to = len(loaded_text.splitlines())`, and the **whole new body** as the change's text.
+
+Three degenerate cases have fixed answers, so nobody has to re-derive them:
+
+- an **empty prior body** is always an `append` carrying the whole body — the first write into a chapter;
+- **clearing a body to `""`** is a `range` carrying `""`;
+- an **unchanged re-save** is an `append` carrying `""`, and it **still snapshots and still bumps the version**. No "unchanged" short-circuit was added: one rule beats a special case, and the client already gates the save on dirtiness.
+
+**Why the placement is computed rather than transmitted — the two layers.** Versioning is **whole-body and happens on save**; append-vs-replace is an **editing operation on the draft**, before any save, performed by the author typing or by the assistant's tools (`assistant-runtime.md`). That is what reconciles UC-038's "append a block" with UC-039 / US-041's "edit a body", and it is why **no partial or line-addressed write reaches HTTP at all**.
+
+Consequently `ChapterChange.status = pending` and `rejected` are **still unreached** — they are FEAT-010's and `018`'s.
+
+The remaining fields, as written in free mode: **`base_version` is the client's `expected_version`**, **`status` is `applied` immediately**, and **`author_id` is the caller — this is where US-040.AC-2's attribution lives.**
+
 ### The one write path
 
 Both collaboration modes converge on a single merge:
@@ -132,9 +183,28 @@ compose change (base_version = chapter.version)
 2. **Apply the placement** — `append` concatenates onto the end of the body; `range` replaces lines `line_from..line_to` with the change's text.
 3. **Bump `Chapter.version`** and stamp `applied_at` / `applied_by`.
 
-All three steps are one transaction: a snapshot without an applied change, or an applied change without a snapshot, would break revert.
-
 **Free mode reaches step 1 immediately; proposal mode reaches it when the owner applies.** There is no second merge implementation for proposals, and no third for the assistant.
+
+#### As built there is no transaction — the real ordering, and what it accepts
+
+This section used to assert that all three steps are one transaction. **They are not, and the architecture cannot currently make them so.** `db/` is session-free with one module per entity, and **no multi-table transaction primitive exists anywhere in the codebase**. Correcting the claim matters: a reader relying on it would design revert, variants (`018`) or proposal application (FEAT-010) on a promise that is not kept, and would go looking for a bug class the schema makes unrepresentable.
+
+As shipped by feature `015.chapter-writing-free-mode`, the save issues **three ordered `db/` calls from `services/chapters.py`**, exactly as `services/codex.py::update_entry` orders its version snapshot before its entry mutation. **No cross-entity `db/` module was created** — "one module per entity" was kept.
+
+**The order is `ChapterChange` → `ChapterTextRevision` → `Chapter`**, and it is the safest one available:
+
+- the **change must precede the revision**, because `ChapterTextRevision.applied_change_id` is a **non-null FK**;
+- the **chapter update must come last**, because a body that has moved with no history behind it is the one failure that breaks revert irrecoverably.
+
+**History before mutation.**
+
+The accepted failure modes, stated precisely — the sentence this replaces named one that cannot happen:
+
+- a crash **after step 1** leaves an `applied` change with no revision and an **unmoved** body;
+- a crash **after step 2** leaves a change plus a **no-op revision** whose `text_before` equals the current body;
+- **no ordering can leave a moved body with no history**, and **a snapshot with no applied change is impossible** under the FK direction.
+
+**A second limitation of the same class:** the **version check and the write are not one transaction either**, so two saves racing on the same `expected_version` can both pass the check. The window is milliseconds and the exposure is identical to `services/codex.py`'s.
 
 ### Stale pending changes are refused, not rebased
 
@@ -187,5 +257,7 @@ Three rules, and they work as a set:
 The restore buffer (UC-092) records the `Chapter.version` it forked from, so the mismatch is detectable on return without a server round-trip beyond the normal load. Buffer mechanics — storage, scoping, lifetime — are `frontend-workspace.md`'s.
 
 **This is the same mechanism US-041 needs.** The product's "warn the second author, then later-write-wins" is exactly rules 2 + 3 seen from the author's side: the second save is refused, the author is shown the divergence, and if they choose to overwrite, their reconciled text becomes the next applied change against the current version. The system never silently discards either side.
+
+**How US-040.AC-4 is actually satisfied — read it as a flow, not as a merge.** It is satisfied automatically by the three rules above: the system **refuses the later save**, **shows the author the server's body against their draft**, and lets a save **re-issued against the current version** land. **The merging is the author's** — reconciliation takes one side whole and there is **no automatic merge at MVP**. "Both members' blocks end up in the chapter" is therefore true of the *flow*, not of a merge algorithm, and the criterion should be read that way. The wording invites the other reading, which is why it is pinned here; whether product re-words it is `/product-spec`'s.
 
 **Accepted limitation:** two authors appending to the same chapter simultaneously will make one of them re-issue their save even though appends do not actually conflict. Refusing uniformly was chosen over a placement-dependent rule because "sometimes your save is refused and sometimes it isn't, depending on where you put it" is harder to reason about than "your save is refused when the chapter moved", and an append re-issue is a one-click retry with no content loss.

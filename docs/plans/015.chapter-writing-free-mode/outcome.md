@@ -560,3 +560,14 @@ closing is `/product-spec`'s.
   was writing. Possible impact: `frontend-workspace.md`'s two-vocabularies rule (the author's refusal vs
   the assistant's) could name this as the one refusal that exists only on the client, so a later reader
   does not try to move it into the tool's refusal chain.
+
+---
+Status: Applied 2026-07-30
+Applied items: 18 (items 1, 2, 2b, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 — all as written) plus all 4 `## Observations`
+Rejected items: 0
+
+Notes:
+
+- The sequence this file demands (`021` → `014` → `015`) was satisfied: `021`'s and `014`'s outcomes were applied first, and this pass built on their text rather than restoring anything either removed. The two paragraphs `014` left for `015` to replace were replaced — `domain-chapter.md`'s "composition is still not wired" sentence (item 3) and `backend/book-domain.md`'s "not yet built as of feature 014" clause, which now reads "not yet built as of feature 015: continuity and flags". `authorization.md`'s `014`-written chapter-capability table and state-machine note were **extended** by item 8, not restarted.
+- Beyond the 18 items, and recorded so the diff is easy to review: **root `CLAUDE.md`** had the phrase "the SSE event protocol for shared-canvas writes" removed from its still-not-designed list (user-approved, the same correction item 18 makes to the two `docs/architecture/` files); `docs/architecture/quick-reference.md` was extended for the five endpoints, the two DTOs, the two capabilities, the widened `CanvasFrame` and the frontend stack; and three adjacent stale claims were corrected for coherence with items 1 and 4 — `frontend-workspace.md`'s "Out of scope" list, `frontend.md`'s "three root modules" count, and `backend/book-domain.md`'s "the merge is a single transaction" parenthesis.
+- The `/roadmap` and `/product-spec` follow-ups above are **not** architecture's and were left untouched; `docs/product/` was not read or edited.

@@ -62,6 +62,14 @@ Feature **`009.books`** (`docs/plans/009.books/`) is the **first implementation*
 
 Two parts of the resolver remain deferred to **FEAT-011**: **`admin` role resolution** (nothing resolves a caller to the `admin` role in the book-access sense yet) and the **quarantined / destroyed gates** in "Book state and visibility gates" below. Both are moderation-side, and FEAT-011 is Stage 6.
 
+### No `chapter_access` dependency — deliberately
+
+**There is no chapter-level access resolver, and there is not meant to be one.** The chapter routes nest under `/api/books/{book_id}/chapters/…` **precisely so that `book_access` binds unchanged** to the `{book_id}` path parameter (feature `014.chapter-skeleton`). Each chapter service then verifies `chapter.book_id == access.book_id` itself and raises its own not-found reason for a chapter that does not exist or belongs to another book.
+
+The alternative — a `chapter_access` dependency that resolved a chapter to its book — would put the existence-hiding rule in a **second** place, which is exactly what "resolve once, in one dependency" above exists to prevent: two resolvers means two chances for the `404`-vs-`403` answer to drift. Nesting the route costs one path parameter and keeps the resolver singular.
+
+Recorded because `014`'s brief asked how a chapter resolves to its `book_id`, and the answer — *don't build a resolver, nest the route* — is one every later chapter feature would otherwise ask again.
+
 ## Capability × role matrix
 
 `—` = refused. Where a row says *mode*, the book's `collaboration_mode` decides whether a co-author's change applies immediately (free) or is held as a proposal for the owner (proposal).
@@ -94,7 +102,59 @@ Two parts of the resolver remain deferred to **FEAT-011**: **`admin` role resolu
 | **Apply proposals (UC-041)** | ✓ | — | — | — |
 | Read chapter text | ✓ | ✓ | ✓ *(public only)* | via moderation view |
 
-Two chapter rules are **state-machine constraints, not authorization**, and apply even to the owner: a chapter in `closing` refuses writes, and a **reopen is refused while any chapter is `open` or `closing`** (CF1). Being the owner does not bypass either. See `domain-chapter.md`.
+#### The chapter skeleton capabilities, as built
+
+Feature `014.chapter-skeleton` added the **four `Capability` members** that back the first four rows above. Until then those rows were a matrix on paper with no enum behind them:
+
+| Capability | Owner | Co-author | Reader | None |
+|---|---|---|---|---|
+| Add a chapter (UC-031) | ✓ | ✓ | — | — |
+| Edit a planned chapter's sketch (UC-033) | ✓ | ✓ | — | — |
+| Remove a planned chapter (UC-034) | ✓ | ✓ | — | — |
+| **Set chapter order (UC-032)** | ✓ | — | — | — |
+
+**Set chapter order is owner-only, which is what US-033.AC-2 requires**; the other three are `{owner, co_author}`.
+
+**The two read paths reuse the existing `read_book` capability unchanged** rather than minting a chapter-read capability of their own — "Read chapter text" in the table above *is* that row, and a second capability meaning the same thing would be two rules to keep in step.
+
+#### The last two chapter rows get an enum behind them (feature `015.chapter-writing-free-mode`)
+
+Feature `015` added the **two remaining `Capability` members**, so the chapter matrix is now fully backed by code:
+
+| Capability | Owner | Co-author | Reader | None |
+|---|---|---|---|---|
+| **Open / close / reopen a chapter (UC-035..037)** | ✓ | — | — | — |
+| Write into the open chapter (UC-038) | ✓ | ✓ *(mode)* | — | — |
+
+**One member for the one matrix row** on the transitions — the three verbs share a row, so they share a capability, matching the 1:1-with-the-matrix discipline `014` used.
+
+**The `(mode)` qualifier on the write row is layered in `services/chapters.py`, not in the matrix.** This is now the **third** feature to layer a non-role rule on top of the matrix, after `011.chat-panel` and `013.codex`; what this document already called "a pattern rather than a one-off" is now the house shape.
+
+Chapter rules that are **state-machine constraints, not authorization** apply even to the owner. They are all **`409` and not `403`**, because the caller *has* the capability and the **resource is in the wrong state** — pinned here so that a later feature does not "fix" them to `403`:
+
+- a chapter in `closing` **refuses writes**;
+- a **reopen is refused while any chapter is `open` or `closing`** (CF1);
+- a **non-`planned` chapter refuses a sketch edit and a removal** (feature `014`);
+- **reordering is allowed while a chapter is `open`** (feature `014`, closing UC-032's `_TBD:`), because a reorder touches `ordinal` only — it never reads or writes a body, never changes a `state`, and never bumps `version`;
+- a **body write to a chapter that is not `open`** (feature `015`);
+- a **stale `expected_version`** on a body write (feature `015`);
+- **opening a non-`planned` chapter**, **reopening a chapter that is not `closed`**, and **closing a chapter that is not `open`** (feature `015`);
+- **opening or reopening while any chapter is `open` or `closing`** (feature `015`) — CF1's rule applied to **both** transitions, by the symmetry the product's UC-035 exception flow states.
+
+Being the owner does not bypass any of them. See `domain-chapter.md`.
+
+Status codes the five new chapter routes produce, mirroring the codex table below:
+
+| Situation | Status |
+|---|---|
+| No token | **401** |
+| Private book with no relationship | **404** — existence hiding, produced by `book_access`, **not re-derived** |
+| A chapter that does not exist, or belongs to another book | **404** — the same answer, raised by the service |
+| A capability failure, and any reader | **403** |
+| A **co-author in a `proposal`-mode book** | **403** — typed reason naming FEAT-010 as unbuilt |
+| An **archived** book | **403** — see "Book state and visibility gates" |
+| Every state-machine and version refusal above | **409** |
+| A malformed body | **422** |
 
 ### Members-only material — codex, notes, summaries, flags
 
@@ -148,11 +208,11 @@ Status codes the four codex routes produce:
 
 Note the resolution recorded as finding R4-2: cloning a public book is a **co-author** capability (ACT-005, a member), not a reader one. ACT-006 has no clone use case, and the members-only codex is therefore never exposed by a clone.
 
-### Chats and per-author prompts — two row-ownership rules
+### Chats and per-author prompts — three row-ownership rules
 
-Some rows belong to **one member**, not to a role. The matrix cannot express that: it maps **capability → role set** and has **no notion of "author of this row"**. Both rules below are therefore enforced one layer up — the `book_access` dependency establishes *membership*, and the owning service then scopes the row. **No `Capability` member and no `_CAPABILITY_MATRIX` row was added for either.**
+Some rows belong to **one member**, not to a role. The matrix cannot express that: it maps **capability → role set** and has **no notion of "author of this row"**. All three rules below are therefore enforced one layer up — the `book_access` dependency establishes *membership*, and the owning service then scopes the row. **No `Capability` member and no `_CAPABILITY_MATRIX` row was added for any of them.**
 
-One such rule reads as a special case; **two read as a pattern**. The next feature that needs one should copy the shape from here rather than inventing a matrix concept for it.
+One such rule reads as a special case, two read as a pattern; **three make it the house shape**. The next feature that needs one should copy the shape from here rather than inventing a matrix concept for it.
 
 **Chats — `Chat.author_id`.** A chat is **private to its author**, including from the book's owner (US-061.AC-1). No role reaches another user's chat. Only the *saved output* of a chat is shared (US-061.AC-2). Enforcement is a **service-level ownership check in `services/chats.py`, layered over the `book_access` dependency** (feature `011.chat-panel`). A chat belonging to **another author answers `404`, not `403`** — the same existence-hiding reasoning as a private book under "Failure modes" below: a `403` would confirm that the chat exists and whose it is, which is precisely what US-061.AC-1 is protecting.
 
@@ -171,7 +231,21 @@ The route pair `GET` / `PUT /api/books/{book_id}/system-prompt` produces:
 
 Producing the `404` in the resolver rather than in the service is what keeps existence hiding to one implementation, per "Enforcement" above.
 
-**Collaboration mode does not apply to a prompt.** A prompt is an author's instruction to **their own assistant**, never book content, so there is nothing for an owner to review and no proposal state to hold — unlike a codex entry or a chapter block, whose text lands in the book. This is why the rule is row ownership and not a *(mode)*-qualified capability.
+**Per-chapter prompts — `ChapterAuthorPrompt`** (feature `014.chapter-skeleton`, `domain-chapter.md`). The same rule, one level down. **Every member owns exactly one prompt per chapter and may read and write only their own**; nobody — **including the book's owner** — reads or writes another author's. The `book_access` dependency establishes membership against the `{book_id}` the route nests under, the service **scopes every read and write to `access.user_id`**, and it **separately verifies `chapter.book_id == access.book_id`** — the two checks answer different questions and neither substitutes for the other.
+
+The route pair `GET` / `PUT /api/books/{book_id}/chapters/{chapter_id}/system-prompt` produces:
+
+| Situation | Status |
+|---|---|
+| No token | **401** |
+| Private book the caller has no relationship to | **404** — produced by `resolve_book_access`, **not re-derived** in the service |
+| Chapter that does not exist, or belongs to another book | **404** — the same existence-hiding answer, raised by the service |
+| Logged-in **non-member** of a book they can see | **403** |
+| Member acting on their **own** prompt | **200**, including when no row exists yet |
+
+**The chapter's state machine does not gate it.** A prompt is readable and writable on a chapter in `planned`, `open`, `closing` *or* `closed`. The state machine governs **chapter content**; this is the author's instruction to their own assistant, and closing a chapter does not close the author's ability to say how they want to be helped with it.
+
+**Collaboration mode does not apply to a prompt** — either level. A prompt is an author's instruction to **their own assistant**, never book content, so there is nothing for an owner to review and no proposal state to hold — unlike a codex entry or a chapter block, whose text lands in the book. This is why both rules are row ownership and not *(mode)*-qualified capabilities.
 
 ## The admin boundary
 
@@ -200,11 +274,25 @@ The state and visibility fields gate access **before** the matrix is consulted:
 | `Book.state` | Members | Reader (public) | Admin |
 |---|---|---|---|
 | `active` | matrix applies | read-only if public | moderation view |
-| `archived` | matrix applies (see open question below) | read-only if public | moderation view |
+| `archived` | matrix applies to **reads**; **every write is refused** — see below | read-only if public | moderation view |
 | `quarantined` | **content hidden**; owner is shown the removal notice (UC-046) | hidden | moderation view |
 | `destroyed` | **content hidden**; owner is shown the removal notice (UC-046) | hidden | moderation view |
 
 Quarantine makes a book invisible to *everyone including its members* (UC-044) — the owner does not get a partial view, they get the notice instead of the content (UC-046 exception flow).
+
+### An archived book refuses writes — settled by feature `015.chapter-writing-free-mode`
+
+This was carried as an open question through feature `009.books`. It is now decided and implemented: **every chapter body save and every chapter state transition (open / close / reopen) is refused when `BookAccess.book_state` is `archived`. Reads still work.**
+
+**The status is `403`, with its own typed reason — not `409`.** This document places the book-state gate **before** the matrix, alongside visibility and quarantine, and defines `403` as "a book the caller can legitimately see, but a capability they lack". Under archive **no member holds the write capability**, which is an *access* answer, not a resource-state answer. (Contrast the state-machine refusals under "Chapters", which are `409` precisely because the caller does hold the capability.)
+
+**The product basis:** UC-023 says archive preserves content and is reversible. Refusing writes is what makes "preserved" mean something.
+
+**No `Capability` member and no `_CAPABILITY_MATRIX` row was added for it.** The gate is a service-level check over `BookAccess.book_state` — the same layering the `(mode)` qualifier uses, and the same reason: the matrix maps capability → role set and has no vocabulary for book state.
+
+**The assistant is refused by the same rule in the other vocabulary**, reading `ToolContext.access.book_state` and returning a tool string rather than a status (`assistant-runtime.md` → "The shared-canvas write for chapters").
+
+The deferral this replaces named `010` / `014` as "the write features, which are the first to have something to refuse". That naming was wrong and is corrected here: **`014` writes no book *content*** — a skeleton row and a per-author prompt — and **`015` is the first feature that writes into a book's text.**
 
 ## Failure modes
 
@@ -222,9 +310,5 @@ The `401` / `404` / `403` split is the same taxonomy the existing admin routes u
 
 Recorded rather than guessed:
 
-- **Whether an archived book refuses writes.** UC-023 says content and history are preserved and archive is reversible; nothing states whether a member may keep writing into an archived book. The matrix above is written for `active`; the archived row inherits it pending a decision.
-
-  **Still open after feature `009.books`, deliberately.** 009 delivered the `BookAccess` resolver and the `authz` spine, and `BookAccess` **does resolve `book_state`** — so the information a refusal would need is already at hand. But 009 built **no write-refusal capability at all**, because **nothing in 009 writes book content**: the behaviour could be neither exercised nor decided there. It is deferred to the write features (`010` / `014`), which are the first to have something to refuse.
 - **The moderation view's route surface and DTOs** — FEAT-011 is Stage 6 and its architecture is out of scope here. This document fixes only that the surface is separate, admin-only, read-only, and reaches the codex.
-- **Who may edit the *chapter*-level system prompt.** Open — but **for a different reason than when this list was first written**. It was open because no product requirement covered it; FEAT-019 then covered it (any member), and feature `021.per-author-system-prompt` has since removed **the layer a chapter prompt narrowed** (`domain-chapter.md`). The question is no longer "who may edit it" in isolation but *what the field means at all*, and it is `014.chapter-skeleton`'s to answer after `/product-spec` rewrites FEAT-019. **The book-level half of this bullet is settled and has moved into the body** — see "Chats and per-author prompts — two row-ownership rules".
 - **Proposal review for notes and codex entries.** FEAT-010's own `_TBD:` says only block proposals have a use case today; this matrix marks note and codex edits *(mode)* without designing the review surface for them. **Codex has since taken an interim position rather than waiting**: a co-author's write in a proposal-mode book is **refused with `403`** rather than held, because there is nothing to hold it in (see the codex subsection above and `domain-codex.md`). That is a decision about the *gap*, not a design of the review surface — the surface is still open.

@@ -40,7 +40,7 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 
 **The column is retained rather than dropped, deliberately.** `db/engine.py` exposes only an *additive* migration seam and the project has no Alembic, so there is **no supported DROP COLUMN path**. The column is therefore still required, still written `""` at book creation, and still round-trips through the JSONL codec so that archives written before the replacement still import. A dead-but-documented column beats an unsupported migration — but it has to be documented, because a reader who deletes it on the strength of "nothing reads it" breaks every existing database file.
 
-**`Chapter.system_prompt` therefore has nothing left to append to.** It was defined as narrowing the book-wide prompt (`domain-chapter.md`); that base layer is gone. The column is untouched and still unread by the composer. **What a chapter prompt narrows is now an open question**, and it is `014.chapter-skeleton`'s to answer once `/product-spec` has rewritten FEAT-019. No answer is invented here.
+**`Chapter.system_prompt` had nothing left to append to, and went the same way.** It was defined as narrowing the book-wide prompt (`domain-chapter.md`); that base layer is gone. Feature `014.chapter-skeleton` answered the question this paragraph used to leave open by **replacing the field rather than redefining it** — the per-chapter prompt is now `ChapterAuthorPrompt`, one row per `(chapter, author)`, on exactly the terms below. `Chapter.system_prompt` is dormant on the same terms as this column: retained, unread, still exported. See `domain-chapter.md` → "The chapter prompt moved off `Chapter.system_prompt`".
 
 Recorded as the fifth — and the only **open** — product divergence in `domain-model.md` → "Product divergences", which also annotates item 3 as partly reversed.
 
@@ -125,7 +125,7 @@ One row per `(book, author)`, holding that author's own standing instruction to 
 
 **`""` rather than a nullable column** so that "no prompt" has one representation and not two; the composer's empty-contributes-nothing rule then needs no null branch.
 
-Who may read and write a row is a **row-ownership rule, not a capability** — see `authorization.md` → "Chats and per-author prompts — two row-ownership rules". Where the value lands in the composed prompt, and which author's row the turn resolves, is `assistant-runtime.md`'s.
+Who may read and write a row is a **row-ownership rule, not a capability** — see `authorization.md` → "Chats and per-author prompts — three row-ownership rules". Where the value lands in the composed prompt, and which author's row the turn resolves, is `assistant-runtime.md`'s. Its per-chapter sibling, `ChapterAuthorPrompt`, is in `domain-chapter.md`.
 
 **No product id is cited for this entity, deliberately.** `BookAuthorPrompt` realizes a *replacement* for FEAT-019's book half, and FEAT-019's current ids (UC-093, US-108) describe a book-wide, owner-only prompt that no longer exists — US-108.AC-2 is reversed outright rather than superseded. Citing them here would claim satisfaction of criteria this design contradicts, which is why feature `021`'s own plan cited none of them as met. `/product-spec` must rewrite FEAT-019 first; the ids it mints are what a later feature will cite. Recorded as the open fifth divergence in `domain-model.md` → "Product divergences".
 

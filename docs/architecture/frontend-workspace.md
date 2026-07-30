@@ -12,7 +12,7 @@ The book domain took the build from three entries to five; `frontend.md` → `vi
 
 | Entry | Serves | Contents |
 |---|---|---|
-| `index.html` | **Shell SPA** | bookshelf (UC-021/022/030), book hub (skeleton UC-031..034, open/reopen UC-035/037), book settings (archive UC-023, transfer UC-024, co-authors UC-026/027, visibility UC-028, mode UC-042), read-only codex browse (UC-071), read-only continuity view (UC-051, UC-089) |
+| `index.html` | **Shell SPA** | bookshelf (UC-021/022/030), book hub (**read-only** chapter list — no state transitions; see the route map), book settings (archive UC-023, transfer UC-024, co-authors UC-026/027, visibility UC-028, mode UC-042), read-only codex browse (UC-071), read-only continuity view (UC-051, UC-089) |
 | `work/index.html` | **Working page SPA** | the two-pane working page — its own bundle |
 | `read/index.html` | **Reader SPA** (ACT-006) | chapter text + table of contents **only** |
 | `admin/index.html` | Admin SPA | unchanged |
@@ -44,7 +44,7 @@ Stated plainly, because both are real:
 | Route | Surface | Built? |
 |---|---|---|
 | `/` | Bookshelf — books owned (UC-022) and shared (UC-030); create a book (UC-021) | **yes** (feature 009) |
-| `/books/:bookId` | Book hub — chapter skeleton (UC-031..034), open / close / reopen (UC-035..037) | no |
+| `/books/:bookId` | Book hub — a **read-only** ordered chapter list with state badges, linking into the working page. **No chapter editing and no state transitions** | no |
 | `/books/:bookId/settings` | Archive (UC-023), transfer (UC-024), co-authors (UC-026/027), visibility (UC-028), collaboration mode (UC-042), **the caller's own system prompt** (feature 021) | **yes** (feature 009) |
 | `/books/:bookId/codex` | Read-only codex browse (UC-071), members-only | no |
 | `/books/:bookId/continuity` | Read-only chapter summaries + note changesets (UC-089, UC-051), members-only | no |
@@ -55,6 +55,10 @@ Feature 009 delivered the bookshelf and the settings page on the **existing `ind
 
 The codex and continuity routes here are **read-only mirrors**. All *management* of codex entries, state notes, summaries and flags happens on the working page — a rule product states directly ("all management/editing of codex, state notes, summaries and flags happens ONLY on the working SPA"). Keeping the Shell copies read-only means there is exactly one editing surface per artifact, so draft-until-saved and the restore buffer have one place to live.
 
+**The chapter skeleton moved to the working page (feature `014.chapter-skeleton`), and the book hub became a read-only mirror like the other two.** UC-031..034 — add, remove, reorder and the sketch editor — are **off** the Shell row above and on the working page's `/chapters` and `/chapter/:id` rows below. This **diverges from this document's own earlier route table but agrees with this document's own stated rule**: the chapter skeleton was the one row still claiming a second editing surface for an artifact, and it no longer does. **The divergence is internal to this document, not with `docs/product/`** — no UC or US says which SPA the skeleton is built from, so nothing is owed to `/product-spec` for it.
+
+**Feature `015.chapter-writing-free-mode` finished that move: UC-035..037 are not on the Shell either.** Open, close and reopen live on the **working page's chapter item** (`/work/:bookId/chapter/:id`) — one surface per action, per `014`'s "the Book hub READS, the working page EDITS". The Shell hub is now a read-only ordered chapter list and nothing more. Two surfaces claiming one action is exactly what the one-editing-surface rule exists to prevent, and this row was the last place still claiming it.
+
 ### Working page (`/work`)
 
 **The content-pane subject is a nested route.** The workspace shell is keyed on `:bookId` and does not remount when the subject changes; the subject route inside it remounts per `frontend.md`'s normal path-param rule.
@@ -63,8 +67,8 @@ The codex and continuity routes here are **read-only mirrors**. All *management*
 |---|---|
 | `/work/:bookId` | redirects to `/work/:bookId/state` — Book state is the landing view (UC-091, US-106.AC-1) |
 | `/work/:bookId/state` | Book state |
-| `/work/:bookId/chapters` | chapter list |
-| `/work/:bookId/chapter/:id` | one chapter |
+| `/work/:bookId/chapters` | chapter list — **add (UC-031), remove (UC-034) and reorder (UC-032)** |
+| `/work/:bookId/chapter/:id` | one chapter — **the sketch editor (`planned`, UC-033)**, **the caller's own chapter system prompt (all states)**, **the body editor (`open`, UC-038/039)**, **the state transition control (open / close / reopen, UC-035..037)**, the divergence view and the undo control |
 | `/work/:bookId/characters`, `/locations`, `/facts` | codex lists, one per `kind` |
 | `/work/:bookId/codex/new?kind=<character\|location\|fact>` | a **blank** codex entry of the chosen kind |
 | `/work/:bookId/codex/:id` | one codex entry |
@@ -158,14 +162,14 @@ An in-code comment on `AdminShell` asserts a repo-wide "no `<Outlet/>` anywhere"
 
 #### What each section actually shows today
 
-The navigator was built whole at feature 010 with **one** section carrying data and every other one a labelled empty state naming its owner. Two features have filled sections since; the current state is:
+The navigator was built whole at feature 010 with **one** section carrying data and every other one a labelled empty state naming its owner. Three features have filled sections since; the current state is:
 
 | Section | State |
 |---|---|
 | Book state | **has data** — the book's own fields and members (feature 010), plus the caller's own system prompt (feature 021) |
 | Characters / Locations / Facts | **has data** (feature 013) |
 | Chats | **has data** (feature 011), in the chat pane |
-| Chapters | labelled empty state — owner `014.chapter-skeleton` |
+| Chapters | **has data** (features `014`, `015`) — the ordered skeleton with add / remove / reorder, the sketch editor, the caller's own chapter prompt, and the `open` chapter's body editor with its state transitions |
 | Variants | labelled empty state — owner `018.chapter-history-variants` |
 
 Within Book state, one deferral survives and is deliberate: **US-106.AC-2/AC-3** — per chapter, its title, summary, after-chapter note changeset and active warnings — is deferred to **`016.chapter-close-continuity`** and ships as a labelled empty state, because no chapter, summary or flag endpoint exists to aggregate. Feature 010's record that the landing view aggregated the **book's own fields only** is retained here as history; it was true of that feature and is no longer true of the page.
@@ -180,12 +184,32 @@ The pane holds **either a list or a single item** (UC-090, UC-083). A loaded sub
 
 | Subject | Editable? |
 |---|---|
-| The book's **`open`** chapter | editable (US-097.AC-3) |
+| The book's **`open`** chapter | **partly editable** — its **body text** (US-097.AC-3) and the caller's own chapter system prompt; its **`sketch` is read-only** (UC-033 confines sketch edits to `planned`) |
 | A chapter in **`closing`** | **read-only** — the owner is approving continuity for this exact body (`domain-chapter.md`) |
-| Any `planned` or `closed` chapter | **read-only** (US-097.AC-1) |
+| A **`planned`** chapter | **partly editable** — its `sketch` (UC-033) and the caller's own chapter system prompt; its `text` is **read-only** (US-097.AC-1) |
+| A **`closed`** chapter | **read-only** (US-097.AC-1) |
 | A codex entry, not archived | editable, per collaboration mode (US-079) |
 | Book state | state notes editable (UC-050) **and the caller's own system prompt** (feature 021); everything else read-only |
 | Any list | read-only |
+
+**The table gained its first *partial* row (feature `014.chapter-skeleton`), and the shape it uses is the one to copy.** A `planned` chapter is editable in two regions and read-only in the one the table was originally written about. It needed a partial row because **US-097.AC-1's read-only rule is about the chapter's body**, and the sketch is editable in exactly the *opposite* window from the body: the sketch only while `planned` (UC-033), the body only while `open`. One verdict per subject could not express that.
+
+As built, in `src/work/subject.ts`:
+
+- **`Editability` gained an optional `editableRegions?: EditableRegion[]`** — `editable` stays a single verdict and was **not** turned into an array.
+- **`EditableRegion` gained `"chapter-sketch"` and `"chapter-own-prompt"`.**
+- **`WriteRegion` was *not* widened.** A chapter **body** write is still `checkWritePermission(subject, "whole")`, so `checkWritePermission` still refuses a body write on a `planned` chapter and the shared-canvas symmetry (US-097.AC-2, US-059.AC-3) is untouched — the assistant and the author are still refused by the same rule.
+- **The invariant when `editableRegions` is absent:** the editable set is `editable === "none" ? [] : [editable]`. Every existing row keeps its meaning unchanged, which is what makes the field additive rather than a migration.
+
+A later subject needing a partial row **copies this shape** — an optional region list beside the verdict — rather than turning `editable` into an array.
+
+**The `open` row became region-explicit too (feature `015.chapter-writing-free-mode`).** "The open chapter is editable" was ambiguous the moment `014` made the `planned` row partial, so the `open` row now names its regions in the same vocabulary: the **body text** is editable and the caller's own chapter prompt stays editable, while the **sketch is not** — UC-033 confines sketch edits to `planned`, which is the exact **opposite window** from the body. An editable region that is not in this table is drift.
+
+`src/work/subject.ts` remains the **single enforcement point**: `checkWritePermission` now **allows** a body write on `open` while still refusing one on `planned`, `closing` and `closed`. The shared-canvas symmetry (US-097.AC-2, US-059.AC-3) is therefore preserved with **the assistant refused by the same rule as the author**.
+
+**A read-only chapter body renders through `react-markdown`, not through a disabled editor.** The heavy editor (`@mantine/tiptap`, `frontend.md`) is mounted **only when the chapter is `open`**, which removes editable-toggling entirely and keeps the read path light. `react-markdown`'s **no-plugin default was inherited, not re-decided**.
+
+**Neither new field enters the draft-until-saved restore buffer.** The buffer exists for large artifacts carrying a version token; the sketch is explicitly **last-write-wins with no version** (no `expected_version`, no `409`, and a sketch edit does not bump `Chapter.version`, which tracks the body only), and the prompt row has exactly **one writer**. Consequently there is **no stale-buffer detection, no divergence view and no `409` path** on either. The exclusion is sanctioned in `frontend-work-drafts.md` → "Sanctioned exclusions", the same way feature 021's was.
 
 **The Book-state row gained exactly one editable region (feature 021).** The caller's own per-author system prompt is editable there; the rest of the view stays read-only. It is deliberately **outside the draft-until-saved restore buffer**: the buffer exists for large content-pane artifacts whose loss is expensive, while this is a short settings field edited from **two** surfaces (here and the Shell's book settings), and buffering it on one but not the other would be incoherent. Consequently the field has **no `baseVersion`, no stale-buffer detection, no divergence view and no 409 path** — the row has exactly one writer, its owner. An editable field missing from this table is drift, and the exclusion is sanctioned in `frontend-work-drafts.md` → "Sanctioned exclusions" the same way the buffer's inclusions are.
 
@@ -193,14 +217,18 @@ The pane holds **either a list or a single item** (UC-090, UC-083). A loaded sub
 
 **It is now wired, and its open note is closed (feature 013).** Written by feature 010 and until then imported only by `restoreBuffer.ts`, `subject.ts` is now the live subject model: `resolveEditability` drives the codex entry page's **read-only banner**, and `LoadedSubject` is what the canvas target registry holds and what the assistant turn request is built from. Its in-code note — that "the free/proposal collaboration-mode nuance is `013.codex`'s to apply" — is **closed**: the nuance is applied **server-side**, where a co-author's write in a proposal-mode book is refused with **403**, so `subject.ts` needed no change at all. The assistant and the author are refused **by the same rule at the same place**, which is exactly what US-097.AC-2's symmetry asked for. A file written for a future feature and then satisfied differently must say so, or its note reads as unfinished work forever.
 
-**Two implementations, two vocabularies, on purpose.** The table now has a second implementation: `backend/app/services/codex_tools.py::_refuse_write` is the assistant's **server-side mirror** of `frontend/src/work/subject.ts::checkWritePermission`. They speak different languages by design:
+**Two implementations, two vocabularies, on purpose.** The table now has a second implementation per writable subject: a server-side **mirror** of `frontend/src/work/subject.ts::checkWritePermission`, expressed for the assistant. They speak different languages by design:
 
 | Writer | Refusal lives in | Refusal looks like |
 |---|---|---|
-| The author's save | `services/codex.py` | the **403 / 400 / 409** HTTP taxonomy that service owns |
-| The assistant's canvas write | `services/codex_tools.py::_refuse_write` | a **tool string the model reads** |
+| The author's codex save | `services/codex.py` | the **403 / 400 / 409** HTTP taxonomy that service owns |
+| The assistant's codex canvas write | `services/codex_tools.py::_refuse_write` | a **tool string the model reads** |
+| The author's chapter save / transition | `services/chapters.py` | the **403 / 409 / 422** HTTP taxonomy (`authorization.md`) |
+| The assistant's chapter canvas write | `services/chapter_tools.py`'s refusal chain | a **tool string the model reads** |
 
 The assistant's refusal is a string rather than a status because **a raising tool would abort the turn** — the model must be told *no* and allowed to continue, where the author's client must be told *no* and shown why. Same rule, same subject model, two surfaces. `assistant-runtime.md` holds the server half.
+
+**One refusal exists only on the client, and it is the exception that proves the rule (feature `015`).** A **`replace_selection` canvas frame arriving when no selection is active** is refused **at page level**, with **no server-side counterpart** — the tool cannot know that the author cleared the selection while the model was writing. The frame is **not applied**: never appended, never applied at position zero, and the author is told. Do not try to move this into the tool's refusal chain; the information it needs does not exist on the server.
 
 The subject is **independent of the active chat**: loading a chapter does not change which chat is open, and switching chats does not change the subject. Because both sides are persisted — the chapter on the server, the chat on the server, the unsaved draft in the restore buffer — that independence survives navigation and reload rather than depending on either staying mounted.
 
@@ -212,6 +240,15 @@ The content pane is `<AppShell.Main><Outlet/></AppShell.Main>` and stays that wa
 - **`CodexEntryPage`** — serving both `/codex/:id` and `/codex/new?kind=…`, the latter as a blank entry with no row behind it.
 
 This is the pattern chapters and variants follow: a page per route, its own state class beside it, its own load in its own page-level effect, and nothing owned by the pane.
+
+### The chapter surfaces, as built (features 014 and 015)
+
+The chapter **item** page is the pane's **second editable subject** and the **first with a numeric version token** — a different template from the codex entry's, so copy from the right one.
+
+- **Three trios, no aggregation type**: the chapter, its body, and the caller's own prompt each load as their own `<name>` / `<name>Status` / `<name>Error` triple (`frontend.md`).
+- **Three editable regions** on one page — sketch, prompt, body — each with its own state window, gated by the editability table above.
+- **The remount-by-key idiom for external draft writes.** The third-party editor reads its initial content once, so the page keys it on a counter bumped by every *external* write (assistant apply, undo, buffer restore, reconciliation) and never by a keystroke. The rule and its cost are in `frontend.md` → "React hook rules".
+- **It registers itself as a *writable* canvas target**, where `014` registered the chapter as a subject only. The registry is `frontend-work-drafts.md`'s.
 
 ### Chat pane (feature 011)
 
@@ -258,5 +295,5 @@ Everything in `frontend.md` still binds — they are listed because a page this 
 ## Out of scope
 
 - **Pane orientation, resize/divider behaviour and ratio persistence.** Product routes these to `/architect` but this pass does not settle them; they are layout mechanics with no dependency on anything above.
-- **The assistant's internals.** They are no longer undesigned — `assistant-runtime.md` and `assistant-config.md` hold them — but they are not this document's. What remains genuinely undesigned there (context assembly, scoped checks UC-088, token budgets, the shared-canvas protocol for **chapters**) is bounded in those files, not here.
+- **The assistant's internals.** They are no longer undesigned — `assistant-runtime.md` and `assistant-config.md` hold them — but they are not this document's. What remains genuinely undesigned there (context assembly, scoped checks UC-088, token budgets, token-level canvas streaming) is bounded in those files, not here. **The shared-canvas protocol for chapters is no longer on that list** — it shipped with feature `015.chapter-writing-free-mode` and is in `assistant-runtime.md`.
 - **The admin moderation view** (FEAT-011, Stage 6) — an Admin SPA surface, not one of these entries.

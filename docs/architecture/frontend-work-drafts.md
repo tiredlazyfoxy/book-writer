@@ -59,17 +59,25 @@ This is a **sanctioned exception** to `frontend.md`'s "URL query params are the 
 
 **Feature 010 shipped it as a pure module with no writer.** Nothing imported it but `subject.ts`'s types until feature 013's codex entry page became its first caller. That gap was intentional — the buffer's shape had to be frozen before an editable subject existed, so the first subject would adopt it rather than negotiate it.
 
-## The module tier — three members
+## The module tier — four members
 
-`src/work/` now holds **three** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
+`src/work/` now holds **four** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
 
 | Module | Holds | Persisted? |
 |---|---|---|
 | `restoreBuffer.ts` | unsaved draft text per item, with its base version | `localStorage` |
 | `activeChat.ts` | which chat is open, per book | `localStorage` |
 | `contentSubject.ts` | the current content-pane subject + its apply-draft callback | in memory only |
+| `chapterUndo.ts` | assistant-write undo snapshots per `(book, chapter)`, capped at 20 | **in memory only** |
 
-Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a fourth is added on purpose rather than by precedent.
+Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a fifth is added on purpose rather than by precedent.
+
+### The fourth member, sanctioned on purpose (feature `015.chapter-writing-free-mode`)
+
+This section previously said a fourth member should be added "on purpose rather than by precedent". `chapterUndo.ts` is that fourth member, and both halves of its shape are the sanction:
+
+- **Not `localStorage`, deliberately.** Twenty chapter bodies against a few-megabyte origin quota would compete with the restore buffer — which **already evicts**, and already reports eviction to the author as data loss on some other item. An undo stack that evicts someone's unsaved draft is **strictly worse** than one that does not survive a reload. In memory is the right trade.
+- **Assistant writes only, deliberately.** ProseMirror ships a real history plugin (`frontend.md` → the editor), so the author's own typing already has undo *inside* the editor. A second stack over the same keystrokes would give the author **two undo affordances that disagree** about what "one step back" means. A snapshot is pushed **before each assistant-originated write is applied**, and nowhere else.
 
 ### The active-chat pointer (feature 011)
 
@@ -92,6 +100,23 @@ A module of plain functions is what is left, and it is the tier this document al
 - **`ChatPaneState` gained no subject field.** It reads the registry **at send time**, so the turn always carries whatever is open at the moment the author sends, and no observer relationship exists between the two panes. The panes stay independent (UC-083) because nothing links them but a function call.
 - **Fallback: a `canvas` frame with no registered target is written into the restore buffer**, so returning to the entry surfaces it through the path that already exists rather than through a second, parallel one. A frame naming no entry at all (`subject_id === null`, UC-076's blank entry) with no registered target is simply dropped — there is no key to write it under.
 
+### The registry is no longer codex-shaped (feature `015.chapter-writing-free-mode`)
+
+The registry above was documented as a codex mechanism. It is now the general one, and its **fallback rules are the part a third subject will get wrong**.
+
+**The generalization was one literal.** `dispatchCanvasFrame` routes on the frame's **own `subject_kind`** instead of assuming `"codex-entry"` in its buffer key. That literal was **the only codex-specific thing that had to change**: the fallback's `"body"`-field condition stayed exactly as it was, because **`CanvasField` was not widened and a chapter's body *is* the `"body"` field** (`assistant-runtime.md`). The applier's **type** gained a third optional parameter — the frame's operation — and **every existing two-parameter applier still satisfies it**, so no codex code changed at all.
+
+**The fallback rule, restated for an operation-bearing frame.** With **no registered target**:
+
+- a **whole-field replace** frame is still **buffered** under the subject's own key, inheriting whatever base version sits there (`""` when none);
+- an **append** or a **replace-selection** frame is **dropped and logged**.
+
+The reasoning: both are **relative to a draft the module does not have**, and writing them at position zero would be a silent wrong placement **in the author's own document**. This is the same shape as the existing "a non-principal field written while the subject is not open is lost" rule — a write the module cannot place correctly is lost loudly rather than placed wrongly.
+
+**The selection registry, added beside the subject registry.** The open page sets the author's current selection; the chat pane reads it **at send time** and puts its **text** on the turn request as a **flat field** (the request has no subject object, and the frontend-only `TurnSubject` helper gains nothing). **`ChatPaneState` gained no selection field**, exactly as it gained no subject field — the panes stay independent because nothing links them but a function call. The selection is **text only** and is **never persisted**.
+
+**The page-level refusal that pairs with it.** A **replace-selection frame arriving when no selection is active is not applied**, and is reported to the author — never appended, never applied at position zero. The check lives **on the page**, not in the tool's refusal chain, because the author can clear a selection while the model is writing and the server cannot know that. It is the one refusal with no server-side counterpart (`frontend-workspace.md` → the two-vocabularies rule).
+
 ## Returning to a stale buffer
 
 When a buffer's recorded base version does not match the server's current version, it is a **visible merge problem — never an auto-merge** (`domain-chapter.md` → "Concurrency", `domain-codex.md` → "Concurrency"):
@@ -109,9 +134,13 @@ The view is reached from **two** directions, and only naming both makes "the aut
 
 The **load-time entrance is the load-bearing one**. Entrance 1 protects the author who tries to save; entrance 2 protects the author who simply comes back to the page, which is the far commoner case and the one a save-centred design misses.
 
+**When the re-fetch that follows a `409` itself fails**, there is no server body to place beside the draft: the page falls back to the **ordinary refusal surface** and does **not** open a half-populated divergence view, leaving the draft, its buffer and its base version untouched (`CodexEntryPage` already behaves this way; feature `015`'s chapter page matches it). Named so the next consumer of the tier does not invent a different answer.
+
 ### A writer with no base version
 
 The buffer has a **second writer** — the canvas dispatcher — and it is structurally unable to record a base version. Every buffer written by the author's own keystrokes carries the `modified_at` the page loaded. A `canvas` frame arriving with no registered target is written by a module that **never loaded the entry**, so it can only inherit the base version already sitting at that key, and `""` when there is none.
+
+**The `""` marker is deliberately unequal to every real version, and that is what makes the fallback safe rather than lossy.** It is unequal to a codex entry's `modified_at` string, and — since feature `015` — **unequal to every numeric `Chapter.version` by construction**. So a dropped-frame fallback always lands the author in the divergence view rather than restoring over something silently.
 
 Since a codex row always has a non-null `modified_at`, an assistant draft buffered for an entry the author was **not** editing **reads as stale on return by construction**, and opens the divergence view instead of restoring silently. This is deliberate — the author is shown the assistant's draft against the server's text and chooses — but it has a consequence worth stating plainly:
 
@@ -129,6 +158,17 @@ The first item type to use the buffer pins the generic design's concrete answers
 - **Reconciliation takes one side whole.** Keeping the server version clears the buffer and reseeds from the server's entry; keeping the draft adopts the server's entry **first** — so `baseVersion` becomes the server's new `modified_at` — leaves the view, and re-saves. There is no third, merged outcome.
 - **`saved-after-eviction` is surfaced** to the author, listing the evicted keys.
 
+## The chapter realization (feature `015.chapter-writing-free-mode`)
+
+The chapter body is the artifact the buffer was **designed** for, and it is the second item type to use it. It **adopted this tier rather than extending it** — **`restoreBuffer.ts` was not modified**, exactly as this document's own "Out of scope" bullet predicted before it was removed.
+
+- **`baseVersion` is the numeric `Chapter.version`** — the first writer of `BufferBaseVersion`'s **number** branch, which existed for precisely this. It is taken from the **body response and from nowhere else**, so the version and the payload it qualifies always arrive together.
+- **The key is `(bookId, "chapter", chapterId)`.**
+- **`BufferedDraft.draft` holds the body only** — the principal-text-field rule, applied for the first time to a subject with **three** editable regions. Two accepted consequences, both real: an **unsaved sketch is lost** on an unload, and the **divergence view compares bodies only**.
+- **Both entrances are implemented**: a `409` from save re-fetches into the conflict slot, and a load-time version mismatch opens the divergence view with **no save attempted**.
+- **Reconciliation takes one side whole**, with the codex's exact sequencing: keeping the draft adopts the **server's version first**, then re-saves. Getting that backwards produces an **infinite `409` loop that reads as a server bug**, which is why the order is pinned rather than left to the next implementer.
+- **`saved-after-eviction` is surfaced** with the evicted keys.
+
 ## Sanctioned exclusions
 
 The buffer's exclusions need sanctioning the same way its inclusions do, or the next author of a text field has to guess.
@@ -137,8 +177,11 @@ The buffer's exclusions need sanctioning the same way its inclusions do, or the 
 
 Its consequences follow from the exclusion and are all intended: **no `baseVersion`, no stale-buffer detection, no divergence view, and no 409 path.** The row has exactly one writer — its owner, who is also the only reader — so there is no second author to diverge from.
 
+**The chapter sketch and the per-chapter prompt are outside it too (feature `014.chapter-skeleton`).** Both are editable regions on a `planned` chapter (`frontend-workspace.md` → "Content pane — subject and editability") and neither is buffered. The sketch is excluded because it has **no version token at all** — sketch edits are last-write-wins, carry no `expected_version`, and do not bump `Chapter.version`, which tracks the body only — and a buffer whose `baseVersion` can never be compared cannot detect staleness, so it would restore silently over someone else's edit. The per-chapter prompt is excluded on the book prompt's reasoning above: one writer, who is also the only reader. Same consequences for both: **no `baseVersion`, no stale-buffer detection, no divergence view, no 409 path.**
+
+None of this touches the **chapter body**, which is the artifact the buffer was designed for and is buffered — see "The chapter realization" above.
+
 ## Out of scope
 
-- **Chapter bodies.** The buffer's design covers them (`BufferBaseVersion` carries the numeric `Chapter.version` for exactly this reason) but no chapter surface exists yet; `015.chapter-writing-free-mode` is the first, and it adopts this tier rather than extending it.
 - **A merge algorithm.** Reconciliation takes one side whole, by design. LLM-assisted merge is a Stage-5 capability.
 - **Cross-device drafts.** The buffer is device-local by requirement, not by limitation; nothing here is a step toward syncing it.

@@ -14,8 +14,28 @@ React SPAs plus a standalone Login page, built with **TypeScript + React + MobX 
 | UI | Mantine v7.17 (`@mantine/core`, `@mantine/form`, `@mantine/hooks`) + `@tabler/icons-react` + `react-markdown` |
 | State | MobX 6.13 + `mobx-react-lite` — **only** |
 | Routing | react-router-dom 7 |
+| Drag and drop | `@dnd-kit/core` + `@dnd-kit/sortable` (feature `014.chapter-skeleton`) |
+| Rich-text editing | `@mantine/tiptap` over TipTap / ProseMirror + `tiptap-markdown` (feature `015.chapter-writing-free-mode`) |
 
 No Redux, Zustand, React-Query, React-Context, zod, Tailwind, CSS modules, or styled-components.
+
+**`@dnd-kit` is the project's first drag-and-drop dependency (feature `014.chapter-skeleton`)** — neither `react-beautiful-dnd` nor `@hello-pangea/dnd` was ever present, so nothing was replaced and there is no second idiom to reconcile.
+
+**Why the chapter order list has two affordances.** The user asked for **move buttons *and* dragging**, so it offers both — and **both funnel into one persist path**, a single bulk order `PUT`. That convergence is what makes testing only one of them sufficient: the two affordances differ in how the author expresses the new order, not in what is saved.
+
+**The button path is the tested one; the drag gesture is a `[manual/live]` criterion.** `@dnd-kit`'s pointer sensor needs real element geometry, and jsdom reports zero-sized rectangles for everything, so a jsdom "drag" cannot exercise the sensor. The only way to make it pass would be to call the library's own callbacks by hand — which tests the test, not the feature. The gesture is verified live instead, and the fact is recorded because "why is only half of this tested" is the first question a reader will have.
+
+**Consuming a library's hooks is not a breach of the no-custom-`useX` rule.** The rule below forbids *authoring* hooks, not calling a library's API. `@dnd-kit`'s hooks are called **directly in the row component** rather than wrapped in a local `useSortableRow`-style hook — wrapping them is what the rule actually prohibits. Feature `015` read the rule the same way for TipTap's `useEditor`; **two features is a pattern**.
+
+### The rich-text editor and the chapter's content format (feature `015.chapter-writing-free-mode`)
+
+`@mantine/tiptap` (over TipTap / ProseMirror) plus `tiptap-markdown` is the **second frontend runtime dependency decision** in the project, after `014`'s `@dnd-kit`. Five things are recorded because each will be asked again:
+
+- **`Chapter.text` is Markdown.** Migration cost was **zero** — the column existed and nothing wrote it. **Markdown stops at chapter text**: the codex entry body is untouched and `CodexEntryPage` was not reworked. "Why is the chapter Markdown but the codex not" is answered here: because nothing forced the codex to change, and changing it would be a rewrite with no requirement behind it.
+- **Why TipTap and not Milkdown.** TipTap is the dominant React rich-text editor and `@mantine/tiptap` **inherits the app theme for free**. Milkdown's exact-Markdown round-trip was the alternative and was **rejected because its theming cost outweighs a round-trip whose worst case is cosmetic** — the whole body is re-saved every time, so an imperfect slice round-trip **cannot corrupt stored data**, and the author sees the rendered result before saving.
+- **Version pinning is a rule, not a string.** The TipTap major is pinned to **`@mantine/tiptap`'s declared peer range for the Mantine major** in `package.json`, and `tiptap-markdown` to a release targeting that same major. Stated as a rule because the range **moves with Mantine**.
+- **The library's stylesheet is imported from the component**, not from an entry `main.tsx`, so it ships with the only bundle that uses it. This is **not** a CSS-module / styled-component breach; it is a **vendored stylesheet for a vendored widget**.
+- **`react-markdown` renders the read-only chapter body**, still with **no plugins configured** — that default was **inherited, not re-decided**.
 
 ## `tsconfig.json` flags
 
@@ -104,16 +124,17 @@ frontend/
       main.tsx, App.tsx, routes.tsx
       workGate.ts         # auth-only entry gate, run before createRoot
       subject.ts          # the content-pane subject model + editability table
-      restoreBuffer.ts    # device-local draft buffer   ─┐
-      activeChat.ts       # per-book active-chat pointer  ├─ module tier
-      contentSubject.ts   # canvas target registry       ─┘
+      restoreBuffer.ts    # device-local draft buffer     ─┐
+      activeChat.ts       # per-book active-chat pointer   │
+      contentSubject.ts   # canvas + selection registry    ├─ module tier
+      chapterUndo.ts      # assistant-write undo snapshots ─┘
       pages/              # flat: page component + adjacent state file
       components/shell/   # navigator, workspace shell, chat-pane slot
       components/chat/    # the chat pane (feature 011)
     read/                 # Reader entry — main.tsx, App.tsx (STUB, see below)
 ```
 
-**`src/work/` is real** as of feature 010, and its three root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts` — the last two added by features 011 and 013) form a state tier of their own, documented in `frontend-work-drafts.md`.
+**`src/work/` is real** as of feature 010, and its four root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts`, `chapterUndo.ts` — added by features 010, 011, 013 and 015) form a state tier of their own, documented in `frontend-work-drafts.md`.
 
 **`src/read/` is real but the `read` entry is a stub.** What shipped with feature 010 is a table-of-contents placeholder: a Mantine-themed component with **no router and no gate**, mounted by a `main.tsx` that mirrors `login/`'s. The reader's real build is still out (`frontend-workspace.md` → Reader). The stub's shallowness is scaffolding for a designed surface, not the designed surface.
 
@@ -205,8 +226,12 @@ No `AsyncValue<T>`, no `isLoading`. Naming is `<name>` / `<name>Status` / `<name
 - **`useEffect`** only at the page-component level, only for initial load on mount and cleanup/abort on unmount. Empty deps `[]` is the only deps array you should write — pages remount on path-param change via router `key`. Forbidden in leaf components, for derivations, and for prop-watching.
 - **No `useCallback` / `useMemo`** for stability — `observer` re-renders are already scoped.
 - **No `useReducer`.**
-- **No custom `useX` hooks.** Reusable stateful UI is a wrapper component owning a `<Component>State` class instance; page state is `<Page>State`; extracted effectful logic is an external `(state, args, signal)` function.
+- **No custom `useX` hooks.** Reusable stateful UI is a wrapper component owning a `<Component>State` class instance; page state is `<Page>State`; extracted effectful logic is an external `(state, args, signal)` function. **Calling a third-party library's hooks is not authoring one** — see the `@dnd-kit` note under "Stack and versions".
 - For rare imperative side-effects on observable change (e.g. auto-scroll while streaming), use a single `autorun` started in the mount `useEffect` and disposed on cleanup.
+
+**External writes into a controlled third-party editor are applied by remount, not by an effect (feature `015.chapter-writing-free-mode`).** A rich-text editor reads its initial content **once**. The page therefore **keys** it on a counter bumped by every *external* draft write — an assistant apply, an undo, a buffer restore, a reconciliation — and **never** by a keystroke.
+
+The idiom costs **zero** effects, zero `autorun`s and zero imperative refs, all of which this section either forbids in leaf components or reserves for page level, and it is the **same "force a fresh instance" idiom the router already uses** with `key={id}`. Its one visible cost is a **lost caret on an assistant write**, which is arguably the correct behaviour anyway. The next feature to embed a third-party editor, canvas or chart should copy this rather than reaching for an effect that watches a draft.
 
 ### Routes and pages
 
@@ -245,6 +270,7 @@ The commit-and-reload therefore stays in the state layer and the URL write stays
 - Validation is `get` computed derivations (`errors`, `isValid`, `isDirty`, `canSubmit`) — pure functions of observable fields.
 - Server-side field errors are stored separately (e.g. `serverErrors`) and unioned with client errors in the `errors` getter.
 - **The union is the shape *when client validation exists* (feature 021).** Some fields have no client-side rules at all — the per-author system-prompt editor accepts every string, `""` included — and such a form carries only its server-error map (`systemPromptServerErrors`), with **no `clientErrors` and no `errors` union**. The server-error surface is then the only error surface. Do not manufacture an empty `clientErrors` and a pass-through `errors` getter to satisfy the pattern; a field with no client rules **binds the server-error map directly**.
+- **Four instances across two features make that a pattern, not an exception (feature `014.chapter-skeleton`).** The **chapter sketch editor** and the **chapter prompt editor** both accept every string including `""`, so both carry a `…ServerErrors` map with no `clientErrors` and no `errors` union — the same shape as 021's. The chapter **add form** is the counter-example that keeps the rule honest: its title must be non-blank, so it *does* compute client errors and *does* union them. The rule as first written read as mandatory; it is not. **Client validation drives the union — no client rules, no union.**
 - **Do not use Mantine `useForm`.** The draft-in-state + computed-validation model is the form system.
 
 ## API layer
@@ -299,5 +325,15 @@ The frame vocabulary itself is the assistant runtime's, not this layer's: `think
 Vitest + jsdom + React Testing Library. Specs live under `frontend/tests/`; the exact commands are in the root `CLAUDE.md`.
 
 **Specs mock `api/` resource modules, never `fetch`** (first done in `tests/user/BookshelfPage.test.tsx`). State files never know they are mocked, and a spec never encodes a URL, a header or a status code — those belong to `api/`. `client.ts` is the exception and is tested directly, for auth injection, error normalization and abort behavior.
+
+**A heavy third-party widget is mocked in page specs the same way an `api/` module is (feature `015.chapter-writing-free-mode`).** ProseMirror needs DOM APIs jsdom does not implement — `Range.getClientRects`, real layout rectangles — so driving real typing and selection under Vitest would make **every page spec flaky for reasons unrelated to the page**.
+
+The shape that follows from that:
+
+- the editor has a **frozen four-prop seam** — initial Markdown, change callback, selection callback, accessible label;
+- **page specs substitute a trivial stub** at that seam;
+- the editor's **own** behaviour — real Markdown round-trip, real selection, real theming — is covered by **`[manual/live]` criteria**.
+
+This is the same reasoning `014` used to leave `@dnd-kit`'s drag gesture manual: **faking the library's callbacks would test the test.**
 
 **Two typecheck programs, on purpose.** `npm run build` (`tsc && vite build`) covers `src` only — `frontend/tsconfig.json` keeps `include: ["src"]` — so **a broken test can never break the bundle**. `frontend/tsconfig.test.json` is the only program covering `tests/`, and **`npm run test:types` is the only command that runs it**. Both must pass; neither substitutes for the other.
