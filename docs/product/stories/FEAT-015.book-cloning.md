@@ -69,7 +69,7 @@
   settings, so that I don't have to rebuild the book from scratch.
 - **Acceptance criteria:**
   - **US-071.AC-1** — Given a book is cloned, when the clone is created,
-    then it contains the source's chapters, blocks and sketches as of the
+    then it contains the source's chapters, edits and sketches as of the
     clone time.
   - **US-071.AC-2** — Given a book is cloned, when the clone is created,
     then it contains the source's state notes and summaries as of the
@@ -78,15 +78,15 @@
     then it has the same collaboration mode as the source.
   - **US-071.AC-4** — Given a book is cloned, when the clone is created,
     then it has the same visibility setting as the source.
-  - **US-071.AC-5** — Given a book with a book system prompt and its
-    chapters have chapter system prompts, when the book is cloned, then
-    the clone carries the book's system prompt and its chapters carry
-    their chapter system prompts.
+  - **US-071.AC-5** — Given a book whose members have set book or chapter
+    system prompts, when the book is cloned, then no member's book or
+    chapter system prompt is copied into the clone.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book cloning":
   "Chapters, blocks and sketches · state notes and summaries · membership
   · collaboration mode and visibility." AC-5: `[confirmed: user]` interview
-  2026-07-24, "augment round 7": "Do the system prompts carry over on
-  clone (FEAT-015)? Yes, both."
+  2026-07-30, "challenges (2026-07-30)", C4 — supersedes the 2026-07-24
+  round-7 answer ("augment round 7": "Do the system prompts carry over on
+  clone (FEAT-015)? Yes, both."), retained here as decision history.
 
 ### US-094 — A clone carries the source book's codex
 - **Feature:** FEAT-015 · **Actor:** ACT-004 · **Realizes:** UC-061

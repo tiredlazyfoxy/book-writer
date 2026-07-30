@@ -22,16 +22,16 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-007 → FEAT-006 — membership needs a book.
 - FEAT-008 → FEAT-007 — any member adding a chapter needs membership defined.
 - FEAT-009 → FEAT-008 — writing needs a chapter to open.
-- FEAT-010 → FEAT-009 — proposals are proposed blocks; the block must exist
+- FEAT-010 → FEAT-009 — proposals are proposed edits; the edit must exist
   as a concept first.
 - FEAT-011 → FEAT-006 — moderation acts at book granularity only; no
-  dependency on chapters, blocks or membership.
+  dependency on chapters, edits or membership.
 - FEAT-012 → FEAT-009 — continuity is produced on chapter close.
 - FEAT-013 → FEAT-012 — the context guarantee needs summaries and state
   notes to exist.
-- FEAT-013 → FEAT-010 — a produced block becomes a proposal in proposal
+- FEAT-013 → FEAT-010 — a produced edit becomes a proposal in proposal
   mode.
-- FEAT-013 → FEAT-009 — a produced block is a block; editing it is
+- FEAT-013 → FEAT-009 — a produced edit is an edit; editing it is
   FEAT-009.
 - FEAT-013 → FEAT-008 — the always-pushed chapter-mode baseline includes
   all upcoming-chapter sketches. **New edge, round 5.**
@@ -60,8 +60,9 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-012 → book-object — **new, round 6, `_TBD:` deferred:** Book state
   surfaces the book's own fields; the book object itself is not yet
   designed — routed to `/architect`.
-- FEAT-019 → FEAT-006 — **new, round 7:** a book must exist to carry a
-  book-wide system prompt.
+- FEAT-019 → FEAT-006 — **new, round 7:** a book must exist to carry each
+  member's book-scoped system prompt (**finalization, 2026-07-30:**
+  per-author, not book-wide).
 - FEAT-019 → FEAT-008 — **new, round 7:** a chapter must exist to carry a
   chapter system prompt.
 - FEAT-020 → FEAT-013 — **new, round 8:** configures the assistant it
@@ -92,13 +93,14 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 (the AI authoring assistant) does not reorder this graph.
 
 **Overlaps (accepted):**
-- FEAT-009 / FEAT-010 — same block unit, different gate: free mode applies a
-  block on save, proposal mode holds it until the owner applies it.
+- FEAT-009 / FEAT-010 — same edit unit, different gate: free mode applies an
+  edit on save, proposal mode holds it until the owner applies it.
 - FEAT-006 / FEAT-011 — archive (owner, reversible) vs quarantine/destroy
   (admin, moderation, terminal) — different actor, different reversibility.
 - FEAT-013 / FEAT-009, FEAT-013 / FEAT-017 — shared content-pane editing
-  surface: manual edit is FEAT-009 (blocks) / FEAT-017 (codex entries),
-  assistant-assisted editing of the same artifacts is FEAT-013. **Revised,
+  surface: manual edit is FEAT-009 (chapter edits) / FEAT-017 (codex
+  entries), assistant-assisted editing of the same artifacts is FEAT-013.
+  **Revised,
   round 5** — previously "composition ends at producing a block; editing
   it is FEAT-009", dissolved by the shared-canvas model (no more "produce"
   hand-off).
@@ -117,7 +119,7 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-017 / FEAT-012 — identity vs. change: a codex entry is the stable
   thing; a state note is what a chapter changed.
 - FEAT-018 / FEAT-013 — same shared-canvas surface, different output:
-  FEAT-013 writes blocks, FEAT-018 generates/rewrites codex entries.
+  FEAT-013 writes edits, FEAT-018 generates/rewrites codex entries.
 - FEAT-012 (Book state) / FEAT-008, FEAT-009 (Chapters) — **accepted,
   round 6:** both list/show chapters, but distinct purpose — Chapters is
   read/write prose, Book state is the continuity picture; not a duplicate
@@ -131,12 +133,17 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-019 / FEAT-008 — **round 7:** the chapter system prompt sits
   beside the sketch and is edited by the same people; distinct — the
   sketch is *what happens*, the prompt is *how it should be written*.
+  **Finalization, 2026-07-30:** the two now also differ in ownership —
+  the sketch is **shared**, any member edits the one sketch; the chapter
+  prompt is **per-author**, each member owns and reads only their own.
 - FEAT-020 / FEAT-013 — **round 8:** 020 stores the mode/sub-agent
   configuration, 013 applies it at runtime — storage vs. use, the same
   shape as the FEAT-019/FEAT-013 overlap above.
 - FEAT-020 / FEAT-019 — **round 8:** orthogonal prompt layers feeding
   the same assistant — 020 is admin-set and system-wide, 019 is
-  author-set and per-book.
+  author-set and per-author (**finalization, 2026-07-30:** corrected
+  from "per-book" — every member owns their own book and chapter
+  prompts).
 
 **Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
 place to gate closing on approved continuity data (FEAT-012). C21 — only

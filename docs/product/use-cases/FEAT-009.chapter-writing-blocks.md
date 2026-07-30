@@ -1,5 +1,9 @@
 <!-- product-spec:start -->
-# Use Cases — FEAT-009 Chapter writing in blocks
+# Use Cases — FEAT-009 Chapter writing
+
+(File retains its original slug, `chapter-writing-blocks`, per the
+merge-fence filename-stability rule — the domain noun was renamed
+"block" → "edit" in the 2026-07-30 finalization pass, the file was not.)
 
 ### UC-035 — Open a chapter for writing
 - **Feature:** FEAT-009 · **Actor:** ACT-004
@@ -37,6 +41,12 @@
   until the owner approves or the close is abandoned.
 - **Postconditions:** Chapter is closed (not editable); no chapter open or
   closing until another is opened.
+- **Note (finalization, 2026-07-30):** Steps 1–2 and the postcondition
+  above (an ungated `open → closed`) shipped in
+  `docs/plans/015.chapter-writing-free-mode/`. Steps 3–5 — the **closing**
+  state, the continuity draft, and the owner's approval — are **deferred**
+  to plan `016.chapter-close-continuity`. The full flow above remains the
+  requirement; only part of it has been built.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "closed (written, not editable)."
   Continuity precondition — `[confirmed: user]` interview 2026-07-20,
@@ -45,7 +55,8 @@
   (FEAT-012). **Closing state:** `[confirmed: user]` interview 2026-07-24,
   "augment round 7", divergence 6 (C-r7-4) — a fourth chapter state that
   holds the one-open-chapter slot and refuses writes while continuity
-  awaits approval.
+  awaits approval. **Delivery record:** `[confirmed: user]` interview
+  2026-07-30, "finalization — 021 + 014 + 015".
 
 ### UC-037 — Reopen a closed chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004
@@ -71,20 +82,20 @@
   any chapter in the book is open or closing. The owner closes the
   current chapter properly, through the continuity gate, first."
 
-### UC-038 — Add a block to the open chapter (free mode)
+### UC-038 — Add an edit to the open chapter (free mode)
 - **Feature:** FEAT-009 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** A chapter is open; book is in free mode.
 - **Main flow:**
-  1. Member writes a block — free text, any length, no internal structure.
+  1. Member writes an edit — free text, any length, no internal structure.
   2. Member saves it.
-  3. System appends the block to the end of the open chapter's body.
-- **Alternate flow:** Two members compose blocks concurrently and the
+  3. System appends the edit to the end of the open chapter's body.
+- **Alternate flow:** Two members compose edits concurrently and the
   chapter's body moved between one member composing and saving → that
   save is **refused**; the member re-issues it against the current body.
-  Both members' blocks end up in the chapter once each save lands.
+  Both members' edits end up in the chapter once each save lands.
 - **Exception flow:** No chapter is open → add refused.
-- **Postconditions:** New block's text is appended to the open chapter's
-  body, attributed to its author; the block is not separately addressable
+- **Postconditions:** New edit's text is appended to the open chapter's
+  body, attributed to its author; the edit is not separately addressable
   once appended.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "writing — blocks &
   concurrency": "the process of the chapter writing is... by some blocks."
@@ -92,6 +103,9 @@
   divergence 5 (C-r7-2) — "a block is a change that merges into the
   chapter's single body and stops existing as an object. Concurrency is
   per chapter, on a chapter version." Closes the block-contents `_TBD:`.
+  Renamed "block" → "edit": `[confirmed: user]` interview 2026-07-30,
+  "finalization — 021 + 014 + 015", challenge C2. This use case shipped —
+  see FEAT-009's `**Delivered:**` line.
 
 ### UC-039 — Save an edit to a chapter whose body changed underneath
 - **Feature:** FEAT-009 · **Actor:** ACT-004, ACT-005

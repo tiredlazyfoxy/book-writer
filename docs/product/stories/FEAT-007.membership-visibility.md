@@ -21,10 +21,10 @@
 - **Acceptance criteria:**
   - **US-028.AC-1** — Given a current co-author, when the owner removes
     them, then their access to the book ends.
-  - **US-028.AC-2** — Given a removed co-author's existing blocks, when the
-    book is viewed afterward, then those blocks remain in the chapter.
-  - **US-028.AC-3** — Given a removed co-author's existing blocks, when the
-    book is viewed afterward, then those blocks are still attributed to
+  - **US-028.AC-2** — Given a removed co-author's existing edits, when the
+    book is viewed afterward, then those edits remain in the chapter.
+  - **US-028.AC-3** — Given a removed co-author's existing edits, when the
+    book is viewed afterward, then those edits are still attributed to
     them.
   - `_TBD: fate of a removed co-author's pending proposals — not stated_`
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,

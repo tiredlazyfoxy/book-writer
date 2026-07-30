@@ -57,7 +57,7 @@
 ### ACT-005 — Co-author
 - **One-line:** An author granted access to someone else's book; writes
   within the rules the owner sets.
-- **Goal:** Add chapters and edit sketches, write blocks directly (free
+- **Goal:** Add chapters and edit sketches, write edits directly (free
   mode) or propose them (proposal mode) in the book's open chapter.
 - **Context:** A relationship to a specific book, not an account role — the
   same ACT-002 Author account may be co-author on one book and owner on

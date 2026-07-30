@@ -8,7 +8,7 @@
   1. Owner requests to clone their book.
   2. Owner chooses which members, if any, carry over (UC-063).
   3. System creates a new, independent book carrying the source's chapters,
-     blocks, sketches, state notes, summaries, codex (FEAT-017),
+     edits, sketches, state notes, summaries, codex (FEAT-017),
      collaboration mode and visibility.
   4. Cloning owner becomes the new book's owner.
 - **Exception flow:** Book has an open chapter →

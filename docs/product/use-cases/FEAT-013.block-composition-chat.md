@@ -3,7 +3,9 @@
 
 (File retains its original slug, `block-composition-chat`, per the
 merge-fence filename-stability rule — the feature was renamed, not
-renumbered.)
+renumbered. **Finalization, 2026-07-30:** the domain noun "block" was
+also renamed to "edit" throughout this file's prose; the slug still does
+not change.)
 
 ### UC-053 — Start a composition chat
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
@@ -26,7 +28,7 @@ renumbered.)
   "the working page — two-pane, chat + content": "Is the chat bound to the
   content? No — independent... this is what resolves seam S1 / TBD T16."
 
-### UC-054 — Iterate with the LLM on the next block
+### UC-054 — Iterate with the LLM on the next edit
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** A composition chat exists; the mode-dependent hybrid
   baseline is available to it (US-057) — chapter mode or codex-entry mode,
@@ -54,17 +56,17 @@ renumbered.)
   creating/recreating/polishing the next block."; interview 2026-07-23,
   "Augment round 5", "context model — hybrid push/pull".
 
-### UC-055 — Produce a block from a composition chat
+### UC-055 — Produce an edit from a composition chat
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** A composition chat is active; the book's open chapter
   is the subject in the content pane (a read-only, closed chapter refuses
   this use case).
 - **Main flow:**
-  1. Author directs the assistant to write a block into the open chapter.
-  2. Assistant writes the block directly onto the shared canvas, in the
+  1. Author directs the assistant to write an edit into the open chapter.
+  2. Assistant writes the edit directly onto the shared canvas, in the
      content pane, as a draft.
   3. Author may hand-edit the draft before saving.
-  4. Author saves: in free mode, system adds the block to the chapter
+  4. Author saves: in free mode, system adds the edit to the chapter
      directly (FEAT-009); in proposal mode, system holds it as a proposal
      (FEAT-010).
 - **Exception flow:** Content-pane subject is a read-only (closed) chapter
@@ -72,24 +74,31 @@ renumbered.)
   → `_TBD: exact handling (refuse, retarget, or hold) is not stated in the
   interview._`
 - **Postconditions:** Draft exists on the shared canvas until saved; once
-  saved, the block exists per the book's collaboration mode; editing it
+  saved, the edit exists per the book's collaboration mode; editing it
   further is FEAT-009, not this feature. **Revised, round 5:** the former
   "produce → hand-off" step no longer applies — the assistant writes
   directly into the open chapter, not into an intermediate output slot.
+  **Finalization, 2026-07-30:** the collaboration-mode save behaviour
+  this use case describes (US-059) and the assistant-write undo layered
+  on top of it (US-117) shipped in
+  `docs/plans/015.chapter-writing-free-mode/`; this use case's other
+  aspects are not individually confirmed delivered by this pass.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "block composition chat": "When it's ready LLM produces the block, author
   can edit it manually." / "In proposal mode... a co-author's generated
   block become? A proposal."; interview 2026-07-23, "Augment round 5", "the
   working page — two-pane, chat + content": "Agentic shared-canvas, not a
   'produce' hand-off... writes into whichever artifact is open in the
-  content pane." / "When is content committed? Draft until saved."
+  content pane." / "When is content committed? Draft until saved."; renamed
+  "block" → "edit": interview 2026-07-30, "finalization — 021 + 014 + 015",
+  challenge C2.
 
 ### UC-056 — Composition request fails
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** Author has sent a prompt or a produce request in an
   active chat.
 - **Main flow:**
-  1. Author sends a prompt or requests block production.
+  1. Author sends a prompt or requests edit production.
   2. LLM is unreachable, or returns nothing.
   3. System shows an error with a retry action.
   4. Conversation is preserved.
@@ -254,7 +263,7 @@ renumbered.)
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** A composition chat is active.
 - **Main flow:**
-  1. Author asks a targeted consistency question (e.g., "does this block
+  1. Author asks a targeted consistency question (e.g., "does this edit
      contradict chapter 8?").
   2. System runs a scoped check against the material named.
   3. Assistant returns a focused result — the finding, not the raw

@@ -52,6 +52,11 @@ Do not add a new top-level doc unilaterally — it must come from the writer's b
 - **Gaps stay** — a skipped or withdrawn number is never backfilled.
 - **Allocation** — ids are allocated by the orchestrator (or the confirmed spec plan it hands down), never minted by the writer. The writer transcribes ids it's given; it never invents or renumbers one.
 - **Registry** — the canonical list of every id lives in `features.md` (small layout, before `quick-reference.md` exists) or, once escalated, **solely** in `quick-reference.md` (large layout) — `features.md` then keeps only its FEAT blocks, not a registry copy and not the Relationships section (see `relationships.md`). `docs/.cache/` is never the registry.
+- **Status lifecycle** — every id carries a status, tracked in the registry: `proposed` → `delivered` | `partially delivered` | `deferred` | `withdrawn`.
+  - **delivered** — every realizing id shipped and was verified.
+  - **partially delivered** — some realizing ids shipped; the rest name the plan that owns them.
+  - **deferred** — specified, not built, a plan owns it.
+  - **withdrawn** — tombstoned (`Status: withdrawn` + reason kept in place); `Superseded by:` where a replacement exists. Added 2026-07-30, the project's first finalization pass.
 
 ## Provenance — every requirement is tagged
 

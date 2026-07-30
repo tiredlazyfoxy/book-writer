@@ -51,7 +51,7 @@ product to work (challenge C2).
   (create missing tables, sync schema, export/import, rebuild the vector
   index).
 - An author can create a book, invite co-authors, build a chapter skeleton
-  with sketches, write a chapter in blocks in either collaboration mode
+  with sketches, write a chapter in edits in either collaboration mode
   (free or proposal), and an admin can remove illegal content. `[confirmed:
   user]` augment round, 2026-07-20 (challenge C5).
 - An author can write a chapter with LLM assistance that stays consistent
@@ -82,7 +82,7 @@ The four ordered foundation capabilities `[confirmed: user]` interview
 
 The book layer, added in the 2026-07-20 augment round `[confirmed: user]`:
 books owned and shared between authors, a chapter skeleton built from
-sketches, chapter writing in blocks under two collaboration modes (free and
+sketches, chapter writing in edits under two collaboration modes (free and
 proposal), and admin moderation (quarantine/destroy). The foundation layer
 above stands unchanged.
 
@@ -90,7 +90,7 @@ Continuity and LLM-assisted composition, added in the 2026-07-20 augment
 round 2 `[confirmed: user]`: per-chapter summaries and a live set of state
 notes drafted on chapter close and approved by the owner, and a
 composition chat in which an author iterates with the LLM to produce a
-chapter's next block. `[confirmed: user]` interview 2026-07-20, "Augment
+chapter's next edit. `[confirmed: user]` interview 2026-07-20, "Augment
 round 2 — continuity & block composition".
 
 Variations and corrections, added in the 2026-07-20 augment round 3
@@ -126,7 +126,7 @@ SPA layout & the working page".
   round-1 chapter-substrate widening.** This non-goal previously read
   "still deferred: what a chapter block contains (text format, length,
   internal structure)." Enforcing the architecture pass onto the spec
-  closes it: a block is free text, any length, no internal structure,
+  closes it: an edit is free text, any length, no internal structure,
   appended to the chapter's body when applied, and not separately
   addressable afterwards. Recorded here so the reversal is visible, not
   drift. `[confirmed: user]` interview 2026-07-24, "augment round 7 —
@@ -136,7 +136,7 @@ SPA layout & the working page".
   the round-1 chapter-substrate widening.** The LLM generation pipeline was
   a blanket non-goal; it is now specified as far as observable chat
   behaviour goes (FEAT-012, FEAT-013): a composition chat, the four
-  continuity artifacts it's guaranteed, and how a produced block enters a
+  continuity artifacts it's guaranteed, and how a produced edit enters a
   chapter. The reversal is deliberate and recorded here, not drift.
   `[confirmed: user]` interview 2026-07-20, "Augment round 2", challenge
   C10. **Round 5 sharpened this:** the four-artifact guarantee became the

@@ -11,7 +11,7 @@ renumbered.)
 - **Status:** proposed
 - **Story:** As an author, I want to start a composition chat freely and
   leave it without losing it, so that I can pick it up again later instead
-  of being forced to finish or bind it to one block or chapter.
+  of being forced to finish or bind it to one edit or chapter.
 - **Acceptance criteria:**
   - **US-056.AC-1** — Given the author is a member of the book, when they
     start a new chat, then a chat is created, private to them, independent
@@ -63,12 +63,12 @@ renumbered.)
   so it is always present... Codex-entry mode: only the entry itself (+
   selection) is pushed."
 
-### US-058 — Author iterates with the LLM to refine the next block
+### US-058 — Author iterates with the LLM to refine the next edit
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-054
 - **Status:** proposed
 - **Story:** As an author, I want to send free-form prompts and get
   responses inside the chat, so that I can create, recreate and polish the
-  next block before producing it.
+  next edit before producing it.
 - **Acceptance criteria:**
   - **US-058.AC-1** — Given an active composition chat, when the author
     sends a free-form prompt, then the LLM's response appears in the chat.
@@ -81,17 +81,17 @@ renumbered.)
 
 ### US-059 — The assistant's shared-canvas write follows the book's collaboration mode at save
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-055
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want what the assistant writes into the open
-  chapter to enter it the same way a manually written block would, so
+  chapter to enter it the same way a manually written edit would, so
   that collaboration rules stay consistent regardless of who wrote it.
 - **Acceptance criteria:**
   - **US-059.AC-1** — Given the book is in free mode, when the author
     saves the assistant's draft written into the open chapter, then the
-    block is added to the chapter directly.
+    edit is added to the chapter directly.
   - **US-059.AC-2** — Given the book is in proposal mode, when a co-author
     saves the assistant's draft written into the open chapter, then the
-    block is held as a proposal until the owner applies it.
+    edit is held as a proposal until the owner applies it.
   - **US-059.AC-3** — Given the content-pane subject is a read-only
     (closed) chapter, when the author asks the assistant to write into it,
     then the write is refused.
@@ -99,7 +99,9 @@ renumbered.)
   "block composition chat": "In proposal mode... a co-author's generated
   block become? A proposal."; interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Draft until saved... only
-  then do collaboration-mode rules apply."
+  then do collaboration-mode rules apply." **Delivered** (the tool-level
+  refusal mirror of the book's collaboration mode):
+  `docs/plans/015.chapter-writing-free-mode/` (2026-07-30).
 
 ### US-060 — A failed composition shows an error, offers retry, preserves the conversation
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-056
@@ -107,7 +109,7 @@ renumbered.)
 - **Story:** As an author, I want a clear error and a retry option when the
   LLM fails, so that I don't lose my conversation or retype it.
 - **Acceptance criteria:**
-  - **US-060.AC-1** — Given the author sends a prompt or requests block
+  - **US-060.AC-1** — Given the author sends a prompt or requests edit
     production, when the LLM is unreachable or returns nothing, then an
     error is shown with a retry action.
   - **US-060.AC-2** — Given a failed request, when the error is shown, then
@@ -127,7 +129,7 @@ renumbered.)
     when another member of the book, including the owner, views the book,
     then that chat — active or archived — is not visible to them.
   - **US-061.AC-2** — Given saved output produced with the assistant's
-    help (a block or codex entry), when it is added or proposed, then only
+    help (an edit or codex entry), when it is added or proposed, then only
     that saved output is shared, not the chat that produced it.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "block composition chat": "Private to their author... Only the produced
@@ -181,7 +183,7 @@ renumbered.)
 
 ### US-097 — The content pane shows any chapter, read-only unless it is the open one
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-083
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to load any chapter into the content
   pane to discuss it with the assistant, so that I can reference other
   chapters without disrupting what I'm writing.
@@ -197,11 +199,12 @@ renumbered.)
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Which chapters can
   occupy the content pane? Any chapter — read-only unless it is the open
-  one."
+  one." Delivered: `docs/plans/015.chapter-writing-free-mode/`
+  (2026-07-30).
 
 ### US-098 — The author hands the assistant a text selection as focused source
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-084
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to give the assistant just a selected
   passage instead of the whole artifact, so that its response is focused
   on what I actually mean.
@@ -211,7 +214,8 @@ renumbered.)
     the selection rather than the full artifact.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "a selection — a narrowed
-  source, NEW requirement."
+  source, NEW requirement." Delivered:
+  `docs/plans/015.chapter-writing-free-mode/` (2026-07-30).
 
 ### US-099 — The assistant reads another chapter on request
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-085
@@ -272,7 +276,7 @@ renumbered.)
 ### US-103 — The assistant writes into the open artifact; nothing persists until saved
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:**
   UC-055, UC-076, UC-077
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want the assistant's writes to land as an
   editable draft I control, so that nothing is added to my book or codex
   without my say-so.
@@ -288,7 +292,8 @@ renumbered.)
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Draft until saved... an
   explicit save persists it, and only then do collaboration-mode rules
-  apply."
+  apply." Delivered: `docs/plans/015.chapter-writing-free-mode/`
+  (2026-07-30).
 
 ### US-105 — Author browses the book's material by kind from the working page
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-090
@@ -312,7 +317,7 @@ renumbered.)
 
 ### US-107 — Unsaved content-pane edits are retained and restored
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-092
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want my unsaved edits to an item restored when
   I come back to it, so that I don't lose work by navigating away or
   reloading.
@@ -327,5 +332,33 @@ renumbered.)
   - **US-107.AC-4** — Given an unsaved buffer on an item, when the author
     has not explicitly saved, then the item remains unpersisted.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
-  "the restore buffer — unsaved per-item edits".
+  "the restore buffer — unsaved per-item edits". Delivered:
+  `docs/plans/015.chapter-writing-free-mode/` (2026-07-30).
+
+### US-117 — Author undoes the assistant's last write to the open artifact
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-055
+- **Status:** delivered
+- **Story:** As a book member, I want to undo the assistant's last write
+  to the open artifact, so that I can reject a suggestion without losing
+  what I had written.
+- **Acceptance criteria:**
+  - **US-117.AC-1** — Given the assistant has written into the open
+    artifact, when the author undoes it, then the artifact returns to
+    the text it held immediately before that write.
+  - **US-117.AC-2** — Given the assistant has written several times, when
+    the author undoes repeatedly, then the writes are reversed
+    most-recent-first.
+  - **US-117.AC-3** — Given the author has typed their own changes, when
+    they undo the assistant's write, then only assistant-originated
+    writes are reversed; the author's own typing is undone by the editor
+    itself.
+  - **US-117.AC-4** — Given no assistant write has occurred, when the
+    author looks for the undo, then it is unavailable.
+- **Note:** The undo history is **session-lived and device-local** — it
+  does not survive a reload, and it is not shared between members.
+- **Source:** `[confirmed: user]` interview 2026-07-30, "finalization —
+  021 + 014 + 015", "challenges (2026-07-30)", challenge C1 — shipped
+  without a story (20 snapshots per (book, chapter), in memory,
+  assistant writes only). Delivered:
+  `docs/plans/015.chapter-writing-free-mode/` (2026-07-30).
 <!-- product-spec:end -->

@@ -19,11 +19,14 @@
   1. Owner rearranges the chapter sequence.
   2. System applies the new order.
 - **Exception flow:** A chapter is currently open when reorder is requested
-  → `_TBD: whether reordering while a chapter is open is refused or allowed
-  — not stated_`.
+  → reorder is **allowed**. Reordering changes only a chapter's position
+  in the sequence — it never reads or writes a body, never changes a
+  state, and never bumps a chapter's version.
 - **Postconditions:** Skeleton order updated.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
-  chapters, states, sketches": "owner orders."
+  chapters, states, sketches": "owner orders."; reorder-while-open `_TBD:`
+  closed per `docs/.cache/product/spec-plan.finalization.md` §D,
+  docs/plans/014.chapter-skeleton/ (2026-07-30)
 
 ### UC-033 — Edit a chapter sketch
 - **Feature:** FEAT-008 · **Actor:** ACT-004, ACT-005
@@ -34,12 +37,16 @@
   3. System saves the sketch.
 - **Exception flow:** Chapter is open or closed (not planned) → sketch edit
   refused. Two members edit the same sketch concurrently →
-  `_TBD: whether concurrent sketch edits follow the same warn/last-write-
-  wins rule as blocks, or something else — not stated_`.
+  **last-write-wins**: no version token, no divergence warning, no
+  refusal — the later save simply overwrites the earlier one. (The
+  warn-then-reconcile contract applies to the chapter body, which carries
+  a version; a sketch has none.)
 - **Postconditions:** Sketch content updated (planned chapters only).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "Any co-author may edit the sketch of any
-  unwritten chapter, in parallel."
+  unwritten chapter, in parallel."; concurrent-sketch-edit `_TBD:` closed
+  per `docs/.cache/product/spec-plan.finalization.md` §D,
+  docs/plans/014.chapter-skeleton/ (2026-07-30)
 
 ### UC-034 — Remove a planned chapter
 - **Feature:** FEAT-008 · **Actor:** ACT-004, ACT-005

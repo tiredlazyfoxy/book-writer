@@ -62,7 +62,7 @@
 - **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-050
 - **Status:** proposed
 - **Story:** As a book member, I want to edit state notes under the book's
-  collaboration mode, so that changes follow the same rules as block
+  collaboration mode, so that changes follow the same rules as edit
   writing.
 - **Acceptance criteria:**
   - **US-053.AC-1** — Given the book is in free mode, when a member adds,

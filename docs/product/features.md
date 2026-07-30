@@ -96,22 +96,33 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Build a book's ordered chapter skeleton with sketches ahead
   of writing.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/014.chapter-skeleton/ (2026-07-30)
 - **Realized by:** UC-031, UC-032, UC-033, UC-034, US-032, US-033, US-034,
   US-035
 - **Note:** Any member adds a chapter and edits any planned chapter's
   sketch, in parallel; only the owner sets chapter order. This is the
   parallel-work surface that makes FEAT-009's single-open-chapter rule
-  workable.
+  workable. **Finalization, 2026-07-30:** reordering is allowed while a
+  chapter is open — reordering changes only a chapter's position in the
+  sequence; it never reads or writes a body, never changes a state, and
+  never bumps a chapter's version (closes UC-032's `_TBD:`). Concurrent
+  sketch edits are last-write-wins, with no version token and no
+  divergence warning — the warn-then-reconcile contract belongs to the
+  chapter body, which has a version; a sketch has none (closes UC-033's
+  `_TBD:`).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
-  chapters, states, sketches"; challenge C3
+  chapters, states, sketches"; challenge C3; reorder-while-open and
+  concurrent-sketch-edit `_TBD:`s closed per
+  `docs/.cache/product/spec-plan.finalization.md` §D,
+  docs/plans/014.chapter-skeleton/ (2026-07-30)
 
-### FEAT-009 — Chapter writing in blocks
-- **Purpose:** Write the open chapter in blocks; enforce the
-  planned→open→closed chapter state machine and per-block concurrency
-  rules.
+### FEAT-009 — Chapter writing
+- **Purpose:** Write the open chapter; enforce the planned→open→closed
+  chapter state machine and per-chapter concurrency rules.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/015.chapter-writing-free-mode/ (2026-07-30)
 - **Realized by:** UC-035, UC-036, UC-037, UC-038, UC-039, US-036, US-037,
   US-038, US-039, US-040, US-041
 - **Note:** At most one open chapter per book; only the owner opens, closes
@@ -121,39 +132,49 @@ conflicts) live in `relationships.md`.
   round-5 coherence finding, rather than merely restating it. Four chapter
   states: planned → open → **closing** (close requested, continuity
   awaiting the owner's approval; still holds the book's single open slot;
-  refuses writes) → closed. Free mode applies a block on save; proposal
-  mode (FEAT-010) holds it until the owner applies it — same block unit,
-  different gate. **Round 7:** a block is free text of any length, no
+  refuses writes) → closed. Free mode applies an edit on save; proposal
+  mode (FEAT-010) holds it until the owner applies it — same edit unit,
+  different gate. **Round 7:** an edit is free text of any length, no
   internal structure, appended to the chapter's body when applied; it is
   not separately addressable once appended — concurrency is per chapter,
-  not per block (closes the block-contents `_TBD:`). The working page's
+  not per edit (closes the edit-contents `_TBD:`). The working page's
   content pane is the manual chapter-editing surface (FEAT-013 Note);
   edits are draft-until-saved; a read-only (closed) chapter refuses writes.
+  **Finalization, 2026-07-30 (formerly "block"):** the domain noun for the
+  unit of chapter writing is now **edit** — see `glossary.md`. UC-035,
+  UC-037, UC-038 and UC-039 shipped; **UC-036 shipped only in part** —
+  steps 1–2 and the postcondition landed as an ungated open → closed;
+  steps 3–5 (the closing state, the continuity draft, the owner's
+  approval) are deferred to plan `016.chapter-close-continuity`. The full
+  flow stays the requirement; only its delivery is partial.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "writing — blocks &
   concurrency"; challenge C8; interview 2026-07-23, "Augment round 5", "the
   working page — two-pane, chat + content"; interview 2026-07-24, "augment
   round 7 — enforcing the architecture pass onto the spec", divergences
-  4, 5, 6
+  4, 5, 6; interview 2026-07-30, "finalization — 021 + 014 + 015"
 
 ### FEAT-010 — Proposal mode
-- **Purpose:** Let a co-author submit proposed blocks for the open chapter
+- **Purpose:** Let a co-author submit proposed edits for the open chapter
   instead of applying them directly; the owner reviews and applies
   selectively.
 - **Actors:** ACT-004, ACT-005 · **Priority:** should
 - **Status:** proposed
 - **Realized by:** UC-040, UC-041, UC-042, US-042, US-043, US-044
 - **Note:** Book-level property set by the owner at creation, changeable at
-  any time. Free mode applies a block on save; proposal mode holds it until
+  any time. Free mode applies an edit on save; proposal mode holds it until
   the owner applies it. Approval is a merge, not a binary accept — the
-  owner may take blocks from several co-authors' proposals. Builds last in
+  owner may take edits from several co-authors' proposals. Builds last in
   the roadmap build order (challenge C6); every book runs in free mode
   until it exists — nothing dropped. `_TBD: fate of pending proposals when
   the owner switches a book to free mode._` `_TBD: how the owner reviews
   and applies pending state-note (UC-050) and codex (UC-069/070)
   proposals — proposal review lives on the main edit page, detail
-  deferred; today only block proposals have a use case (UC-041)._`
+  deferred; today only edit proposals have a use case (UC-041)._
+  **Finalization, 2026-07-30 (formerly "block"):** the domain noun is now
+  **edit** — see `glossary.md`.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "collaboration mode";
-  interview 2026-07-23, "Augment round 5", "S2 proposal review — DEFERRED"
+  interview 2026-07-23, "Augment round 5", "S2 proposal review — DEFERRED";
+  interview 2026-07-30, "finalization — 021 + 014 + 015"
 
 ### FEAT-011 — Content moderation
 - **Purpose:** Admin-only moderation read view; quarantine, then
@@ -229,11 +250,16 @@ conflicts) live in `relationships.md`.
   a mode-dependent context and, on request, writing into the open
   chapter or codex entry.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/015.chapter-writing-free-mode/ (2026-07-30) —
+  the 015 slice only (US-059, US-097, US-098, US-103, US-107, and the new
+  US-117). Plans `010`, `011` and `013` also contributed to this feature
+  but are outside this pass's scope — their stories are not marked.
 - **Realized by:** UC-053, UC-054, UC-055, UC-056, UC-057, UC-078, UC-081,
   UC-082, UC-083, UC-084, UC-085, UC-086, UC-087, UC-088, UC-090, UC-092,
   US-056, US-057, US-058, US-059, US-060, US-061, US-089, US-095, US-096,
-  US-097, US-098, US-099, US-100, US-101, US-102, US-103, US-105, US-107
+  US-097, US-098, US-099, US-100, US-101, US-102, US-103, US-105, US-107,
+  US-117
 - **Note:** Chats are persistent and managed per author, per book — listed,
   picked, continued, and archived rather than ended (UC-081/UC-082, not
   destroyed, reversible); a chat is not bound to any one chapter, codex
@@ -250,14 +276,20 @@ conflicts) live in `relationships.md`.
   conversational cousin to FEAT-016's mandatory check, not a replacement.
   `_TBD: whether an in-chat check finding can be promoted to a FEAT-016
   flag._` The former "produce a block" hand-off is gone: the assistant
-  writes directly into whichever artifact is open in the content pane (a
-  block into the open chapter, or a codex entry) as a draft on the shared
+  writes directly into whichever artifact is open in the content pane (an
+  edit into the open chapter, or a codex entry) as a draft on the shared
   canvas until the author explicitly saves — a read-only (closed) chapter
   refuses the write. Editing the result further is FEAT-009/FEAT-017, not
   this feature — accepted overlap: manual edit is 009/017, assistant-
   assisted is 013, same content-pane surface. Chats stay private to their
   author; only saved output is shared, even with the owner. `_TBD: which
   enabled model a chat uses (may resolve as architecture's)._`
+  **Finalization, 2026-07-30:** the author can **undo the assistant's last
+  write** to the open artifact (US-117, realizing UC-055) — a session-lived,
+  device-local, per-(book, chapter) stack of the assistant's own writes
+  only; the author's own typing is undone by the editor's own history, not
+  this mechanism. Vocabulary: "block" (formerly "produce a block") is now
+  **edit** throughout — see `glossary.md`.
   **Round 9:** resolved for sub-agents (FEAT-020: assigned a specific
   model, or inherit the main chat's) — still open for how the main chat
   itself picks a model. Generating or rewriting codex entries from the
@@ -283,7 +315,8 @@ conflicts) live in `relationships.md`.
   recorded"; interview 2026-07-23, "Augment round 6", "the working-page
   navigator" / "the restore buffer — unsaved per-item edits"; interview
   2026-07-24, "augment round 7", divergence 2; interview 2026-07-24,
-  "FEAT-020 — sub-agent model assignment (augment round 9)"
+  "FEAT-020 — sub-agent model assignment (augment round 9)"; interview
+  2026-07-30, "finalization — 021 + 014 + 015", challenge C1
 
 ### FEAT-014 — Chapter variants & fixes
 - **Purpose:** Let an owner correct a chapter after reopening while
@@ -320,9 +353,8 @@ conflicts) live in `relationships.md`.
 - **Realized by:** UC-061, UC-062, UC-063, US-066, US-067, US-068,
   US-069, US-070, US-071, US-094
 - **Note:** A clone is fully independent — no link, no sync, no
-  comparison with its source. It carries chapters, blocks and sketches,
-  state notes and summaries, the codex (FEAT-017), the book's and its
-  chapters' system prompts (FEAT-019, round 7), membership (selectable —
+  comparison with its source. It carries chapters, edits and sketches,
+  state notes and summaries, the codex (FEAT-017), membership (selectable —
   the cloner chooses which members carry over, or none), collaboration
   mode and visibility. Owner and co-authors may clone; a co-author's
   clone makes them its owner (challenge C23, accepted deliberately). Only
@@ -331,10 +363,16 @@ conflicts) live in `relationships.md`.
   accepted:** two clones drift apart permanently; a fix common to both
   must be made in each separately. `_TBD: whether cloning a book with an
   open chapter, unapproved continuity data, or an archived book is
-  refused or proceeds — not stated._`
+  refused or proceeds — not stated._` **Finalization, 2026-07-30
+  (formerly "block"):** the domain noun is now **edit** — see
+  `glossary.md`. The book's and its chapters' system prompts (FEAT-019)
+  do **NOT** carry over on a clone — they are per-author personal
+  authoring instructions, not book-shaping state; this corrects the
+  round-7 claim above that they did (challenge C4).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 3 —
   variants, cloning & consistency", "book cloning"; challenges C21, C23;
-  codex round 4; interview 2026-07-24, "augment round 7", divergence 3
+  codex round 4; interview 2026-07-24, "augment round 7", divergence 3;
+  interview 2026-07-30, "finalization — 021 + 014 + 015", challenge C4
 
 ### FEAT-016 — Consistency check & chapter flags
 - **Purpose:** LLM inspection of a book's chapters, summaries and state
@@ -397,54 +435,75 @@ conflicts) live in `relationships.md`.
   optional** — "not all the characters must be in the codex, but better
   to be" — the consistency check (FEAT-016) warns about a missing entry,
   never blocks. Entry editing happens on the working page's content pane
-  too (FEAT-013 Note), draft-until-saved, same as chapter blocks. All
+  too (FEAT-013 Note), draft-until-saved, same as chapter edits. All
   codex management (create/edit/archive/history/restore/copy) happens on
   the working SPA; the settings-side codex browse (UC-071) is read-only,
-  members-only.
+  members-only. **Finalization, 2026-07-30 (formerly "block"):** the
+  domain noun for chapter writing is now **edit** — see `glossary.md`.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4;
   interview 2026-07-23, "Augment round 5", "the working page" / "SPA
-  pages" / "RULE (per author only = members-only)"
+  pages" / "RULE (per author only = members-only)"; interview 2026-07-30,
+  "finalization — 021 + 014 + 015"
 
 ### FEAT-018 — Codex authoring from the composition chat
 - **Purpose:** Generate a new codex entry or rewrite an existing one from
-  the same composition chat that composes blocks.
+  the same composition chat that composes edits.
 - **Actors:** ACT-004, ACT-005 · **Priority:** should
 - **Status:** proposed
 - **Realized by:** UC-076, UC-077, US-086, US-087, US-088
 - **Note:** Sourced from live chapter/entry text via the shared canvas: the
   assistant fills the open codex entry directly in the content pane, as a
   draft, saved only on explicit request — same draft-until-saved path as
-  FEAT-013's block writes (UC-055), not a diff view. Failure handling is
+  FEAT-013's edit writes (UC-055), not a diff view. Failure handling is
   not respecced: both use cases point at UC-056. Ships after FEAT-017.
+  **Finalization, 2026-07-30 (formerly "block"):** the domain noun is now
+  **edit** — see `glossary.md`.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4;
   interview 2026-07-23, "Augment round 5", "the working page — two-pane,
-  chat + content"
+  chat + content"; interview 2026-07-30, "finalization — 021 + 014 + 015"
 
-### FEAT-019 — Book & chapter system prompts
+### FEAT-019 — Per-author system prompts
 - **Purpose:** Standing authoring instructions that shape how the
   assistant writes for this book — set once, applied to every chat,
   instead of retyped into each one.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
-- **Realized by:** UC-093, UC-094, US-108, US-109
-- **Note:** The **book** system prompt applies to every chat in the book;
-  **owner only** — book-wide configuration, the same class as
-  collaboration mode (UC-042) and visibility (UC-028). The **chapter**
-  system prompt is **optional** and **narrows** the book's rather than
-  replacing it — the book-wide voice always applies. Editable by **any
-  member**, like the sketch it sits beside (UC-033). Both **carry over on
-  clone** (FEAT-015) — the same class of book-shaping state as mode and
-  visibility. The consistency check (FEAT-016) **does not inspect them**
-  — a prompt is an authoring instruction, not narrative content. Accepted
-  overlap with FEAT-013: FEAT-019 stores the instruction, FEAT-013
-  applies it; an absent or empty prompt is valid, so FEAT-013 does not
-  require FEAT-019. Not designed anywhere until this round — a book-wide
-  system prompt and an optional per-chapter one were introduced in the
-  architecture with no product requirement behind either; a new feature
-  rather than a home in FEAT-013 because this is an owner-only, book-wide
-  setting, distinct from the assistant feature that consumes it.
+- **Status:** delivered
+- **Delivered:** docs/plans/021.per-author-system-prompt/,
+  docs/plans/014.chapter-skeleton/,
+  docs/plans/015.chapter-writing-free-mode/ (2026-07-30)
+- **Realized by:** UC-098, UC-099, US-115, US-116
+- **Note (rewritten, finalization 2026-07-30):**
+  - Prompts are **per-author at both levels**. Every member owns exactly
+    one book prompt and one prompt per chapter; each member reads and
+    writes **only their own**. Nobody — including the owner — reads
+    another member's.
+  - There is **no book-wide prompt**. The chapter prompt does not narrow
+    a book prompt; the two are **layers of the same member's own
+    instruction**, book then chapter.
+  - **Neither is gated by the chapter's state** — a prompt is the
+    author's instruction to their own assistant, not chapter content, so
+    it is readable and writable in `planned`, `open`, `closing` and
+    `closed`.
+  - **Collaboration mode does not apply** — there is nothing for an
+    owner to review.
+  - **Prompts do NOT carry over on clone** (challenge C4). They are
+    personal authoring instructions, not book-shaping state. This
+    replaces the previous claim that both carry over.
+  - The consistency check (FEAT-016) still does not inspect them.
+  - Accepted overlap with FEAT-013 stands and is now literally true: 019
+    stores, 013 composes.
+  - Superseded by this pass: UC-093, UC-094, US-108 and US-109 (tombstoned
+    — their owner-only / book-wide model inverted under per-author
+    ownership; amending in place would have silently changed what a
+    stable id means). Replaced by UC-098, UC-099, US-115, US-116.
 - **Source:** `[confirmed: user]` interview 2026-07-24, "augment round 7 —
-  enforcing the architecture pass onto the spec", divergence 3
+  enforcing the architecture pass onto the spec", divergence 3; no-carry-
+  over-on-clone per `[confirmed: user]` interview 2026-07-30, "challenges
+  (2026-07-30)", C4; state-gating and collaboration-mode-does-not-apply
+  clauses per `docs/.cache/product/spec-plan.finalization.md` §D,
+  docs/plans/021.per-author-system-prompt/,
+  docs/plans/014.chapter-skeleton/,
+  docs/plans/015.chapter-writing-free-mode/ (2026-07-30)
 
 ### FEAT-020 — Assistant modes & sub-agents
 - **Purpose:** Let the admin configure how the AI assistant behaves per

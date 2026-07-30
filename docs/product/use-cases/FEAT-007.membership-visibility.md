@@ -24,10 +24,12 @@
   independent of co-author count; not separately confirmed). Target has
   pending proposals (proposal mode) at the time of removal →
   `_TBD: fate of a removed co-author's pending proposals — not stated_`.
-- **Postconditions:** Co-author's access revoked; their existing blocks and
+- **Postconditions:** Co-author's access revoked; their existing edits and
   attribution remain in the book.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility": "Content and attribution both stay."
+  membership & visibility": "Content and attribution both stay."; interview
+  2026-07-30, "finalization — 021 + 014 + 015" (formerly "block", now
+  "edit")
 
 ### UC-028 — Set book visibility (private / public)
 - **Feature:** FEAT-007 · **Actor:** ACT-004
