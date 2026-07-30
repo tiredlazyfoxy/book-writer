@@ -15,7 +15,11 @@ import {
   readActiveChatId,
   writeActiveChatId,
 } from "../../activeChat";
-import { currentContentSubject, dispatchCanvasFrame } from "../../contentSubject";
+import {
+  currentContentSelection,
+  currentContentSubject,
+  dispatchCanvasFrame,
+} from "../../contentSubject";
 
 /**
  * State for the chat pane (`ChatPane`), owned by `WorkspaceShell` via
@@ -653,6 +657,11 @@ export async function sendChatTurn(
     // Read at SEND time, so the turn carries whatever the content pane is showing
     // right now — nothing about the subject is stored on the pane.
     turnSubject(),
+    // The author's current selection, read from the SAME registry at the SAME
+    // moment (015/012; D5). The pane holds no selection field either, and gains no
+    // observer relationship to the content pane: the two stay independent because
+    // nothing links them but this function call.
+    currentContentSelection() ?? undefined,
   );
   runInAction(() => {
     state.turnController = controller;
@@ -689,6 +698,10 @@ export async function retryChatTurn(state: ChatPaneState, bookId: string): Promi
     // Re-read at RETRY time too: the author may have navigated between the failed
     // send and the retry, and the retry must carry the current subject.
     turnSubject(),
+    // The selection is re-read at RETRY time for the same reason and from the same
+    // registry — the author may have selected, moved or cleared it since the failed
+    // send (015/012).
+    currentContentSelection() ?? undefined,
   );
   runInAction(() => {
     state.turnController = controller;

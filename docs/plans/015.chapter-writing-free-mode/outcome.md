@@ -547,3 +547,16 @@ closing is `/product-spec`'s.
   the divergence view rather than restoring silently. Possible impact: `frontend-work-drafts.md`'s
   base-version paragraph could state that the marker is deliberately unequal to every real chapter
   version, since that is what makes the fallback safe rather than lossy.
+- Step 012: a widened wire frame has **two** client-side seams, not one — the `.d.ts` twin *and*
+  `api/chats.ts`'s module-private `canvasFrame` narrowing, which rebuilds the frame field by field and
+  therefore silently drops any field nobody remembered to add to it. The `op` discriminator was lost
+  exactly there, invisibly to every automated criterion, because the page specs deliver frames by calling
+  the real dispatcher. Possible impact: `assistant-runtime.md`'s SSE-vocabulary section (which the
+  chapter canvas protocol is already scheduled to be absorbed into) should state that a frame field added
+  on the backend has to be carried through the client's narrowing as well as declared in `types/`, and
+  name the narrowing as the place a frame is reconstructed.
+- Step 012: the refusal of a `replace_selection` write with no live selection is a **page-level** rule
+  with no server-side counterpart — the tool cannot know the author cleared the selection while the model
+  was writing. Possible impact: `frontend-workspace.md`'s two-vocabularies rule (the author's refusal vs
+  the assistant's) could name this as the one refusal that exists only on the client, so a later reader
+  does not try to move it into the tool's refusal chain.

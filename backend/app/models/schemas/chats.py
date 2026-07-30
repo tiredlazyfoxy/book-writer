@@ -208,12 +208,24 @@ class TurnRequest(BaseModel):
       subject is a codex entry with **no** ``subject_id``: for an existing entry
       the stored row's ``kind`` wins and this field is ignored
       (``context.md`` → the shared-canvas design, point 1).
+    - ``selection_text`` — the text the author currently has selected in the
+      content pane, if any (015 step 009; ``015/context.md`` → **D5**). A
+      **fifth flat field**, not a member of a subject object — this request has
+      no subject object and gains none. It is **text and only text**: no
+      offsets, no line numbers, no range and no anchor id, because the
+      *placement* of a selection rewrite is resolved on the client against the
+      selection the editor still holds, and snapping character offsets onto
+      ``ChapterChange.line_from`` / ``line_to`` is exactly the lossy step the
+      design refuses. It is **client-supplied turn context and is never
+      persisted** — nothing reads it but the turn's
+      :class:`~app.services.tools.ToolContext`.
     """
 
     prompt: str | None = None
     subject_kind: SubjectKind | None = None
     subject_id: str | None = None
     codex_kind: CodexKind | None = None
+    selection_text: str | None = None
 
 
 class ThinkingFrame(BaseModel):
@@ -257,6 +269,24 @@ class ErrorFrame(BaseModel):
 CanvasField = Literal["name", "body"]
 
 
+# How a canvas write relates to what is already in the targeted field (015 step
+# 009, ``015/context.md`` → D17). A **discriminator, not an encoding inside**
+# ``field``: ``domain-chapter.md``'s reason for storing a placement as a
+# discriminator plus columns applies unchanged — a discriminator keeps "which
+# part is meaningful" answerable **without parsing**.
+#
+# - ``"replace"`` — the ``text`` is the whole new value of the field. The only
+#   operation the codex shared-canvas write has ever emitted, and the
+#   :class:`CanvasFrame` **default**, which is precisely why no existing emitter
+#   and no existing client dispatcher needs an edit.
+# - ``"append"`` — the ``text`` is added at the end of the field's current draft.
+# - ``"replace_selection"`` — the ``text`` replaces the author's current
+#   selection inside the field's draft. The *placement* is resolved entirely on
+#   the client, against the selection the editor still holds; the wire carries no
+#   offsets (``015/context.md`` → D5).
+CanvasOp = Literal["replace", "append", "replace_selection"]
+
+
 class CanvasFrame(BaseModel):
     """``data:`` payload of a ``canvas`` SSE frame — the assistant's draft for the
     subject open in the working page's content pane (013 step 010, UC-076 /
@@ -281,6 +311,12 @@ class CanvasFrame(BaseModel):
       streamed token by token: ``chat_with_tools`` hands a tool its arguments only
       once the model has finished emitting them (``context.md`` point 6 —
       token-level canvas streaming is the later manual-loop swap).
+    - ``op`` — how the ``text`` relates to what the field's draft already holds
+      (:data:`CanvasOp`, 015 step 009). **Defaults to ``"replace"``**, which is
+      exactly what every emission before this step meant, so the codex write at
+      ``services/codex_tools.py`` is unchanged and unedited and the client's
+      dispatcher keeps its whole-field behaviour for every frame that does not
+      say otherwise (``015/context.md`` → D17).
 
     **Nothing about this frame persists.** There is no code path from a chat to
     the ``codex_entries`` table at all; the author hand-edits if they wish and
@@ -293,3 +329,4 @@ class CanvasFrame(BaseModel):
     subject_id: str | None
     field: CanvasField
     text: str
+    op: CanvasOp = "replace"

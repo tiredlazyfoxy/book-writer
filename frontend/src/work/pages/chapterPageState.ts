@@ -10,6 +10,10 @@ import type {
   UpdateChapterSketchRequest,
   UpdateChapterTextRequest,
 } from "../../types/chapters";
+import type { CanvasField, CanvasOp } from "../../types/chats";
+import { popChapterUndoSnapshot, pushChapterUndoSnapshot } from "../chapterUndo";
+import { setContentSelection } from "../contentSubject";
+import type { ContentSubjectSource } from "../contentSubject";
 import { clearBuffer, readBuffer, restoreBufferKey, writeBuffer } from "../restoreBuffer";
 import { resolveEditability } from "../subject";
 
@@ -47,9 +51,10 @@ import { resolveEditability } from "../subject";
 //   shape; an unsaved sketch is lost on an unload, and the divergence view compares
 //   BODIES only. The body's buffer, its two reconciliation entrances and its
 //   take-one-side resolution are step 007's, at the bottom of this module.
-// - No `applyDraft` and no canvas hook — step 012's. `editBodyDraft` below is the
-//   single entry point every body-draft change routes through, so 007 and 012 have
-//   exactly one place to hook.
+// - No second write path for an assistant canvas frame: `applyDraft` (015/012)
+//   routes its result through `editBodyDraft` below, which is the single entry
+//   point EVERY body-draft change takes — a keystroke, a buffer restore, a
+//   reconciliation choice, an assistant write and an undo alike.
 // - No delete control for the prompt: `""` already means "no prompt" and the wire
 //   has no DELETE verb.
 //
@@ -87,7 +92,24 @@ const LIFECYCLE_STATE_LABELS: Record<ChapterLifecycleState, string> = {
 export type ChapterReconciliationSide = "server" | "draft";
 
 /**
- * Page state for `ChapterPage`, held via `useState(() => new ChapterPageState())`.
+ * The ONE lifecycle transition a chapter may be offered right now (015/008).
+ *
+ * The chapter state machine admits exactly one transition per state — `planned` →
+ * open, `open` → close, `closed` → reopen, `closing` → none — so the page renders
+ * ONE control, never three with two disabled: a disabled control invites the
+ * question "why", an absent one with the state shown beside it does not.
+ *
+ * Gated on the chapter's STATE alone and offered to every member (D14): the page
+ * has no caller-role signal, a co-author's attempt is refused `403` by the server,
+ * and that refusal text is what the author reads. No caller-relative field is added
+ * to any DTO and the chapter LIST (with 014's `can_reorder` hint) is never fetched
+ * here.
+ */
+export type ChapterTransition = "open" | "close" | "reopen";
+
+/**
+ * Page state for `ChapterPage`, held via
+ * `useState(() => new ChapterPageState(bookId, chapterId))`.
  *
  * Holds four things:
  *
@@ -101,17 +123,43 @@ export type ChapterReconciliationSide = "server" | "draft";
  *   shaped `chapter` response and always loads separately;
  * - **the prompt editor** — a draft, a server-error map and a submit status. It
  *   has NO editability gate: a member writes their own prompt on a chapter in
- *   every lifecycle state, `closed` included (DoD-10).
+ *   every lifecycle state, `closed` included (DoD-10);
+ * - **the state transition** (015/008) — a status and a server-error holder of its
+ *   own, plus the two computeds that answer *which single transition is offered*
+ *   and *why none is*. Separate from the body's and the sketch's holders, so a
+ *   refused transition never touches either editor's draft.
  *
- * The state owns NEITHER the book id NOR the chapter id: both arrive as arguments
- * on every external effect, and the page (which has them from `useParams`) is what
- * builds the content-pane subject. That is a deliberate departure from
- * `codexEntryPageState.ts`, whose constructor stores its ids because its restore-
- * buffer key needs them; here the body's buffer key is built inside each effect from
- * the `(bookId, chapterId)` arguments it already carries, so there is no `bufferKey`
- * computed on this class.
+ * Both ids arrive as arguments on **every external effect** — 014's deliberate
+ * departure from `codexEntryPageState.ts`, kept intact: the body's buffer key is built
+ * inside each effect from the `(bookId, chapterId)` pair it already carries, and there
+ * is no `bufferKey` computed on this class. Since 015 step 012 the constructor ALSO
+ * stores the pair, for the two bound members the module tier holds
+ * ({@link ChapterPageState.subjectSource} / {@link ChapterPageState.applyDraft}), which
+ * `work/contentSubject.ts` calls with a fixed argument list carrying no ids.
  */
 export class ChapterPageState {
+  /**
+   * THE BOOK AND CHAPTER IDS this instance is about (015/012) — plain, NON-observable
+   * fields, assigned once in the constructor and never written again. `codexEntryPageState.ts`
+   * is the template (it stores `bookId` / `entryId` and excludes `bookId` from
+   * `makeAutoObservable`); a `key={id}` on `ChapterItemRoute` already forces a FRESH
+   * instance whenever the route's chapter changes, so they cannot go stale.
+   *
+   * **Why they exist at all, given that every external effect already takes the pair as
+   * arguments** (014's deliberate departure, kept intact below): the two members the
+   * MODULE TIER holds — {@link ChapterPageState.subjectSource} and
+   * {@link ChapterPageState.applyDraft} — are handed across the module boundary and are
+   * then called by `work/contentSubject.ts` with a FIXED argument list that carries no
+   * ids at all. A bound callback can only reach the pair through `this`.
+   *
+   * The external effects are NOT re-shaped to read them: `loadChapter`, `saveSketch`,
+   * `loadChapterBody`, `editBodyDraft`, `saveChapterBody`, `resolveBodyConflict` and the
+   * three transitions keep the frozen `(state, bookId, chapterId, …)` signatures steps
+   * 006 / 007 / 008 shipped, and the page keeps passing the pair to them.
+   */
+  readonly bookId: string;
+  readonly chapterId: string;
+
   /**
    * The chapter as the server last returned it — the value the sketch draft is
    * compared against and re-seeded from, and the source of the title, the ordinal
@@ -276,8 +324,91 @@ export class ChapterPageState {
    */
   evictedBufferKeys: string[] = [];
 
-  constructor() {
-    makeAutoObservable(this);
+  /**
+   * In-flight state of the ONE offered lifecycle transition (015/008) — open,
+   * close or reopen. Its OWN status, separate from `chapterStatus`,
+   * `sketchSubmitStatus`, `bodyStatus` and `bodySubmitStatus`: a transition is a
+   * command against the chapter row, not a save of either editor's draft, and it
+   * must never make an editor look like it is loading or saving.
+   */
+  transitionStatus: "idle" | "loading" | "ready" | "error" = "idle";
+
+  /**
+   * The SERVER's refusal message for the most recent transition attempt, held on
+   * its own so it can never be mistaken for a body or sketch refusal — and, more
+   * importantly, so that surfacing it costs nothing anywhere else: **a refused
+   * transition never clears the body draft, the restore buffer, the sketch draft or
+   * the prompt draft** (015/008 DoD-8).
+   *
+   * `null` when there is nothing to say. A single string, not a
+   * `Record<string, string>`: a transition is a bodiless `POST` with no fields, so
+   * there is no field to key a refusal by (the `…ServerErrors` shape exists for
+   * forms; this is a command).
+   *
+   * The text is `err.message`. `routes/chapters.py:_map_chapter_error` puts the
+   * chapter family's refusal on the wire as a **plain-string `detail`**, which
+   * `client.ts:throwApiError` already prefers, so `CodexEntryPage`'s
+   * `serverRefusalText` / `details.detail.message` object path is the CODEX
+   * family's and must NOT be copied here (steps 003 / 004 / 006 / 007 freeze notes).
+   *
+   * This is where D14's accepted cost is paid: a co-author sees a control that the
+   * server will refuse `403`, and THIS is what makes that refusal legible rather
+   * than mysterious. The same holder carries the archived-book `403` (D10) and the
+   * `409` another chapter already holds the open slot.
+   */
+  transitionError: string | null = null;
+
+  /**
+   * THE AUTHOR'S CURRENT SELECTION in the body editor (015/012; D5) — the selected
+   * TEXT, or `null` when nothing is selected. Written by exactly one function,
+   * {@link setChapterSelection}, from the editor's `onSelectionChange` callback, which
+   * reports `""` for an empty selection; **that `""` is stored here as `null`**, so a
+   * single `=== null` test answers "is there a selection" everywhere.
+   *
+   * **CLIENT-SIDE ONLY, and never persisted (D5).** It is not written to the restore
+   * buffer, never reaches `localStorage`, never joins a save payload, and
+   * `ChapterChange.line_from` / `line_to` never express it — no character-offset-to-line
+   * snapping, ever. It rides on a turn request as text and nothing else, and the chat
+   * pane reads it from the module-level registry at SEND time rather than from here.
+   *
+   * Held on the state as well as in the registry because
+   * {@link ChapterPageState.applyDraft} needs it to resolve a `replace_selection`
+   * frame against the draft it is holding.
+   */
+  selectedText: string | null = null;
+
+  /**
+   * THE ONE ASSISTANT WRITE THAT WAS NOT APPLIED (015/012) — the text a
+   * `replace_selection` frame carried when there was **no active selection** to replace,
+   * held so the page can tell the author that the assistant wrote something and it did
+   * not land. `null` when there is nothing to report.
+   *
+   * A refused frame changes **nothing else**: the draft, the restore buffer, the base
+   * version, the editor generation and the undo stack are all left exactly as they are.
+   * There is **no fallback to append and no write at position zero** — writing at a
+   * location nobody chose is the silent wrong placement `domain-chapter.md` refuses, and
+   * a refusal is loud. The check lives HERE and not in the tool because at tool-call time
+   * the selection may have existed and the author may have cleared it while the model was
+   * writing; the server cannot know that.
+   *
+   * Cleared by the next frame that DOES apply, so it always describes the most recent
+   * assistant write rather than accumulating.
+   */
+  unappliedSelectionWrite: string | null = null;
+
+  constructor(bookId: string, chapterId: string) {
+    this.bookId = bookId;
+    this.chapterId = chapterId;
+    // The two ids and the two bound members handed to the module tier are excluded:
+    // the ids never change, and MobX would otherwise try to make a bound method
+    // observable — `codexEntryPageState.ts`'s `{ bookId: false, …, applyDraft: false }`
+    // verbatim, one page down.
+    makeAutoObservable(this, {
+      bookId: false,
+      chapterId: false,
+      subjectSource: false,
+      applyDraft: false,
+    });
   }
 
   /**
@@ -436,6 +567,236 @@ export class ChapterPageState {
       this.bodySubmitStatus !== "loading"
     );
   }
+
+  /**
+   * WHICH SINGLE TRANSITION IS OFFERED (015/008), derived from **the loaded
+   * CHAPTER's state alone** (D14) — `this.chapter?.state`, never `body.state` and
+   * never a caller-role signal, because the control is rendered beside the chapter's
+   * own state badge and the two must never disagree.
+   *
+   * The state machine admits exactly one transition per state:
+   *
+   * | loaded state | offered |
+   * |---|---|
+   * | `planned` | `"open"` (UC-035 / US-036.AC-1) |
+   * | `open` | `"close"` (UC-036 / US-038.AC-1) |
+   * | `closed` | `"reopen"` (UC-037 / US-039.AC-1) |
+   * | `closing` | **`null`** — see {@link ChapterPageState.transitionUnavailableReason} |
+   *
+   * `null` before the first successful chapter load and on a failed one, too: there
+   * is no state to derive an offer from, and the chapter section is showing its own
+   * loading / error branch there.
+   *
+   * **Exactly ONE control is ever rendered — never three with two disabled.** A
+   * disabled control invites the question "why"; an absent one, with the state shown
+   * beside it, does not.
+   *
+   * A client AFFORDANCE that never substitutes for the server's answer: the control
+   * is offered to EVERY member (D14 — no caller-role signal exists on this page, and
+   * none is manufactured), a non-owner's attempt is refused `403`, and the message
+   * lands in {@link ChapterPageState.transitionError}. Pure — no side effects, no I/O.
+   */
+  get offeredTransition(): ChapterTransition | null {
+    switch (this.chapter?.state) {
+      case "planned":
+        return "open";
+      case "open":
+        return "close";
+      case "closed":
+        return "reopen";
+      default:
+        // `closing` — nothing in this feature can change it (D8) — and the
+        // not-yet-loaded / failed-load case, where there is no state to derive an
+        // offer from at all.
+        return null;
+    }
+  }
+
+  /**
+   * Why NO transition is offered, as author-facing READABLE TEXT (015/008 DoD-4) —
+   * non-`null` **exactly** when the chapter has loaded and
+   * {@link ChapterPageState.offeredTransition} is `null`, which the state machine
+   * makes exactly the `closing` case.
+   *
+   * `closing` is the ONE state that gets a stated reason rather than silence,
+   * because it is a state the author cannot currently produce (D8 — nothing in this
+   * feature writes it) and will not recognise; every other state either offers its
+   * one control or has not loaded yet. The sentence must name **the close gate as
+   * not yet built** (`016.chapter-close-continuity`'s), not merely restate the state.
+   *
+   * `null` for `planned` / `open` / `closed` (a control IS offered there, so there is
+   * nothing to explain) and `null` before the first successful chapter load.
+   *
+   * This page's OWN sentence, deliberately: `work/subject.ts`'s `closing` reason is
+   * about the BODY being read-only while continuity is reviewed, which is a different
+   * claim and promises a review flow that does not exist yet. The precedent for a
+   * page-owned sentence is {@link ChapterPageState.sketchDisabledReason}'s `open`
+   * case. Pure.
+   */
+  get transitionUnavailableReason(): string | null {
+    // Nothing has loaded: the chapter section is showing its own loading or error
+    // branch, and there is no state to explain.
+    if (this.chapter === null) return null;
+    // A control IS offered, so there is nothing to explain either.
+    if (this.offeredTransition !== null) return null;
+    // The one remaining case the state machine admits: `closing`. The sentence names
+    // the close gate as NOT YET BUILT rather than merely restating the state.
+    return "This chapter is closing. The close approval step is not built yet, so its state cannot be changed here.";
+  }
+
+  /**
+   * WHAT THIS PAGE DECLARES ITSELF TO BE to the content-pane registry (015/012) — the
+   * `ContentSubjectSource` the page registers, unregisters and stamps its selection with.
+   *
+   * It must return the subject **as it is right now**, so it reads `this.chapter?.state`
+   * at CALL time: the chapter's lifecycle state is only known once the load resolves, and
+   * the chat pane calls this while composing a turn. `entityId` is the ROUTE's chapter id
+   * ({@link ChapterPageState.chapterId}), not `chapter?.id`, so a turn sent before the
+   * load resolves still names the right chapter.
+   *
+   * **It is also the identity token**, and that is why it moved out of `ChapterPage.tsx`'s
+   * mount effect and onto the instance: `registerContentSubject`,
+   * `unregisterContentSubject`, `setContentSelection` and `clearContentSelection` are ALL
+   * guarded on the same reference, and the selection is pushed from the editor's callback
+   * during RENDER, where the effect's local closure is not in scope. A bound property on
+   * a per-route instance gives every one of those call sites the same stable token with no
+   * `useCallback` (banned) and no second registry.
+   *
+   * A bound arrow property, excluded from `makeAutoObservable`'s annotations — the
+   * `codexEntryPageState.ts:applyDraft` precedent, for the same reason: the module tier
+   * holds the function itself across the module boundary.
+   *
+   * Contract (the object 014 already built inline, unchanged):
+   * `{ kind: "chapter", entityId: this.chapterId, chapterState: this.chapter?.state }`.
+   */
+  readonly subjectSource: ContentSubjectSource = () => ({
+    kind: "chapter",
+    // The ROUTE's chapter id, never `chapter?.id`: a turn sent before the load
+    // resolves still names the right chapter.
+    entityId: this.chapterId,
+    // Read at CALL time, so the pane model's editability answer follows the load.
+    chapterState: this.chapter?.state,
+  });
+
+  /**
+   * APPLY ONE ASSISTANT `canvas` FRAME to the body draft (015/012) — the callback this
+   * page registers alongside its subject, making the open chapter a **writable** canvas
+   * target where 014 registered it as a subject only.
+   *
+   * A bound arrow property, excluded from `makeAutoObservable`'s annotations, exactly as
+   * `codexEntryPageState.ts:applyDraft` is: MobX would otherwise try to make a bound
+   * method observable, and `work/contentSubject.ts` holds the function itself across the
+   * module boundary. It takes the frame's `field`, its `text` and its `op` and nothing
+   * else — the dispatcher passes no ids, which is why
+   * {@link ChapterPageState.bookId} / {@link ChapterPageState.chapterId} live on the
+   * instance.
+   *
+   * `op` is optional only because {@link CanvasDraftApplier} declares it so (a
+   * two-parameter codex applier must stay assignable). `dispatchCanvasFrame` ALWAYS
+   * passes a real `CanvasOp`, having resolved an omitted `frame.op` to `"replace"`, so an
+   * absent `op` means `"replace"` here too.
+   *
+   * **A `"name"` frame is ignored.** `CanvasField` is `"name" | "body"` and a chapter has
+   * no name on the canvas: its body IS the `"body"` field (D17). Nothing is changed and
+   * nothing is reported.
+   *
+   * **THE REFUSAL, FIRST — a `"replace_selection"` frame with no active selection is NOT
+   * APPLIED.** {@link ChapterPageState.selectedText} is `null`, or it is a string the
+   * draft no longer contains: record the frame's text in
+   * {@link ChapterPageState.unappliedSelectionWrite} and **return, having changed nothing
+   * — no undo push, no draft write, no buffer write, no generation bump.** There is **no
+   * fallback to append, ever**, and the text is **never applied at position zero**. This
+   * check is page-level, not tool-level, on purpose: at tool-call time the selection may
+   * have existed and the author may have cleared it while the model was writing.
+   *
+   * **THE APPLY ORDER IS NOT ARBITRARY. Four steps, in this order:**
+   *
+   * 1. **SNAPSHOT FIRST** — `pushChapterUndoSnapshot(this.bookId, this.chapterId,
+   *    this.bodyDraft)`, the draft **as it is about to be overwritten**, BEFORE anything
+   *    is applied. Applying first would store the post-write text and make undo a no-op.
+   * 2. **APPLY THE OPERATION** to {@link ChapterPageState.bodyDraft}: `"replace"` → the
+   *    frame's text becomes the whole draft; `"append"` → the text goes at the END of the
+   *    current draft; `"replace_selection"` → the text replaces the FIRST occurrence of
+   *    {@link ChapterPageState.selectedText} within the draft.
+   * 3. **ROUTE THE RESULT THROUGH THE SINGLE DRAFT-EDIT PATH** — `editBodyDraft(this,
+   *    this.bookId, this.chapterId, next)` — so the restore buffer is written exactly as a
+   *    keystroke writes it, and an eviction is surfaced exactly as a keystroke's is.
+   *    Bypassing it would lose the assistant's draft on a reload — precisely the "writer
+   *    with no base version" `frontend-work-drafts.md` expects to land in the buffer.
+   * 4. **BUMP {@link ChapterPageState.bodyEditorGeneration}** so TipTap remounts on the
+   *    NEW draft (D15). Bumping before applying would remount the editor on the old one.
+   *
+   * Then clear {@link ChapterPageState.unappliedSelectionWrite}: a frame that landed
+   * supersedes the report of one that did not.
+   *
+   * **NOTHING REACHES THE SERVER** — an assistant write is a draft edit and nothing else
+   * (D4). The author saves.
+   */
+  readonly applyDraft = (field: CanvasField, text: string, op?: CanvasOp): void => {
+    // A `"name"` frame is IGNORED: `CanvasField` is `"name" | "body"` and a chapter
+    // has no name on the canvas — its body IS the `"body"` field (D17). Nothing is
+    // changed and nothing is reported.
+    if (field !== "body") return;
+
+    // `dispatchCanvasFrame` always passes a real operation, having resolved an
+    // omitted `frame.op` to `"replace"` first; the fallback here exists only because
+    // `CanvasDraftApplier` declares the parameter optional.
+    const operation: CanvasOp = op ?? "replace";
+
+    // The draft AS IT IS ABOUT TO BE OVERWRITTEN — read once, so the snapshot, the
+    // operation and the result all see the same text.
+    const draft = this.bodyDraft;
+    const selected = this.selectedText;
+
+    // THE REFUSAL COMES FIRST, before the snapshot and before anything is written: a
+    // `"replace_selection"` frame with no active selection — or one whose selection
+    // the draft no longer contains — is NOT APPLIED. There is no fallback to append,
+    // ever, and the text is never applied at position zero. The check lives here and
+    // not in the tool because the author may have cleared the selection while the
+    // model was writing, which the server cannot know.
+    let selectionAt = -1;
+    if (operation === "replace_selection") {
+      selectionAt = selected === null ? -1 : draft.indexOf(selected);
+      if (selectionAt === -1) {
+        runInAction(() => {
+          // Reported, and NOTHING else changes: no undo push, no draft write, no
+          // buffer write, no generation bump.
+          this.unappliedSelectionWrite = text;
+        });
+        return;
+      }
+    }
+
+    // 1. SNAPSHOT FIRST — the pre-write draft, BEFORE anything is applied. Applying
+    //    first would store the post-write text and make undo a no-op.
+    pushChapterUndoSnapshot(this.bookId, this.chapterId, draft);
+
+    // 2. APPLY THE OPERATION to the draft: the whole draft, the end of it, or the
+    //    FIRST occurrence of the current selection within it.
+    let next: string;
+    if (operation === "append") {
+      next = draft + text;
+    } else if (operation === "replace_selection") {
+      next =
+        draft.slice(0, selectionAt) + text + draft.slice(selectionAt + (selected?.length ?? 0));
+    } else {
+      next = text;
+    }
+
+    // 3. ROUTE THE RESULT THROUGH THE SINGLE DRAFT-EDIT PATH, so the restore buffer
+    //    is written exactly as a keystroke writes it and an eviction surfaces exactly
+    //    as a keystroke's does. Bypassing it would lose the assistant's draft on a
+    //    reload.
+    editBodyDraft(this, this.bookId, this.chapterId, next);
+
+    runInAction(() => {
+      // 4. BUMP THE GENERATION so TipTap remounts on the NEW draft (D15). Bumping
+      //    before applying would remount the editor on the old one.
+      this.bodyEditorGeneration += 1;
+      // A frame that landed supersedes the report of one that did not.
+      this.unappliedSelectionWrite = null;
+    });
+  };
 }
 
 /**
@@ -1016,4 +1377,314 @@ export async function resolveBodyConflict(
     state.bodyServerErrors = {};
   });
   await saveChapterBody(state, bookId, chapterId, signal);
+}
+
+// ---------------------------------------------------------------------------
+// THE THREE LIFECYCLE TRANSITIONS (`015.chapter-writing-free-mode` step 008)
+//
+// One external effect per transition, all three with the module's
+// `(state, bookId, chapterId, signal?)` shape and all three sharing ONE contract,
+// which differs only in the api function called:
+//
+//   1. `transitionStatus = "loading"`, `transitionError = null`;
+//   2. await the api call — `openChapterState` / `closeChapterState` /
+//      `reopenChapterState` — which resolves to 014's `ChapterResponse`;
+//   3. return silently when `signal?.aborted`;
+//   4. ON SUCCESS, RE-SEED THE CHAPTER TRIO **AND** THE BODY TRIO FROM THE SERVER
+//      (see below), then `transitionStatus = "ready"`;
+//   5. on `ApiError`, `transitionError = err.message` (falling back to
+//      `"Could not change the chapter state."` on an empty message) and
+//      `transitionStatus = "error"` — AND NOTHING ELSE CHANGES ANYWHERE. Anything
+//      that is not an `ApiError` rethrows, as everywhere else in this module.
+//
+// THE RE-SEED, and why it is not a local patch. A successful transition changes the
+// chapter's `state`, and four things follow from it: `resolveEditability`'s verdict
+// for the body, whether the editor is mounted at all (D16), which transition control
+// is offered next, and 014's sketch editor's enablement. Re-seeding is what makes all
+// four follow AT ONCE, with no navigation and no manual reload (DoD-7):
+//
+// - the CHAPTER trio takes the transition's OWN `ChapterResponse` whole
+//   (`state.chapter = response`) — the server's representation, exactly as
+//   `saveSketch` adopts its PATCH response. **Never patch `state.chapter.state`
+//   locally**: the backend is the source of truth, and a locally patched state would
+//   leave the BODY response's own `state` field disagreeing with it;
+// - the BODY trio is re-read from the server (`chaptersApi.getChapterText`) and
+//   `state.body` / `state.bodyStatus` are set from THAT response, so `canEditBody`
+//   (which reads `body.state`) follows the new state too.
+//
+// WHAT THE RE-SEED MUST **NOT** TOUCH — DoD-8, and the reason the body trio is
+// re-read by hand here instead of through `loadChapterBody`:
+//
+// - **`bodyDraft`** — a successful transition must no more destroy unsaved work than
+//   a refused one. The draft is left exactly as it is;
+// - **the restore buffer** — not written, not cleared. Steps 006's and 007's rules
+//   own it;
+// - **`bodyBaseVersion`** — a transition touches `state` and `modified_at` only and
+//   never bumps `Chapter.version` (step 002's freeze), so there is nothing to move;
+// - **`bodyEditorGeneration`** — nothing wrote the draft from outside the editor, so
+//   there is nothing for TipTap to be remounted to see;
+// - **`bodyConflict` / `isReconcilingBody` / `evictedBufferKeys`**, and the sketch and
+//   prompt drafts and their `…ServerErrors` holders.
+//
+// `loadChapterBody` would break every one of those: it re-seeds the draft, bumps the
+// generation counter and re-runs the load-time buffer entrance, which could open the
+// divergence view for a body nobody re-read. **Do not call it from here.**
+//
+// If the body re-read itself fails with an `ApiError`, that is a BODY load failure and
+// it lands in the body trio's own surface (`bodyError` / `bodyStatus = "error"`) — the
+// page already has one. The transition itself succeeded, so `transitionStatus` is
+// still `"ready"` and `transitionError` stays `null`.
+//
+// NO CONFIRMATION DIALOG anywhere: closing is reversible by reopening, and the
+// approval gate is `016`'s (D8).
+// ---------------------------------------------------------------------------
+
+/**
+ * THE ONE SHARED CONTRACT the three transitions run — module-private, not exported,
+ * and not a fourth effect: the three differ ONLY in which api call they issue, so the
+ * call arrives as a thunk and everything else is written once. The thunk defers the
+ * `chaptersApi` lookup to call time, so the namespace is read exactly where the three
+ * exported effects would read it.
+ *
+ * Steps 1–5 of the block comment above, in order.
+ */
+async function runChapterTransition(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  transition: () => Promise<ChapterResponse>,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.transitionStatus = "loading";
+    state.transitionError = null;
+  });
+
+  let chapter: ChapterResponse;
+  try {
+    chapter = await transition();
+    if (signal?.aborted) return;
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (!(err instanceof ApiError)) throw err;
+    runInAction(() => {
+      // A co-author's `403` (D14), an archived book's `403` (D10) and the `409`
+      // another chapter already holds the slot (CF1) all land here, as the SERVER's
+      // own plain-string message — never the codex family's `details.detail.message`
+      // object path. AND NOTHING ELSE CHANGES ANYWHERE: not the chapter, not the body,
+      // not the body draft, not the restore buffer, not either other editor.
+      state.transitionError = err.message || "Could not change the chapter state.";
+      state.transitionStatus = "error";
+    });
+    return;
+  }
+
+  runInAction(() => {
+    // The CHAPTER trio takes the transition's own response WHOLE, exactly as
+    // `saveSketch` adopts its PATCH response. Never a local patch of
+    // `state.chapter.state`: the backend is the source of truth, and a patched state
+    // would leave the BODY response's own `state` field disagreeing with it.
+    state.chapter = chapter;
+  });
+
+  // THE BODY TRIO IS RE-READ BY HAND — deliberately NOT through `loadChapterBody`,
+  // which would re-seed the draft, bump the editor generation and re-run the load-time
+  // buffer entrance (DoD-8). Only `body` and `bodyStatus` move, so `canEditBody`
+  // (which reads `body.state`) follows the new state with no navigation and no manual
+  // reload, while the draft, the buffer, `bodyBaseVersion`, the generation counter and
+  // the reconciliation fields are all left exactly as they are.
+  try {
+    const body = await chaptersApi.getChapterText(bookId, chapterId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.body = body;
+      state.bodyStatus = "ready";
+      state.transitionStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (!(err instanceof ApiError)) throw err;
+    runInAction(() => {
+      // A failed re-read is a BODY load failure and lands in the body trio's own
+      // surface. The TRANSITION itself succeeded, so its status is still `"ready"` and
+      // `transitionError` stays `null`.
+      state.bodyError = err.message;
+      state.bodyStatus = "error";
+      state.transitionStatus = "ready";
+    });
+  }
+}
+
+/**
+ * OPEN the chapter — the only transition a `planned` chapter is offered (UC-035 /
+ * US-036.AC-1). Calls `chaptersApi.openChapterState(bookId, chapterId, signal)`.
+ *
+ * The full contract is the block comment above: re-seed the chapter trio from the
+ * response and the body trio from a fresh `getChapterText` on success, so the body
+ * editor is mounted without a navigation; on `ApiError` store the server's message in
+ * {@link ChapterPageState.transitionError} and change nothing — a co-author's `403`
+ * (D14), an archived book's `403` (D10) and the `409` another chapter already holds
+ * the open slot (CF1 / US-037.AC-2) all arrive here and all leave the chapter's state
+ * on screen, the body region and the body DRAFT exactly as they were.
+ */
+export async function openChapterState(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runChapterTransition(
+    state,
+    bookId,
+    chapterId,
+    () => chaptersApi.openChapterState(bookId, chapterId, signal),
+    signal,
+  );
+}
+
+/**
+ * CLOSE the chapter — the only transition an `open` chapter is offered (US-038.AC-1).
+ * Calls `chaptersApi.closeChapterState(bookId, chapterId, signal)`, which the server
+ * answers by writing **`closed`** directly: nothing in this feature produces or drafts
+ * a `closing` chapter (D8), and there is **no confirmation dialog** — a close is
+ * reversible by a reopen, and the approval gate is `016`'s.
+ *
+ * Same contract as {@link openChapterState}: re-seed both trios on success, so the
+ * body region becomes read-only and its save control disappears without a navigation;
+ * on `ApiError` surface the message and change nothing (US-038.AC-2).
+ */
+export async function closeChapterState(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runChapterTransition(
+    state,
+    bookId,
+    chapterId,
+    () => chaptersApi.closeChapterState(bookId, chapterId, signal),
+    signal,
+  );
+}
+
+/**
+ * REOPEN the chapter — the only transition a `closed` chapter is offered (UC-037 /
+ * US-039.AC-1). Calls `chaptersApi.reopenChapterState(bookId, chapterId, signal)`.
+ *
+ * Same contract as {@link openChapterState}: re-seed both trios on success, so the
+ * editor mounts again; on `ApiError` surface the message and change nothing — the
+ * `409` another chapter is `open` or `closing` (US-039.AC-2) reads exactly like every
+ * other refusal.
+ */
+export async function reopenChapterState(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runChapterTransition(
+    state,
+    bookId,
+    chapterId,
+    () => chaptersApi.reopenChapterState(bookId, chapterId, signal),
+    signal,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// THE CANVAS WIRING (`015.chapter-writing-free-mode` step 012)
+//
+// Two external effects beside the two bound members on the class above. Both are
+// SYNCHRONOUS and SERVER-FREE — an assistant write and an undo are draft edits and
+// nothing else (D4 / DoD-4 / DoD-10) — so neither takes a `signal` and neither
+// returns a `Promise`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Record the author's current selection and PUSH IT INTO THE MODULE-LEVEL SELECTION
+ * REGISTRY (015/012; D5) — the single path the editor's `onSelectionChange` callback
+ * takes.
+ *
+ * `selectedText` is the editor's own value verbatim: `ChapterBodyEditor` reports the
+ * selected plain text and **`""` for an empty selection**, and `""` is stored as
+ * `null` on {@link ChapterPageState.selectedText} and pushed to the registry as
+ * `null`, so "nothing is selected" has ONE representation everywhere.
+ *
+ * Contract:
+ *
+ * - `runInAction`: `state.selectedText = selectedText === "" ? null : selectedText`;
+ * - `setContentSelection(state.subjectSource, state.selectedText)` — stamped with
+ *   {@link ChapterPageState.subjectSource}, the SAME token the page registers and
+ *   unregisters its subject with, so `unregisterContentSubject` on unmount clears the
+ *   selection too (its shipped one-line `clearContentSelection(source)`) and a
+ *   superseded page's trailing selection event is a no-op (DoD-8).
+ *
+ * **NEVER PERSISTED AND NEVER SAVED**: no restore-buffer write, no `localStorage`, no
+ * HTTP, no `expected_version` interaction. The turn request carries the selection as
+ * text and only text, read from the registry at send time.
+ *
+ * Takes NO ids, deliberately, unlike every other effect in this module: a selection is
+ * keyed by nothing, buffered under nothing and stored nowhere that needs a key, and the
+ * registry's identity token is `state.subjectSource`.
+ */
+export function setChapterSelection(state: ChapterPageState, selectedText: string): void {
+  runInAction(() => {
+    // `""` — the editor's report of an empty selection — is stored as `null`, so
+    // "nothing is selected" has ONE representation everywhere.
+    state.selectedText = selectedText === "" ? null : selectedText;
+  });
+  // Stamped with the SAME token the page registers and unregisters its subject
+  // with, so the unmount's `clearContentSelection(source)` lands and a superseded
+  // page's trailing selection event is a no-op (DoD-8).
+  setContentSelection(state.subjectSource, state.selectedText);
+}
+
+/**
+ * UNDO THE ASSISTANT'S LAST WRITE to this chapter's body (015/012; D6) — pop the most
+ * recent snapshot for `(bookId, chapterId)` and put it back in the draft.
+ *
+ * Contract, and the mirror image of {@link ChapterPageState.applyDraft}'s four steps:
+ *
+ * 1. `popChapterUndoSnapshot(bookId, chapterId)`; `null` means the stack is empty —
+ *    **return, changing nothing**;
+ * 2. set the popped text as the body draft **through the same single draft-edit path**,
+ *    `editBodyDraft(state, bookId, chapterId, snapshot)`, so the restore buffer is
+ *    written exactly as a keystroke would write it;
+ * 3. bump {@link ChapterPageState.bodyEditorGeneration}, so TipTap remounts on the
+ *    restored draft (D15).
+ *
+ * **IT PUSHES NOTHING.** An undo is not an assistant write, and re-snapshotting here
+ * would make the stack un-walkable: repeated undos step back through the twenty most
+ * recent states, oldest-dropped-first (DoD-3 / DoD-7).
+ *
+ * Nothing reaches the server, and the stack is NOT cleared by a save — an author may
+ * want to undo an assistant write after saving, and the restored draft then re-saves as
+ * an ordinary save against the current version.
+ *
+ * Carries the `(state, bookId, chapterId)` shape every other effect in this module
+ * carries, so the page passes the pair here exactly as it does everywhere else; the
+ * instance's own copies exist for the module-tier CALLBACKS, which are handed no
+ * arguments at all.
+ */
+export function undoAssistantBodyWrite(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+): void {
+  const snapshot = popChapterUndoSnapshot(bookId, chapterId);
+  // An empty stack means there is nothing to undo: return, changing nothing. A
+  // popped `""` is a legitimate snapshot and is restored like any other.
+  if (snapshot === null) return;
+
+  // THE SAME single draft-edit path an assistant write and a keystroke take, so the
+  // restore buffer is written exactly as a keystroke would write it. IT PUSHES
+  // NOTHING — re-snapshotting would make the stack un-walkable.
+  editBodyDraft(state, bookId, chapterId, snapshot);
+
+  runInAction(() => {
+    // The draft was written from OUTSIDE the editor, so TipTap remounts on the
+    // restored text (D15).
+    state.bodyEditorGeneration += 1;
+  });
 }

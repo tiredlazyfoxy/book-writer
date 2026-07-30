@@ -155,12 +155,26 @@ export interface TurnSubject {
  * The three subject fields are OPTIONAL and are omitted entirely when no content
  * subject is registered, so `011.chat-panel`'s shipped body (`{ prompt }`) is
  * still a complete request.
+ *
+ * `selection_text` (`015` step 012) mirrors the backend field `015` step 009 added
+ * (`models/schemas/chats.py` → `TurnRequest.selection_text: str | None = None`) and is
+ * a **FIFTH FLAT FIELD**, beside `subject_kind` / `subject_id` / `codex_kind` and not
+ * inside any object: this request has no subject object on either side of the wire, and
+ * the frontend-only {@link TurnSubject} helper gains NOTHING — a selection is not part
+ * of the subject's identity (the same chapter can be in view with any selection or
+ * none), and putting it there would give the client a shape the wire does not have
+ * (`015/context.md` → D5, `012.context.md`).
+ *
+ * It is **text and only text** — no offsets, no line numbers, no range, no anchor id.
+ * OPTIONAL and OMITTED ENTIRELY when nothing is selected, so a turn sent with no
+ * selection posts a body with no `selection_text` key at all.
  */
 export interface TurnRequest {
   prompt: string | null;
   subject_kind?: SubjectKind | null;
   subject_id?: string | null;
   codex_kind?: CodexKind | null;
+  selection_text?: string | null;
 }
 
 /**
@@ -170,6 +184,26 @@ export interface TurnRequest {
  * to the page's apply-draft callback with no translation.
  */
 export type CanvasField = "name" | "body";
+
+/**
+ * WHICH OPERATION a `canvas` frame performs on its `field` — wire-exact with the
+ * backend's `CanvasOp` (`models/schemas/chats.py`, declared immediately below
+ * `CanvasField` there too; feature `015` step 009), same three values in the same
+ * order:
+ *
+ * - `"replace"` — the text IS the whole field. Every codex emission means this,
+ *   and so does the chapter's `set_chapter_text`.
+ * - `"append"` — the text goes at the END of the current draft.
+ * - `"replace_selection"` — the text replaces the author's current selection.
+ *
+ * The last two are RELATIVE to a draft, so they are only meaningful to a page that
+ * holds one; a relative frame with no registered target is dropped rather than
+ * buffered (`015` → D18).
+ *
+ * `CanvasField` is NOT widened alongside this: a chapter's body IS the `"body"`
+ * field, and there is no `"text"` member on either side of the wire (`015` → D17).
+ */
+export type CanvasOp = "replace" | "append" | "replace_selection";
 
 /**
  * `data:` payload of a `canvas` SSE frame — the assistant's draft for the subject
@@ -187,10 +221,20 @@ export type CanvasField = "name" | "body";
  * - `field` — which part of the subject `text` is.
  * - `text` — the draft itself, WHOLE: it arrives in one frame, not streamed token
  *   by token, so the entry fills in one jump while the chat's prose streams on.
+ * - `op` — which operation `text` performs on `field` (`015` step 011).
+ *   **OPTIONAL on this twin, and that is the mirror of the backend's default**:
+ *   `CanvasFrame.op: CanvasOp = "replace"` is a Pydantic field with a default, so
+ *   it is always present on the wire, and an OMITTED `op` MEANS `"replace"` —
+ *   exactly what every pre-`015` emission meant. A `.d.ts` carries no runtime
+ *   default, so the default is applied at the single place that reads the field:
+ *   `work/contentSubject.ts`'s dispatcher resolves `frame.op ?? "replace"` before
+ *   routing. No other field of this interface changed, and the field order still
+ *   mirrors the backend's declaration order.
  */
 export interface CanvasFrame {
   subject_kind: SubjectKind;
   subject_id: string | null;
   field: CanvasField;
   text: string;
+  op?: CanvasOp;
 }

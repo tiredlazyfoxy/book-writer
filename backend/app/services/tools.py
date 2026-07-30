@@ -47,6 +47,26 @@ frame emitter), and ``write_codex_draft`` joins the registry as a fourth entry,
 bound exactly like the two codex tools. The widening is strictly additive:
 ``ToolContext(book_id=…)`` still constructs, and every step-009 binding behaves
 identically.
+
+Skeleton (015 step 009): :class:`ToolContext` grows one further **defaulted**
+field — the author's ``selection_text`` — so a bound chapter tool can read the
+selection it is asked to rewrite. Additive in exactly the same way: every
+existing construction keeps binding and every existing binding behaves
+identically. Nothing else in this module changes; the registry, the resolution
+helpers and the binding pre-flight are untouched.
+
+Skeleton (015 step 010): ``TOOL_REGISTRY`` grows **four** entries — the chapter
+read path and the three chapter shared-canvas writes, from the new sibling module
+``services/chapter_tools.py``. All four are **bound** (a ``binder``, never a
+plain ``callable``), because each needs the turn's book, its resolved chapter
+subject, the caller's access and the frame emitter. **Nothing else in this module
+changes**: no existing entry, no builder, no resolution or ordering rule, and not
+:class:`ToolContext` (015 step 009 widened it, and ``access`` already carries the
+role, the book state and the collaboration mode the chapter refusal mirror
+reads). **No ``mode_tool`` row and no ``AssistantMode`` row is seeded anywhere**,
+so the four ship *unreachable*: ``assistant_runtime.allowed_tool_names`` returns
+a mode's selections and zero rows is an empty allowlist, so registration alone
+grants nothing until an admin selects them for the ``write-chapter`` mode.
 """
 
 import logging
@@ -59,6 +79,16 @@ from pydantic import BaseModel
 
 from app.models.schemas.tools import WebSearchArgs
 from app.services import authz
+from app.services.chapter_tools import (
+    AddTextArgs,
+    ReadChapterTextArgs,
+    SetChapterTextArgs,
+    UpdateSelectionArgs,
+    bind_add_text,
+    bind_read_chapter_text,
+    bind_set_chapter_text,
+    bind_update_selection,
+)
 from app.services.codex_tools import (
     CodexEntryReadArgs,
     CodexSearchArgs,
@@ -119,8 +149,17 @@ class ToolContext:
       draft at a subject the author does not have open.
     - ``emit_frame`` — the turn's :data:`FrameEmitter`; how a tool puts an SSE
       frame onto the stream (013 step 010).
+    - ``selection_text`` — the text the author currently has selected in the
+      content pane, straight off
+      :attr:`~app.models.schemas.chats.TurnRequest.selection_text` (015 step
+      009). Carried so a bound tool can read the selection it is asked to
+      rewrite **without the turn re-deriving anything**, and so no tool needs a
+      selection argument the model could invent. **Text only** — no offsets, no
+      range, no anchor (``015/context.md`` → D5) — and never persisted. ``None``
+      when nothing is selected, which is also the whole test a selection-write
+      tool applies before refusing.
 
-    All three step-010 fields **default**, so step 009's
+    All four non-``book_id`` fields **default**, so step 009's
     ``ToolContext(book_id=…)`` construction keeps binding and a caller with no
     turn to speak of (a sub-agent built without one) still gets a usable record —
     a tool that needs a field it was not given refuses with a string rather than
@@ -137,6 +176,7 @@ class ToolContext:
     access: authz.BookAccess | None = None
     subject: "ResolvedSubject | None" = None
     emit_frame: FrameEmitter | None = None
+    selection_text: str | None = None
 
 
 # A ``ToolDef.binder``: given the turn's context, return the callable to
@@ -227,6 +267,62 @@ TOOL_REGISTRY: list[ToolDef] = [
         ),
         args_schema=WriteCodexDraftArgs,
         binder=bind_write_codex_draft,
+    ),
+    # The four chapter entries (015 step 010). All bound, all context-bearing,
+    # none reachable until an admin selects them for the ``write-chapter`` mode:
+    # this feature seeds NO ``mode_tool`` row, and zero rows is an empty
+    # allowlist. Their descriptions are part of the contract, not prose — each
+    # of the last three carries the one fact the model would otherwise get
+    # wrong, and getting it wrong makes the model attempt a placement
+    # negotiation the protocol deliberately does not support.
+    ToolDef(
+        name="read_chapter_text",
+        description=(
+            "Read the chapter the author currently has open and return its body "
+            "text. This returns the SAVED body — the text as it was last saved "
+            "to the server — so if the author has edited since their last save, "
+            "their unsaved draft is newer than what you get back."
+        ),
+        args_schema=ReadChapterTextArgs,
+        binder=bind_read_chapter_text,
+    ),
+    ToolDef(
+        name="set_chapter_text",
+        description=(
+            "Replace the whole body of the chapter the author currently has "
+            "open. Send the complete new body in one call; it replaces "
+            "everything that is there. Nothing is saved: the text only appears "
+            "in the author's editor, where they read it, edit it and decide "
+            "whether to keep it."
+        ),
+        args_schema=SetChapterTextArgs,
+        binder=bind_set_chapter_text,
+    ),
+    ToolDef(
+        name="update_selection",
+        description=(
+            "Replace the text the author currently has selected in the open "
+            "chapter with the text you send. The selection is the author's own "
+            "and was supplied with this turn: do not describe where the text "
+            "should go, do not quote the surrounding text as an anchor, and do "
+            "not ask for line numbers or character offsets — there is no way to "
+            "address a position. Send only the replacement text. Nothing is "
+            "saved: it only appears in the author's editor."
+        ),
+        args_schema=UpdateSelectionArgs,
+        binder=bind_update_selection,
+    ),
+    ToolDef(
+        name="add_text",
+        description=(
+            "Add text to the END of the body of the chapter the author "
+            "currently has open. The end is the only place it can put text: it "
+            "cannot insert anywhere else, so use the whole-body tool or the "
+            "selection tool for that. Nothing is saved: the text only appears "
+            "in the author's editor."
+        ),
+        args_schema=AddTextArgs,
+        binder=bind_add_text,
     ),
 ]
 

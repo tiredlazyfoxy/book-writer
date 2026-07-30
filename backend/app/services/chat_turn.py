@@ -82,7 +82,7 @@ import aiohttp
 from llm import LLMError
 from pydantic import BaseModel
 
-from app.db import book_author_prompts, chat_messages
+from app.db import book_author_prompts, chapter_author_prompts, chat_messages
 from app.db import llm_servers as llm_servers_db
 from app.models.chat import Chat, ChatMessage
 from app.models.llm_server import LlmServer
@@ -273,6 +273,13 @@ class TurnContext:
       write gate server-side (``context.md`` decision 3); no other turn concern
       reads it. **Defaulted** for the same reason ``subject`` is — 011's and
       013's shipped tests build this record by keyword.
+    - ``selection_text`` — the author's current selection, straight off
+      :attr:`~app.models.schemas.chats.TurnRequest.selection_text` (015 step
+      009). This record is the **only** carrier between :func:`prepare_turn`,
+      which parses the request, and :func:`run_turn`, which builds the turn's
+      :class:`~app.services.tools.ToolContext`; a selection-write tool reads it
+      from there. Text only, never persisted (``015/context.md`` → D5), and
+      **defaulted** so every existing keyword construction keeps binding.
     """
 
     chat: Chat
@@ -280,6 +287,7 @@ class TurnContext:
     resolved_key: str | None
     subject: assistant_runtime.ResolvedSubject = assistant_runtime.NO_SUBJECT
     access: authz.BookAccess | None = None
+    selection_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -312,6 +320,82 @@ _ERROR_MESSAGE = (
 )
 
 
+async def compose_turn_system_prompt(context: TurnContext) -> str:
+    """Compose one turn's whole system prompt — the four layers, in order.
+
+    The turn's side of :func:`~app.services.prompt_composition.compose_system_prompt`:
+    that module is a **pure** function over four already-loaded strings, so
+    somebody has to load them. This is that somebody, lifted out of
+    :func:`run_turn` (015 step 013) so the composition is reachable — and
+    testable — without opening a stream or calling ``chat_with_tools``.
+
+    The four layers, in the composer's fixed order:
+
+    1. ``base`` — :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`,
+       always populated;
+    2. ``mode`` — :func:`~app.services.assistant_runtime.mode_system_prompt` over
+       ``context.subject.mode_key`` (013 step 007; ``None`` for every subject
+       outside the three codex kinds and the two chapter states);
+    3. ``author`` — the ``BookAuthorPrompt`` row for
+       ``(chat.book_id, chat.author_id)``, read straight from
+       :mod:`app.db.book_author_prompts` (021 step 004). ``Book.system_prompt``
+       is **not** read: superseded and dormant;
+    4. ``chapter`` — **015 step 013, the new layer**: when, and only when, the
+       turn's resolved subject carries a chapter
+       (``context.subject.chapter is not None``), the ``ChapterAuthorPrompt``
+       row for ``(chapter.id, chat.author_id)``, read straight from
+       :mod:`app.db.chapter_author_prompts`. ``Chapter.system_prompt`` is
+       **not** read: superseded and dormant (014's D1).
+
+    **The identity is the chat's own author for both prompt layers** — layer 4
+    reuses layer 3's shape exactly: same identity, same direct ``db/`` read
+    (``services → db`` is the sanctioned edge), and **no**
+    :class:`~app.services.authz.BookAccess` is built for it. The reason is the
+    one ``assistant-runtime.md`` states about layer 3: the turn is already
+    scoped to the chat's author by ``services/chats.py``'s ownership guard, so a
+    second access resolution would re-derive an identity that cannot differ.
+    Another member's row for the same chapter is therefore never read — the
+    book's owner included.
+
+    The chapter layer is **not gated by the chapter's state**: a prompt is the
+    author's instruction to their own assistant, not chapter content, so it
+    applies to a ``planned`` and a ``closed`` chapter exactly as to an ``open``
+    one.
+
+    A missing row, and a stored prompt that is empty or blank, both contribute
+    **nothing** — no section, no label, no separator, no blank block. That needs
+    no code here: it is the composer's own skip rule for every layer.
+
+    ``services/prompt_composition.py`` is **not** touched — its fourth parameter
+    has been there since 011 and this only fills it.
+    """
+    chat = context.chat
+
+    mode_prompt = await assistant_runtime.mode_system_prompt(context.subject.mode_key)
+
+    author_prompt = await book_author_prompts.get_by_book_and_user(
+        chat.book_id, chat.author_id
+    )
+
+    # Layer 4 — the caller's own chapter prompt, and only when the turn's
+    # resolved subject IS a chapter. Same identity as layer 3 (the chat's own
+    # author), same direct ``services → db`` read, no ``BookAccess``.
+    chapter_prompt = None
+    if context.subject.chapter is not None:
+        chapter_prompt = await chapter_author_prompts.get_by_chapter_and_user(
+            context.subject.chapter.id, chat.author_id
+        )
+
+    return prompt_composition.compose_system_prompt(
+        base=prompt_composition.BASE_SYSTEM_PROMPT,
+        mode=mode_prompt,
+        author=author_prompt.system_prompt if author_prompt is not None else None,
+        chapter=(
+            chapter_prompt.system_prompt if chapter_prompt is not None else None
+        ),
+    )
+
+
 async def prepare_turn(
     access: authz.BookAccess,
     chat_id: str,
@@ -340,6 +424,12 @@ async def prepare_turn(
     exactly the turn ``011.chat-panel`` shipped. Resolving a subject **never**
     refuses a turn — an unresolvable or cross-book subject is simply no subject
     (US-085.AC-1), so this adds no failure mode to the pre-stream contract above.
+
+    The request's ``selection_text`` is carried onto the returned
+    :class:`TurnContext` (and from there onto :func:`run_turn`'s
+    :class:`~app.services.tools.ToolContext`, 015 step 009). It is turn context
+    the client supplied and nothing more: it is never validated, never resolved
+    against a row and never persisted (``015/context.md`` → D5).
 
     """
     chat = await chats_service._resolve_owned_chat(
@@ -374,6 +464,10 @@ async def prepare_turn(
         # collaboration mode are what the shared-canvas write gate reads (013
         # step 010), and this is the one place they are already in hand.
         access=access,
+        # The author's current selection, straight off the request (015 step
+        # 009). This record is the only carrier from here to ``run_turn``'s
+        # ``ToolContext``; it is never stored.
+        selection_text=request.selection_text if request is not None else None,
     )
 
 
@@ -388,15 +482,13 @@ async def run_turn(
        position, role ``"user"`` — before any assistant work, so a failure leaves
        it stored exactly once and a retry (``prompt is None``) re-runs over the
        stored history without duplicating it;
-    2. compose the system prompt from :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`,
-       the resolved subject's **mode** prompt (013 step 007) and the **author**
-       layer — the prompt belonging to *this chat's own author*
-       (``chat.author_id``) for *this chat's book* (``chat.book_id``), read
-       straight from :mod:`app.db.book_author_prompts` (021 step 004; ``services
-       → db`` is the sanctioned edge, and the turn is already scoped to that
-       author by ``services/chats.py``'s ownership guard). ``Book.system_prompt``
-       is **not** read: it is superseded and dormant. The chapter layer stays
-       null until ``015`` / ``016``;
+    2. compose the system prompt through :func:`compose_turn_system_prompt` —
+       base + the resolved subject's **mode** prompt (013 step 007) + the
+       **author** layer + the **chapter** layer (015 step 013). Both prompt
+       layers belong to *this chat's own author* (``chat.author_id``) and are
+       read straight from their ``db/`` modules; ``Book.system_prompt`` and
+       ``Chapter.system_prompt`` are **not** read — both are superseded and
+       dormant;
     3. build the tool definitions + callable map from
        :func:`~app.services.assistant_runtime.resolve_turn_tools` — the mode's
        ``mode_tool`` allowlist (or
@@ -441,33 +533,18 @@ async def run_turn(
             )
         )
 
-    # 1b. The subject's FEAT-020 mode decides both the prompt's mode layer and
-    #     the tool allowlist, so it is read once here, before the prompt is
-    #     composed (013 step 007). ``context.subject`` was resolved before the
-    #     stream opened; ``mode_key`` is ``None`` for every subject outside the
-    #     three codex kinds — and for a turn that carried no subject at all.
+    # 1b. The subject's FEAT-020 mode also gates the turn's tools, so its key is
+    #     read here for step 3 (013 step 007). ``context.subject`` was resolved
+    #     before the stream opened; ``mode_key`` is ``None`` for every subject
+    #     outside the three codex kinds and the two chapter states — and for a
+    #     turn that carried no subject at all.
     mode_key = context.subject.mode_key
-    mode_prompt = await assistant_runtime.mode_system_prompt(mode_key)
 
-    # 2. Compose the system prompt (base + mode + author; chapter stays null
-    #    until 015/016). An absent or blank mode prompt contributes no section at
-    #    all — the composer's own skip rule (US-110.AC-4).
-    #
-    #    The author layer is **this chat's own author's** prompt for **this
-    #    chat's book** (021 step 004), read straight from the ``db/`` module:
-    #    ``services → db`` is the sanctioned edge, and the turn is already scoped
-    #    to that author by ``services/chats.py``'s ownership guard. The retired
-    #    book-wide ``Book.system_prompt`` is no longer read by anything. No row
-    #    means no author layer at all, and a blank stored prompt needs no special
-    #    case here — the composer's skip rule already drops it.
-    author_prompt = await book_author_prompts.get_by_book_and_user(
-        chat.book_id, chat.author_id
-    )
-    system = prompt_composition.compose_system_prompt(
-        base=prompt_composition.BASE_SYSTEM_PROMPT,
-        mode=mode_prompt,
-        author=author_prompt.system_prompt if author_prompt is not None else None,
-    )
+    # 2. Compose the system prompt — all four layers, loaded and composed by
+    #    :func:`compose_turn_system_prompt` (015 step 013), which is where the
+    #    base / mode / author reads now live and where the chapter layer joins
+    #    them.
+    system = await compose_turn_system_prompt(context)
 
     # 3. Real mode-tool gating (013 step 007) plus the mode's synthetic sub-agent
     #    delegation tools (013 step 008), resolved in ONE place and bound in ONE
@@ -493,11 +570,17 @@ async def run_turn(
     async def emit_frame(event: str, data: BaseModel) -> None:
         await queue.put(TurnFrame(event=event, data=data))
 
+    #
+    #    ``selection_text`` joins them (015 step 009): the author's current
+    #    selection is client-supplied turn context carried through from
+    #    ``prepare_turn``, and a selection-writing tool reads it off the bound
+    #    context rather than re-deriving anything.
     tool_context = tools_service.ToolContext(
         book_id=chat.book_id,
         access=context.access,
         subject=context.subject,
         emit_frame=emit_frame,
+        selection_text=context.selection_text,
     )
     parent_turn = subagent_delegation.ParentTurn(
         server=server,

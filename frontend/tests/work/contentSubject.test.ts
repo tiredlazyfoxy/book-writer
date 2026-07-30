@@ -193,7 +193,7 @@ describe("a canvas frame whose subject matches is handed to the registered targe
     dispatchCanvasFrame(BOOK_ID, makeFrame({ field: "body", text: CANVAS_BODY }));
 
     expect(applyDraft).toHaveBeenCalledTimes(1);
-    expect(applyDraft).toHaveBeenCalledWith("body", CANVAS_BODY);
+    expect(applyDraft).toHaveBeenCalledWith("body", CANVAS_BODY, "replace");
   });
 
   it("DoD-5: a name frame targets the name field, not the body", () => {
@@ -202,7 +202,7 @@ describe("a canvas frame whose subject matches is handed to the registered targe
 
     dispatchCanvasFrame(BOOK_ID, makeFrame({ field: "name", text: CANVAS_NAME }));
 
-    expect(applyDraft).toHaveBeenCalledWith("name", CANVAS_NAME);
+    expect(applyDraft).toHaveBeenCalledWith("name", CANVAS_NAME, "replace");
   });
 
   it("DoD-5: a dispatched frame goes to the target INSTEAD of the buffer, not as well as", () => {
@@ -223,7 +223,7 @@ describe("a canvas frame whose subject matches is handed to the registered targe
 
     dispatchCanvasFrame(BOOK_ID, makeFrame({ subject_id: null, text: CANVAS_BODY }));
 
-    expect(applyDraft).toHaveBeenCalledWith("body", CANVAS_BODY);
+    expect(applyDraft).toHaveBeenCalledWith("body", CANVAS_BODY, "replace");
   });
 });
 

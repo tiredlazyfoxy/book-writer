@@ -19,12 +19,14 @@ The policy, in one place:
 - a turn carries the working page's content-pane subject (``TurnRequest``'s
   ``subject_kind`` / ``subject_id`` / ``codex_kind``);
 - :func:`resolve_subject` turns that into a :class:`ResolvedSubject` — loading
-  the codex row when the subject names one, and refusing to look at an entry
-  belonging to another book (US-085.AC-1);
+  the codex row when the subject names one, loading the **chapter** row when it
+  names one (015 step 009), and refusing to look at either belonging to another
+  book (US-085.AC-1);
 - :func:`determine_mode` maps the resolved subject onto one of FEAT-020's mode
-  keys (``assistant-config.md`` → "Mode determination"); every subject outside
-  the three codex kinds resolves to **no mode** in this feature — the chapter
-  modes ``write-chapter`` / ``close-chapter`` are ``015`` / ``016``'s;
+  keys (``assistant-config.md`` → "Mode determination"): the three codex kinds,
+  plus — as of 015 step 009 — an ``open`` chapter to ``write-chapter`` and a
+  ``closing`` chapter to ``close-chapter``. Every other subject resolves to
+  **no mode**;
 - :func:`mode_system_prompt` is the ``mode=`` layer
   ``services/prompt_composition.py`` already composes but nothing populated
   before this step (US-110.AC-3 / US-110.AC-4);
@@ -44,7 +46,8 @@ shipped (DoD-13).
 
 from dataclasses import dataclass, replace
 
-from app.db import assistant_modes, codex_entries, mode_tools
+from app.db import assistant_modes, chapters, codex_entries, mode_tools
+from app.models.chapter import Chapter, ChapterState
 from app.models.codex_entry import CodexEntry, CodexKind
 from app.models.schemas.chats import SubjectKind
 from app.services import authz
@@ -75,6 +78,13 @@ class ResolvedSubject:
     - ``entry`` — the loaded :class:`~app.models.codex_entry.CodexEntry` row when
       the subject is an **existing** codex entry; ``None`` otherwise, including
       for UC-076's blank entry that has no row yet.
+    - ``chapter`` — the loaded :class:`~app.models.chapter.Chapter` row when the
+      subject is a chapter of **this** book (015 step 009); ``None`` otherwise.
+      The chapter twin of ``entry``, and it is loaded by the same resolution
+      step for the same reason: a ``subject_id`` naming a chapter in another
+      book must resolve to **no subject at all**, refused by resolution rather
+      than by a later check, so no cross-book row is ever read. Its ``state`` is
+      what :func:`determine_mode` maps onto the chapter modes.
     - ``mode_key`` — the FEAT-020 :class:`~app.models.assistant_mode.AssistantMode`
       key this subject resolves to, or ``None`` for a subject outside the mode
       set. Populated from :func:`determine_mode`.
@@ -86,6 +96,7 @@ class ResolvedSubject:
 
     kind: SubjectKind | None = None
     entry: CodexEntry | None = None
+    chapter: Chapter | None = None
     mode_key: str | None = None
 
 
@@ -108,12 +119,49 @@ _CODEX_KIND_MODES: dict[str, str] = {
 }
 
 
+# ``assistant-config.md``'s mode-determination table, the **chapter** half (015
+# step 009). The two mode keys live here as a constant beside
+# :data:`_CODEX_KIND_MODES` rather than inline in :func:`determine_mode`, for the
+# same reason the codex mapping does: the table is data, and both halves of it
+# should read the same way.
+#
+# Keyed by the enum's **wire value** (the ``_CODEX_KIND_MODES`` precedent) so a
+# row whose ``state`` came back as a bare string still maps.
+#
+# ``planned`` and ``closed`` are **deliberately absent** — a missing key is *no
+# mode*, because FEAT-020's five modes name five activities and neither
+# "planned" nor "closed" is one of them. The consequence is
+# :data:`BASE_TOOL_NAMES`, not an empty allowlist (see
+# :func:`allowed_tool_names`).
+#
+# Both keys are already seeded rows: ``db/assistant_modes.py``'s fixed five are
+# written by ``seed_default_modes()``. **This module seeds nothing.**
+_CHAPTER_STATE_MODES: dict[str, str] = {
+    ChapterState.open.value: "write-chapter",
+    ChapterState.closing.value: "close-chapter",
+}
+
+
 def _mode_for_codex_kind(kind: CodexKind | None) -> str | None:
     """The mode key for a codex ``kind``, or ``None`` (absent / unmapped kind)."""
     if kind is None:
         return None
     value = kind.value if isinstance(kind, CodexKind) else str(kind)
     return _CODEX_KIND_MODES.get(value)
+
+
+def _mode_for_chapter_state(state: ChapterState | str | None) -> str | None:
+    """The mode key for a chapter ``state``, or ``None``.
+
+    ``open`` → ``"write-chapter"``, ``closing`` → ``"close-chapter"``, and
+    ``planned`` / ``closed`` / an absent state → ``None`` (:data:`_CHAPTER_STATE_MODES`).
+    The enum-or-string tolerance is ``_mode_for_codex_kind``'s, for the same
+    reason.
+    """
+    if state is None:
+        return None
+    value = state.value if isinstance(state, ChapterState) else str(state)
+    return _CHAPTER_STATE_MODES.get(value)
 
 
 async def _entry_within_book(
@@ -137,6 +185,29 @@ async def _entry_within_book(
     return entry
 
 
+async def _chapter_within_book(
+    access: authz.BookAccess, subject_id: str
+) -> Chapter | None:
+    """Load ``subject_id``'s chapter row **if** it lives in ``access.book_id``.
+
+    The chapter twin of :func:`_entry_within_book`, and deliberately the **same
+    three-way rule**: a non-numeric id, an unknown id and a chapter belonging to
+    a different book are all ``None``. It is not an error — the turn simply has
+    no subject, and no cross-book row is ever read
+    (``assistant-runtime.md``: *"a ``subject_id`` naming an entry in another book
+    resolves to no subject, not to that entry's mode"*, applied to chapters).
+    Read through ``db/chapters.get_by_id``.
+    """
+    try:
+        chapter_id = int(subject_id)
+    except (TypeError, ValueError):
+        return None
+    chapter = await chapters.get_by_id(chapter_id)
+    if chapter is None or chapter.book_id != access.book_id:
+        return None
+    return chapter
+
+
 async def resolve_subject(
     access: authz.BookAccess,
     subject_kind: SubjectKind | None = None,
@@ -157,6 +228,12 @@ async def resolve_subject(
       row, so ``codex_kind`` from the request supplies the kind;
     - for an **existing** entry the **row's** ``kind`` wins and the request's
       ``codex_kind`` is ignored;
+    - a **chapter** subject with an id loads the row through
+      ``db/chapters.get_by_id`` (015 step 009); a chapter belonging to a
+      **different** book — like an unknown or non-numeric id — is likewise **no
+      subject at all**, so a cross-book chapter can never route a turn into a
+      chapter mode. A chapter subject with **no** id keeps its pre-015
+      behaviour: it resolves to itself with no row and therefore no mode;
     - every other kind resolves to itself with no row;
     - ``mode_key`` is filled from :func:`determine_mode`, except for the blank
       entry — it has no row for that pure function to read, so its mode comes
@@ -170,6 +247,7 @@ async def resolve_subject(
         return NO_SUBJECT
 
     entry: CodexEntry | None = None
+    chapter: Chapter | None = None
     blank_kind: CodexKind | None = None
     if subject_kind == "codex-entry":
         if subject_id is None:
@@ -182,8 +260,15 @@ async def resolve_subject(
                 # Another book's entry (or none at all) is no subject at all —
                 # not this book's subject with a null row (US-085.AC-1).
                 return NO_SUBJECT
+    elif subject_kind == "chapter" and subject_id is not None:
+        chapter = await _chapter_within_book(access, subject_id)
+        if chapter is None:
+            # Another book's chapter (or none at all) is no subject at all —
+            # the cross-book read is refused by RESOLUTION, not by a later
+            # check, exactly as the codex branch above refuses it.
+            return NO_SUBJECT
 
-    subject = ResolvedSubject(kind=subject_kind, entry=entry)
+    subject = ResolvedSubject(kind=subject_kind, entry=entry, chapter=chapter)
     if entry is None and blank_kind is not None:
         # A blank entry has no row for :func:`determine_mode` to read; its mode
         # comes off the request instead. For an **existing** entry this branch is
@@ -195,27 +280,40 @@ async def resolve_subject(
 def determine_mode(subject: ResolvedSubject) -> str | None:
     """Map a resolved ``subject`` onto a FEAT-020 mode key, or ``None``.
 
-    ``assistant-config.md``'s mode-determination table, the half this feature
-    owns: a codex entry of kind ``character`` → ``"edit-character"``,
-    ``location`` → ``"edit-location"``, ``fact`` → ``"edit-fact"``. **Every other
-    subject, and the absence of a subject, resolves to no mode** — including a
-    chapter subject, whose ``write-chapter`` / ``close-chapter`` modes belong to
-    ``015`` / ``016``.
+    ``assistant-config.md``'s mode-determination table, **both** halves as of 015
+    step 009:
+
+    - a codex entry of kind ``character`` → ``"edit-character"``, ``location`` →
+      ``"edit-location"``, ``fact`` → ``"edit-fact"`` (:data:`_CODEX_KIND_MODES`);
+    - a resolved **chapter** by its ``state``: ``open`` → ``"write-chapter"``,
+      ``closing`` → ``"close-chapter"`` (:data:`_CHAPTER_STATE_MODES`), and
+      ``planned`` / ``closed`` → **no mode**, because neither is an activity
+      FEAT-020 names.
+
+    **Every other subject, and the absence of a subject, resolves to no mode.**
+    No mode means :data:`BASE_TOOL_NAMES` — *not* an empty allowlist — which is
+    the load-bearing half of tool gating's three cases.
 
     Synchronous and pure: it reads only the record it is handed (an existing
-    entry's kind comes off ``subject.entry``; a blank entry's comes off the kind
+    entry's kind comes off ``subject.entry``, a resolved chapter's state off
+    ``subject.chapter``; a blank entry's kind comes off what
     :func:`resolve_subject` recorded). The returned key is one of
-    ``db/assistant_modes.py:DEFAULT_MODE_KEYS``.
+    ``db/assistant_modes.py:DEFAULT_MODE_KEYS`` — every one of them an
+    **already-seeded** row; nothing here seeds anything.
 
-    ``entry`` is populated **only** for an existing codex entry, so its presence
-    is the whole test: no row means no mode here — a list, book state, the chats
-    view and a chapter all fall through, and so does the absence of a subject.
-    (UC-076's blank entry has no row either; :func:`resolve_subject` attaches its
-    mode from the request's ``codex_kind`` before this function could help.)
+    The final fall-through is "this subject resolved to **nothing at all**", not
+    "this subject has no codex entry": ``entry`` and ``chapter`` are twins and a
+    chapter subject carries a null ``entry`` by construction, so keying the
+    guard off ``entry`` alone would make the chapter branch unreachable while
+    every codex case still answered correctly. (UC-076's blank entry has neither
+    row; :func:`resolve_subject` attaches its mode from the request's
+    ``codex_kind`` before this function could help.)
     """
-    if subject.entry is None:
-        return None
-    return _mode_for_codex_kind(subject.entry.kind)
+    if subject.entry is not None:
+        return _mode_for_codex_kind(subject.entry.kind)
+    if subject.chapter is not None:
+        return _mode_for_chapter_state(subject.chapter.state)
+    return None
 
 
 async def mode_system_prompt(mode_key: str | None) -> str | None:

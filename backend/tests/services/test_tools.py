@@ -52,12 +52,22 @@ from app.services.web_search import web_search
 # entry" wording was superseded by those steps' Interface intent (step 009's
 # DoD-12, step 010's DoD-12). The intent of this test -- the registry's contents
 # are pinned, not open-ended -- is unchanged.
+#
+# Widened again by 015.chapter-writing-free-mode step 010, whose DoD-1 requires
+# the four chapter tools (`read_chapter_text` / `set_chapter_text` /
+# `update_selection` / `add_text`) to be in this registry with names colliding
+# with no existing entry -- so this pinned name set is superseded by that step's
+# own contract. Their own assertions live in tests/services/test_chapter_tools.py.
 def test_registry_has_single_web_search_entry__DoD3():
     assert {t.name for t in tools.TOOL_REGISTRY} == {
         "web_search",
         "codex_search",
         "codex_read_entry",
         "write_codex_draft",
+        "read_chapter_text",
+        "set_chapter_text",
+        "update_selection",
+        "add_text",
     }
 
     entry = tools.TOOL_REGISTRY[0]

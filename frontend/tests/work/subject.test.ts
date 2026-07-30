@@ -232,8 +232,12 @@ describe("resolveEditability — a `planned` chapter is editable by REGION (DoD-
 
     expect(result.editable).toBe("whole");
     expect(result.readOnlyReason).toBeNull();
-    // An `open` chapter is editable WHOLE, not partially: it enumerates no regions.
-    expect(result.editableRegions).toBeUndefined();
+    // SUPERSEDED by 015.chapter-writing-free-mode step 011, DoD-1/DoD-2: the `open`
+    // verdict now enumerates its regions BESIDE `editable: "whole"`, because it has to
+    // say two things `"whole"` alone cannot — the body text is editable and the sketch
+    // is not (UC-033 confines sketch edits to `planned`). The title's "no region list"
+    // clause no longer holds; the first two assertions above are unchanged and still do.
+    expect(result.editableRegions).toHaveLength(2);
   });
 
   it("DoD-12: `closing` and `closed` keep the answers they give today — read-only, each with its own stated reason, and no editable region", () => {
@@ -274,5 +278,142 @@ describe("checkWritePermission — the body write path is unchanged (DoD-13)", (
     // Refused with a stated reason, exactly as every other read-only subject is.
     expect(decision.reason).toBeTruthy();
     expect((decision.reason ?? "").length).toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------------------------------------
+ * 015.chapter-writing-free-mode / 011.work-module-tier-chapter — the `open` chapter
+ * becomes editable BY REGION too.  DoD-1 · DoD-2 · DoD-3.
+ *
+ * Bound to the frozen signatures in status.md -> `## Skeleton` (015 step 011):
+ *   type EditableRegion = "none" | "whole" | "book-state-notes" | "chapter-sketch"
+ *                       | "chapter-own-prompt" | "chapter-text"          // widened by one
+ *   interface Editability { editable; readOnlyReason; editableRegions? } // shape unchanged
+ *   type WriteRegion = "whole" | "book-state-notes"                      // NOT widened
+ *   resolveEditability(subject): Editability        // only the `open` case changes
+ *   checkWritePermission(subject, region): WriteDecision   // byte-untouched
+ *
+ * Every expected value comes from the spec, never from code:
+ *   - DoD-1: an `open` chapter is editable in its BODY TEXT, and `planned` / `closing` /
+ *     `closed` keep the answers 014 gives them, author-facing reason strings included
+ *     (step file -> Interface intent, "`subject.ts`");
+ *   - DoD-2: an `open` chapter's SKETCH is NOT editable — UC-033 confines sketch edits to
+ *     `planned`, which is the exact opposite window from the body;
+ *   - the caller's own chapter prompt stays editable in every state (step file: "the
+ *     caller's own prompt stays editable, as it is in every state"), so the `open`
+ *     verdict names exactly the body text and the own prompt — two regions, no more;
+ *   - DoD-3: a chapter body write is `checkWritePermission(subject, "whole")` — `"whole"`
+ *     IS the body on a chapter — allowed on `open` and refused on the other three
+ *     (`frontend-workspace.md`: the assistant and the author are refused by the same rule).
+ * ---------------------------------------------------------------------------------- */
+
+const OPEN_CHAPTER: LoadedSubject = {
+  kind: "chapter",
+  entityId: "ch-open-1",
+  chapterState: "open",
+};
+
+/** The three states in which a chapter body may not be written. */
+const NON_OPEN_CHAPTER_STATES = ["planned", "closing", "closed"] as const;
+
+describe("resolveEditability — an `open` chapter is editable in its BODY TEXT (015 DoD-1)", () => {
+  it("DoD-1: the `open` verdict names the chapter's body text as an editable region", () => {
+    const result = resolveEditability(OPEN_CHAPTER);
+
+    // The whole-subject answer 014 gives is unchanged...
+    expect(result.editable).toBe("whole");
+    expect(result.readOnlyReason).toBeNull();
+    // ...and the body text is now named explicitly.
+    expect(result.editableRegions ?? []).toContain("chapter-text");
+  });
+
+  it("DoD-1: the caller's own chapter prompt stays editable while the chapter is `open`", () => {
+    const result = resolveEditability(OPEN_CHAPTER);
+
+    expect(result.editableRegions ?? []).toContain("chapter-own-prompt");
+  });
+
+  it("DoD-1: `planned` keeps 014's answer — its two regions and its reason string, verbatim", () => {
+    const result = resolveEditability(PLANNED_CHAPTER);
+
+    expect(result.editable).toBe("none");
+    expect(result.readOnlyReason).toBe(PLANNED_READ_ONLY_REASON);
+    expect(result.editableRegions).toEqual(
+      expect.arrayContaining(["chapter-sketch", "chapter-own-prompt"]),
+    );
+    expect(result.editableRegions).toHaveLength(2);
+  });
+
+  it("DoD-1: `closing` and `closed` keep 014's answers — read-only, each with its own stated reason", () => {
+    const closing = resolveEditability({
+      kind: "chapter",
+      entityId: "ch-3",
+      chapterState: "closing",
+    });
+    const closed = resolveEditability({
+      kind: "chapter",
+      entityId: "ch-4",
+      chapterState: "closed",
+    });
+
+    for (const result of [closing, closed]) {
+      expect(result.editable).toBe("none");
+      expect(typeof result.readOnlyReason).toBe("string");
+      expect((result.readOnlyReason ?? "").length).toBeGreaterThan(0);
+      // Neither state gained a region — the widening is the `open` case alone.
+      expect(result.editableRegions ?? []).toEqual([]);
+    }
+
+    // Each state's own author-facing copy survives, distinct from the others'.
+    expect(closing.readOnlyReason).not.toBe(closed.readOnlyReason);
+    expect(closing.readOnlyReason).not.toBe(PLANNED_READ_ONLY_REASON);
+    expect(closed.readOnlyReason).not.toBe(PLANNED_READ_ONLY_REASON);
+  });
+});
+
+describe("resolveEditability — an `open` chapter's SKETCH is not editable (015 DoD-2)", () => {
+  it("DoD-2: the `open` verdict enumerates exactly the body text and the own prompt — and not the sketch", () => {
+    const result = resolveEditability(OPEN_CHAPTER);
+
+    // PRESENCE FIRST: the verdict exists and reports the BODY editable. "The sketch is
+    // not editable" is trivially true of a verdict that names no region at all, so the
+    // enumeration is pinned exactly before anything is denied.
+    const regions = result.editableRegions;
+    expect(regions).toEqual(
+      expect.arrayContaining(["chapter-text", "chapter-own-prompt"]),
+    );
+    expect(regions).toHaveLength(2);
+
+    // Only then: UC-033 confines sketch edits to `planned`, so the sketch is absent here.
+    expect(regions ?? []).not.toContain("chapter-sketch");
+  });
+
+  it("DoD-2: the sketch region belongs to `planned` and to `planned` alone", () => {
+    // The window for the sketch is the exact opposite of the window for the body.
+    expect(resolveEditability(PLANNED_CHAPTER).editableRegions ?? []).toContain(
+      "chapter-sketch",
+    );
+    expect(resolveEditability(OPEN_CHAPTER).editableRegions ?? []).not.toContain(
+      "chapter-sketch",
+    );
+  });
+});
+
+describe("checkWritePermission — the body write follows the chapter's state (015 DoD-3)", () => {
+  it("DoD-3: a body write into an `open` chapter is allowed", () => {
+    // `"whole"` IS the body-text write region on a chapter — no write region was minted.
+    expect(checkWritePermission(OPEN_CHAPTER, "whole").allowed).toBe(true);
+  });
+
+  it("DoD-3: a body write into a `planned`, `closing` or `closed` chapter is refused, with a reason", () => {
+    for (const chapterState of NON_OPEN_CHAPTER_STATES) {
+      const decision = checkWritePermission(
+        { kind: "chapter", entityId: "ch-x", chapterState },
+        "whole",
+      );
+
+      expect(decision.allowed).toBe(false);
+      expect((decision.reason ?? "").length).toBeGreaterThan(0);
+    }
   });
 });

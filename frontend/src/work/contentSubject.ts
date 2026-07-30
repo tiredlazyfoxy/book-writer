@@ -18,8 +18,25 @@
 //
 // SKELETON (013/013): the four signatures, the registration record and the
 // identity-token rule are frozen; every body throws until the coder fills them.
+//
+// SKELETON (015 step 011): the module stops assuming codex. Three things widen and
+// NONE of them costs the codex path a line:
+//
+//   1. `CanvasDraftApplier` gains a THIRD OPTIONAL parameter (the frame's
+//      operation). A two-parameter implementation is assignable to a
+//      three-parameter type, so `CodexEntryPageState.applyDraft` satisfies the
+//      widened type unedited — `CodexEntryPage.tsx` and `codexEntryPageState.ts`
+//      are in NO step's source list in feature 015 (`015/context.md` → D2/D17).
+//   2. A SELECTION REGISTRY beside the subject registry, with the SAME ownership
+//      discipline (newest wins; a clear only lands while the caller is still the
+//      owner). This matters more here than for the subject, because a selection
+//      setter fires constantly and a superseded page's final call must not win.
+//   3. `dispatchCanvasFrame` routes on the frame's OWN `subject_kind` instead of
+//      the hardcoded `"codex-entry"` buffer key, and honours the frame's operation.
+//      Routing on the kind does NOT mean a registry of per-kind handlers — there
+//      are two kinds and a third is not on the roadmap (`011.context.md`).
 
-import type { CanvasField, CanvasFrame } from "../types/chats";
+import type { CanvasField, CanvasFrame, CanvasOp } from "../types/chats";
 import type { CodexKind } from "../types/codex";
 import { readBuffer, restoreBufferKey, writeBuffer } from "./restoreBuffer";
 import type { LoadedSubject } from "./subject";
@@ -61,12 +78,24 @@ export interface ContentSubject extends LoadedSubject {
 export type ContentSubjectSource = () => ContentSubject;
 
 /**
- * How a registered page accepts an assistant draft: the same
- * `(field, text)` pair the wire frame carries. `CodexEntryPageState.applyDraft`
- * (step 012) has exactly this shape, so the page registers it directly — no
- * `useCallback` (banned) and no wrapper.
+ * How a registered page accepts an assistant draft: the `(field, text)` pair the
+ * wire frame carries, plus — since feature `015` step 011 — the frame's OPERATION.
+ * `CodexEntryPageState.applyDraft` (013 step 012) has the two-parameter shape, so
+ * the page registers it directly — no `useCallback` (banned) and no wrapper.
+ *
+ * `op` is OPTIONAL for one reason and one reason only: a function of two
+ * parameters is assignable to a type of three, so widening the TYPE leaves the
+ * shipped codex applier valid, unedited, and correctly ignoring an operation it
+ * will only ever receive as the default (`015/context.md` → D17). It is not
+ * optional because the dispatcher might omit it — {@link dispatchCanvasFrame}
+ * ALWAYS passes it, resolving an omitted `frame.op` to `"replace"` first, so a
+ * chapter page can read the third argument without a fallback of its own.
  */
-export type CanvasDraftApplier = (field: CanvasField, text: string) => void;
+export type CanvasDraftApplier = (
+  field: CanvasField,
+  text: string,
+  op?: CanvasOp,
+) => void;
 
 /**
  * The live registration: the declaring page's source function (which is also its
@@ -123,6 +152,84 @@ export function unregisterContentSubject(source: ContentSubjectSource): void {
   if (registration !== null && registration.source === source) {
     registration = null;
   }
+  // Unregistering the subject clears the SELECTION too. Identity-guarded on the
+  // same token, so a superseded page's late unmount clears neither.
+  clearContentSelection(source);
+}
+
+/* -------------------------------------------------------------------------- *
+ * The selection registry (015 step 011)
+ *
+ * A second module-level slot beside the subject registration, under the SAME
+ * ownership discipline (`frontend-work-drafts.md`): the open page sets it whenever
+ * the author's selection moves, the chat pane reads it at send time, the newest
+ * setter wins outright, and a clear only lands while the caller is still the
+ * registered owner. The identity token is the page's own
+ * {@link ContentSubjectSource} — the same reference it already registers and
+ * unregisters with — so the page threads nothing new.
+ *
+ * The selection is client-side only and NEVER persisted (`015/context.md` → D5):
+ * nothing here reaches `localStorage`, the server, or MobX.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The live selection: its owning page's identity token and the selected text.
+ * Module-level, app-lifetime, deliberately NOT observable — like the subject
+ * registration, it is written from the content pane and read at send time, and
+ * nothing renders off it.
+ */
+interface ContentSelectionRegistration {
+  owner: ContentSubjectSource;
+  selection: string | null;
+}
+
+let selectionRegistration: ContentSelectionRegistration | null = null;
+
+/**
+ * Record the author's current selection for the page identified by `source`.
+ *
+ * Called on every selection change, so it must stay a plain assignment: no
+ * reactivity, no storage, no allocation beyond the record. The newest caller wins
+ * outright, exactly as {@link registerContentSubject} does — during a route
+ * transition the page setting a selection IS the page the author is looking at.
+ *
+ * `selection` is the selected TEXT, or `null` when nothing is selected. The empty
+ * string is stored as given; this registry interprets nothing.
+ */
+export function setContentSelection(
+  source: ContentSubjectSource,
+  selection: string | null,
+): void {
+  // The newest caller wins outright, exactly as `registerContentSubject` does.
+  selectionRegistration = { owner: source, selection };
+}
+
+/**
+ * The author's current selection, read at call time — or `null` when nothing is
+ * registered, nothing is selected, or the owning page has gone.
+ *
+ * This is what the chat pane calls while composing a turn, exactly as it already
+ * calls {@link currentContentSubject}; the pane holds no selection state of its own
+ * and gains no observer relationship to the content pane.
+ */
+export function currentContentSelection(): string | null {
+  if (selectionRegistration === null) return null;
+  return selectionRegistration.selection;
+}
+
+/**
+ * Clear the selection — but ONLY when it still belongs to `source`.
+ *
+ * The guard is the whole point, and it matters more here than for the subject: a
+ * selection setter fires constantly, so a superseded page's final call (its own
+ * unmount cleanup, or a trailing selection event) must be a no-op rather than wipe
+ * the selection the newly-mounted page just set.
+ */
+export function clearContentSelection(source: ContentSubjectSource): void {
+  // Identity guard: a clear from a superseded owner is a no-op.
+  if (selectionRegistration !== null && selectionRegistration.owner === source) {
+    selectionRegistration = null;
+  }
 }
 
 /**
@@ -173,8 +280,35 @@ export function currentContentSubject(): ContentSubject | null {
  *   The dispatcher has no `modified_at` of its own to hand; a stale value simply
  *   routes the author into step 012's reconciliation view, which surfaces the
  *   buffered draft either way (`013.context.md` — "the correct outcome, not a bug").
+ *
+ * FEATURE `015` STEP 011 — the dispatcher stops assuming codex. It routes on the
+ * frame's OWN `subject_kind`, and the operation joins the routing decision:
+ *
+ * - a REGISTERED TARGET matching the frame's subject (kind AND id, unchanged)
+ *   receives the field, the text AND the operation — `frame.op ?? "replace"`, so
+ *   the third argument is always a real `CanvasOp`;
+ * - NO registered target and the operation is `"replace"` → buffered under
+ *   `restoreBufferKey(bookId, frame.subject_kind, frame.subject_id)`, inheriting
+ *   whatever base version already sits at that key and `""` when there is none.
+ *   **The `"codex-entry"` literal is the one hardcoded thing that has to change.**
+ *   The `"body"`-field condition does NOT widen: a chapter's body is also the
+ *   `"body"` field (`015/context.md` → D17), so it already admits both kinds;
+ * - NO registered target and the operation is `"append"` or `"replace_selection"`
+ *   → DROPPED and LOGGED (`015/context.md` → D18). Both are relative to a draft
+ *   this module does not have and never loaded, so writing them at a location
+ *   nobody chose is worse than not writing;
+ * - a frame naming NO subject at all (`subject_id === null`) with no matching
+ *   target is dropped, exactly as today.
+ *
+ * Still never throws into the SSE handler: an unroutable frame is dropped, not an
+ * error.
  */
 export function dispatchCanvasFrame(bookId: string, frame: CanvasFrame): void {
+  // The wire always carries an operation (the backend field is defaulted), but the
+  // `.d.ts` twin has no runtime default, so this is the single place the default is
+  // applied: every reader downstream sees a real `CanvasOp`.
+  const op: CanvasOp = frame.op ?? "replace";
+
   const target = registration;
   if (target !== null && target.applyDraft !== undefined) {
     const subject = target.source();
@@ -182,7 +316,7 @@ export function dispatchCanvasFrame(bookId: string, frame: CanvasFrame): void {
     // match null-to-null, and any other subject fall through to the buffer rather
     // than be overwritten by a frame that is not about it.
     if (subject.kind === frame.subject_kind && (subject.entityId ?? null) === frame.subject_id) {
-      target.applyDraft(frame.field, frame.text);
+      target.applyDraft(frame.field, frame.text, op);
       return;
     }
   }
@@ -190,11 +324,24 @@ export function dispatchCanvasFrame(bookId: string, frame: CanvasFrame): void {
   // A blank entry has no id to key a buffer on and no row to return to, so a
   // frame aimed at one with no matching target is dropped.
   if (frame.subject_id === null) return;
+
+  // A RELATIVE operation with no registered target is dropped and logged, BEFORE
+  // anything reaches any buffer key (D18): `append` and `replace_selection` are
+  // relative to a draft this module does not have and never loaded, so writing
+  // them at a location nobody chose is worse than not writing.
+  if (op !== "replace") {
+    console.warn(
+      `[contentSubject] dropped a "${op}" canvas frame for ${frame.subject_kind}:${frame.subject_id} — no registered target to apply it to.`,
+    );
+    return;
+  }
+
   if (frame.field !== "body") return;
 
-  // The same key step 012's page reads on load, so the draft surfaces through the
-  // path that already exists — no extra code on the page side (US-107.AC-1).
-  const key = restoreBufferKey(bookId, "codex-entry", frame.subject_id);
+  // The same key the subject's own page reads on load, so the draft surfaces
+  // through the path that already exists — no extra code on the page side
+  // (US-107.AC-1). The kind is the FRAME's, not a hardcoded `"codex-entry"`.
+  const key = restoreBufferKey(bookId, frame.subject_kind, frame.subject_id);
   const existing = readBuffer(key);
   writeBuffer(key, frame.text, existing?.baseVersion ?? "");
 }

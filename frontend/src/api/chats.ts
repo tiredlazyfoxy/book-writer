@@ -2,6 +2,7 @@ import { request, refreshAuthToken } from "./client";
 import { streamPost } from "./sse";
 import type {
   CanvasFrame,
+  CanvasOp,
   ChatDetailResponse,
   ChatResponse,
   CreateChatRequest,
@@ -137,11 +138,23 @@ export interface TurnStreamHandlers {
  * `work/contentSubject.ts` at SEND time and maps it to these wire fields; this
  * module never imports from an entry's domain modules.
  *
+ * `selectionText` (`015` step 012) carries the text the author currently has selected
+ * in the content pane onto the wire as `TurnRequest.selection_text` — a FIFTH FLAT
+ * FIELD beside the three subject ones, NOT a member of `subject`: a selection is not
+ * part of the subject's identity, and `TurnSubject` gains nothing (`015/context.md` →
+ * D5). Its own parameter for the same reason. `undefined` / `null` means nothing is
+ * selected, and the key is then ABSENT from the posted body — a turn with a subject and
+ * no selection posts exactly the four fields `013` posted. The caller
+ * (`chatPaneState`) reads it from `work/contentSubject.ts`'s selection registry at SEND
+ * time, in the same call site that already reads the subject; this module never imports
+ * from an entry's domain modules.
+ *
  * SEAM (deliberate — documented per the step): `streamPost` OWNS and RETURNS its
  * own `AbortController` and takes NO `signal`, so this one api function breaks the
  * repo's trailing-`signal` convention. The caller `await`s the returned controller,
- * stores it, and cancels via an explicit stop rather than passing a signal in.
- * `subject` is therefore the trailing argument, and NO `signal` parameter is added.
+ * stores it, and cancels via an explicit stop rather than passing a signal in. NO
+ * `signal` parameter is added; `selectionText` simply takes the trailing position
+ * `subject` used to hold.
  */
 export async function streamChatTurn(
   bookId: string,
@@ -149,6 +162,7 @@ export async function streamChatTurn(
   prompt: string | null,
   handlers: TurnStreamHandlers,
   subject?: TurnSubject,
+  selectionText?: string | null,
 ): Promise<AbortController> {
   // DoD-9: renew a possibly-stale access token BEFORE opening the stream, since
   // `streamPost` uses raw `fetch` + `authHeaders()` and never re-enters `client.ts`'s
@@ -156,8 +170,17 @@ export async function streamChatTurn(
   await refreshAuthToken();
 
   // The three subject fields ride along only when the caller supplied them, so a
-  // turn sent with nothing registered posts exactly `{ prompt }`.
-  const body: TurnRequest = { prompt, ...subject };
+  // turn sent with nothing registered posts exactly `{ prompt }`. The selection is a
+  // FIFTH FLAT FIELD beside them, added when and only when there IS one: a turn with
+  // a subject and no selection posts exactly the four fields `013` posted, with no
+  // `selection_text` key at all.
+  const body: TurnRequest = {
+    prompt,
+    ...subject,
+    ...(selectionText === undefined || selectionText === null
+      ? {}
+      : { selection_text: selectionText }),
+  };
 
   // `streamPost` owns and returns its own `AbortController` (no `signal` in); the
   // caller stores the returned controller and cancels via an explicit stop.
@@ -190,6 +213,15 @@ export async function streamChatTurn(
  * malformed frame is dropped rather than dispatched. `subject_id` is
  * required-but-nullable: an ABSENT id is malformed, only an explicit `null` is
  * UC-076's blank entry.
+ *
+ * `op` (`015` step 012) is CARRIED THROUGH. It has to be: this narrowing REBUILDS the
+ * frame field by field, so an `op` dropped here would make every frame arriving over a
+ * live stream read as a whole-body replace, silently degrading `add_text` and
+ * `update_selection` and defeating the chapter canvas protocol on the only path that
+ * matters — the real one. An absent `op` is left absent, which is exactly how the DTO
+ * expresses the backend's `"replace"` default (`dispatchCanvasFrame` applies it in the
+ * single place it belongs), so a codex frame is rebuilt with the same shape it has
+ * always had.
  */
 function canvasFrame(data: unknown): CanvasFrame | null {
   if (data === null || typeof data !== "object") return null;
@@ -198,17 +230,35 @@ function canvasFrame(data: unknown): CanvasFrame | null {
     subject_id?: unknown;
     field?: unknown;
     text?: unknown;
+    op?: unknown;
   };
 
   const subjectKind = raw.subject_kind;
   const subjectId = raw.subject_id;
   const field = raw.field;
   const text = raw.text;
+  const op = raw.op;
 
   if (typeof subjectKind !== "string") return null;
   if (subjectId !== null && typeof subjectId !== "string") return null;
   if (field !== "name" && field !== "body") return null;
   if (typeof text !== "string") return null;
+
+  // ABSENT (or explicitly null) is the backend's `"replace"` default, expressed the
+  // way the DTO expresses it: the optional field is simply left off, and
+  // `dispatchCanvasFrame` applies the default in the single place it belongs. A
+  // recognised value is carried through. Anything else is MALFORMED and the frame is
+  // dropped like any other malformed frame — reading an unknown operation as
+  // `"replace"` would be exactly the silent whole-body overwrite this protocol exists
+  // to refuse.
+  let resolvedOp: CanvasOp | undefined;
+  if (op === undefined || op === null) {
+    resolvedOp = undefined;
+  } else if (op === "replace" || op === "append" || op === "replace_selection") {
+    resolvedOp = op;
+  } else {
+    return null;
+  }
 
   return {
     // The backend validates `subject_kind` against its own literal union at the
@@ -217,6 +267,7 @@ function canvasFrame(data: unknown): CanvasFrame | null {
     subject_id: subjectId,
     field,
     text,
+    ...(resolvedOp === undefined ? {} : { op: resolvedOp }),
   };
 }
 

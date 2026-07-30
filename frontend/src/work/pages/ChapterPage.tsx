@@ -18,20 +18,38 @@ import {
 } from "@mantine/core";
 import Markdown from "react-markdown";
 import { registerContentSubject, unregisterContentSubject } from "../contentSubject";
-import type { ContentSubjectSource } from "../contentSubject";
+import { chapterUndoDepth } from "../chapterUndo";
 import { ChapterBodyEditor } from "../components/chapter/ChapterBodyEditor";
 import { resolveEditability } from "../subject";
 import {
   ChapterPageState,
+  closeChapterState,
   editBodyDraft,
   loadChapter,
   loadChapterBody,
   loadSystemPrompt,
+  openChapterState,
+  reopenChapterState,
   resolveBodyConflict,
   saveChapterBody,
   saveSketch,
   saveSystemPrompt,
+  setChapterSelection,
+  undoAssistantBodyWrite,
 } from "./chapterPageState";
+import type { ChapterTransition } from "./chapterPageState";
+
+/**
+ * The VISIBLE label of the one offered transition control — the action word alone.
+ * The control's full accessible name widens it with the chapter (`Open chapter:
+ * {title}`), so the visible label is CONTAINED in the accessible name, exactly as the
+ * state `Badge` beside it already does.
+ */
+const TRANSITION_LABELS: Record<ChapterTransition, string> = {
+  open: "Open",
+  close: "Close",
+  reopen: "Reopen",
+};
 
 /**
  * One chapter in the working page's content pane — `/work/:bookId/chapter/:id`
@@ -43,17 +61,16 @@ import {
  * implements and may not widen:
  *
  * **Structure (`BookStatePage` + `ChaptersPage` are the models).** One
- * `useState(() => new ChapterPageState())`, `useParams()` for `bookId` and `id`,
- * and EXACTLY ONE page-level `useEffect([state])` that: spins a single
- * `AbortController`; builds a stable subject source
- * `() => ({ kind: "chapter", entityId: id, chapterState: state.chapter?.state })` —
- * read at send time, so the pane model's editability answer is about THIS chapter
- * and reflects its state once the load resolves; calls `registerContentSubject`
- * with **NO `applyDraft`** (a `canvas` frame's `CanvasField` is `"name" | "body"`,
- * both codex fields — neither the sketch nor the prompt is a canvas region);
- * starts BOTH loads; and returns a cleanup calling `unregisterContentSubject`
- * then `ctrl.abort()` (DoD-14). The `key={id}` that makes a `:id` change produce a
- * FRESH state instance lives on `ChapterItemRoute` in `work/routes.tsx`.
+ * `useState(() => new ChapterPageState(bookId, id))`, `useParams()` for `bookId`
+ * and `id`, and EXACTLY ONE page-level `useEffect([state])` that: spins a single
+ * `AbortController`; calls `registerContentSubject(state.subjectSource,
+ * state.applyDraft)` — the source is read at send time, so the pane model's
+ * editability answer is about THIS chapter and reflects its state once the load
+ * resolves, and it lives on the state instance because it is also the identity token
+ * the selection registry is stamped with (015/012); starts the THREE loads; and
+ * returns a cleanup calling `unregisterContentSubject(state.subjectSource)` then
+ * `ctrl.abort()` (DoD-14). The `key={id}` that makes a `:id` change produce a FRESH
+ * state instance lives on `ChapterItemRoute` in `work/routes.tsx`.
  * `contentSubject.ts` is CALLED here, never changed.
  *
  * **What it renders.** The chapter's title, ordinal and readable state (the state
@@ -104,9 +121,35 @@ import {
  * evicted keys whenever `state.evictedBufferKeys` is non-empty, independently of
  * the divergence flag.
  *
- * **What it must NOT render.** No canvas / undo / selection wiring (step 012 —
- * `onSelectionChange` is a no-op today). No delete control, no chapter-state
- * transition control (step 008).
+ * **The state transition (step 008).** EXACTLY ONE control, rendered inside the
+ * chapter header's `Group` beside the ordinal and the state badge and only when
+ * `state.offeredTransition` is non-null — `planned` → `Open`, `open` → `Close`,
+ * `closed` → `Reopen`, `closing` → none — never three with two disabled. Its
+ * accessible name widens the visible action word with the chapter
+ * (`Open chapter: {title}`), so it is reachable by role and label. Directly beneath
+ * that group, still inside the header stack: the server's refusal
+ * (`state.transitionError`) as a red alert, and `state.transitionUnavailableReason`
+ * as readable text for the `closing` case, which carries no control beside it. The
+ * control is offered to EVERY member and gated on chapter state alone (D14); a
+ * non-owner's `403`, an archived book's `403` and the one-open-chapter `409` are all
+ * surfaced rather than predicted. NO confirmation dialog, close included (D8).
+ *
+ * **The canvas wiring (step 012).** The mount effect registers
+ * `state.subjectSource` **with `state.applyDraft`**, so the open chapter is a
+ * WRITABLE canvas target where 014 registered it as a subject only; the cleanup
+ * unregisters the same token, which is what clears the selection registry too. The
+ * editor's `onSelectionChange` feeds `setChapterSelection`, the one path the author's
+ * selection takes into that registry (D5 — never persisted, never saved). Beside
+ * `Save body`, an undo control labelled for what it undoes — **the assistant's last
+ * write**, not "the last change", since the author's own typing is undone inside the
+ * editor by ProseMirror's history (D6) — rendered-and-disabled while the stack for
+ * this chapter is empty, its depth read straight from `work/chapterUndo.ts` rather
+ * than through a computed over a non-observable `Map`. And, independently of every
+ * body branch, a yellow alert for the one assistant write that was NOT applied: a
+ * `replace_selection` frame that arrived with nothing selected changes nothing and is
+ * reported, never appended and never placed at position zero.
+ *
+ * **What it must NOT render.** No delete control.
  *
  * **Hard rules.** `observer` (applied here). Handlers are inner functions closing
  * over the state — no `useCallback` / `useMemo` / `useReducer`, no custom `useX`
@@ -117,28 +160,32 @@ import {
  */
 export const ChapterPage = observer(function ChapterPage(): ReactElement {
   const { bookId, id } = useParams();
-  const [state] = useState(() => new ChapterPageState());
 
   const book = bookId ?? "";
   const chapterId = id ?? "";
 
+  // The ids are read BEFORE the instance is built: since 015 step 012 the state stores
+  // them for the two bound members the content-pane registry holds. `key={id}` on
+  // `ChapterItemRoute` already forces a fresh instance when the route's chapter changes.
+  const [state] = useState(() => new ChapterPageState(book, chapterId));
+
   useEffect(() => {
     const ctrl = new AbortController();
-    // Read at send time, not snapshotted: the chapter's lifecycle state is only
-    // known once the load resolves. The closure doubles as the unregister identity
-    // token (DoD-14). NO apply-draft callback — neither editor is a canvas region.
-    const source: ContentSubjectSource = () => ({
-      kind: "chapter",
-      entityId: chapterId,
-      chapterState: state.chapter?.state,
-    });
-    registerContentSubject(source);
+    // THE SAME registration 014 made, now WITH the apply-draft callback (015/012):
+    // the open chapter is a WRITABLE canvas target, where 014 registered it as a
+    // subject only. The source is read at send time, not snapshotted — the chapter's
+    // lifecycle state is only known once the load resolves — and it is also the
+    // identity token for the register, the unregister and the selection registry, so
+    // it lives on the state instance rather than in this closure.
+    registerContentSubject(state.subjectSource, state.applyDraft);
     void loadChapter(state, book, chapterId, ctrl.signal);
     void loadSystemPrompt(state, book, chapterId, ctrl.signal);
     // The third load joins the same single controller and aborts with the others.
     void loadChapterBody(state, book, chapterId, ctrl.signal);
     return () => {
-      unregisterContentSubject(source);
+      // Unregistering clears the SELECTION too — `contentSubject.ts`'s shipped
+      // `clearContentSelection(source)`, identity-guarded on this same token.
+      unregisterContentSubject(state.subjectSource);
       ctrl.abort();
     };
   }, [state]);
@@ -166,6 +213,16 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
     void saveChapterBody(state, book, chapterId);
   };
 
+  /**
+   * Undo THE ASSISTANT'S LAST WRITE (015/012) — pop this chapter's most recent
+   * snapshot back into the draft. Not "undo the last change": the author's own typing
+   * is undone inside the editor by ProseMirror's own history (D6), and the label says
+   * exactly what this control does.
+   */
+  const handleUndoAssistantWrite = () => {
+    undoAssistantBodyWrite(state, book, chapterId);
+  };
+
   /** Take the SERVER's side whole: the draft and its buffer are discarded (015/007). */
   const handleKeepServerBody = () => {
     void resolveBodyConflict(state, "server", book, chapterId);
@@ -174,6 +231,30 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
   /** Take the DRAFT's side whole: the server's version is adopted, then the draft re-saved. */
   const handleKeepDraftBody = () => {
     void resolveBodyConflict(state, "draft", book, chapterId);
+  };
+
+  /**
+   * Run the ONE transition currently on offer (015/008) — exactly the effect matching
+   * `state.offeredTransition`, never a different one. There is no `closing` branch and
+   * no fallback: `null` means no control was rendered at all.
+   *
+   * NO CONFIRMATION DIALOG of any kind, close included — closing is reversible by
+   * reopening, and the approval gate is `016`'s (D8).
+   */
+  const handleTransition = () => {
+    switch (state.offeredTransition) {
+      case "open":
+        void openChapterState(state, book, chapterId);
+        return;
+      case "close":
+        void closeChapterState(state, book, chapterId);
+        return;
+      case "reopen":
+        void reopenChapterState(state, book, chapterId);
+        return;
+      default:
+        return;
+    }
   };
 
   const chapter = state.chapter;
@@ -234,7 +315,42 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
                 <Badge variant="light" size="sm" aria-label={state.lifecycleStateLabel}>
                   {state.lifecycleStateLabel}
                 </Badge>
+                {/* THE ONE TRANSITION CONTROL (015/008) — rendered BESIDE the state
+                    badge, which is what makes an absent control legible rather than
+                    mysterious. The state machine admits exactly one transition per
+                    state, so there is never a second control and never a disabled one:
+                    a transition that is not offered is not rendered. Offered to EVERY
+                    member, gated on chapter state alone (D14) — a non-owner's attempt
+                    is refused `403` and the message is surfaced below. */}
+                {state.offeredTransition !== null && (
+                  <Button
+                    size="xs"
+                    variant="light"
+                    aria-label={`${TRANSITION_LABELS[state.offeredTransition]} chapter: ${chapter.title}`}
+                    disabled={state.transitionStatus === "loading"}
+                    onClick={handleTransition}
+                  >
+                    {TRANSITION_LABELS[state.offeredTransition]}
+                  </Button>
+                )}
               </Group>
+              {/* The server's refusal, verbatim — D14's accepted cost paid where the
+                  author can read it. Nothing else on the page moved. */}
+              {state.transitionError !== null && (
+                <Alert color="red" title="Could not change the chapter state">
+                  <Text size="sm">{state.transitionError}</Text>
+                </Alert>
+              )}
+              {/* The `closing` case: NO control at all, and a stated reason naming the
+                  close gate as not yet built — `closing` is a state the author cannot
+                  currently produce (D8) and will not recognise, so it is the one state
+                  that gets a sentence rather than silence. Readable text, never a
+                  visual state. */}
+              {state.transitionUnavailableReason !== null && (
+                <Text size="sm" c="dimmed">
+                  {state.transitionUnavailableReason}
+                </Text>
+              )}
             </Stack>
 
             <Divider />
@@ -315,6 +431,26 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
             </Alert>
           )}
 
+          {/* THE UNAPPLIED ASSISTANT WRITE (015/012) — a `replace_selection` frame
+              arrived with nothing selected, so it was REFUSED rather than placed
+              somewhere nobody chose: no append, no write at position zero, nothing
+              changed. The author is told, and is shown the text the assistant wrote so
+              it is not simply lost. Rendered independently of every body branch,
+              exactly where and how the eviction notice above is. */}
+          {state.unappliedSelectionWrite !== null && (
+            <Alert color="yellow" title="The assistant's write was not applied">
+              <Stack gap={2}>
+                <Text size="sm">
+                  Nothing was selected when the assistant tried to replace the selection, so
+                  nothing was changed. Here is what it wrote:
+                </Text>
+                <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                  {state.unappliedSelectionWrite}
+                </Text>
+              </Stack>
+            </Alert>
+          )}
+
           {bodyLoading ? (
             <Group justify="center" py="md" gap="xs">
               <Loader size="sm" />
@@ -390,20 +526,46 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
               {/* KEYED ON THE GENERATION COUNTER (D15) — the only thing the view
                   reads it for. A remount is how TipTap learns about a draft written
                   from outside it; a keystroke never bumps it, so the caret survives.
-                  `onSelectionChange` is a no-op today: the seam's four props are all
-                  required and D5's selection wiring is step 012's. */}
+                  `onSelectionChange` feeds the page's selection state and, through it,
+                  the module-level selection registry the chat pane reads at send time
+                  (015/012; D5) — the selection is never persisted and never saved. */}
               <ChapterBodyEditor
                 key={state.bodyEditorGeneration}
                 initialMarkdown={state.bodyDraft}
                 onChange={(markdown) => {
                   editBodyDraft(state, book, chapterId, markdown);
                 }}
-                onSelectionChange={() => {}}
+                onSelectionChange={(selectedText) => {
+                  setChapterSelection(state, selectedText);
+                }}
                 ariaLabel="Chapter body"
               />
               <Group>
                 <Button onClick={handleSaveBody} disabled={!state.canSaveBody}>
                   Save body
+                </Button>
+                {/* THE UNDO CONTROL (015/012) — beside `Save body`, so it exists only
+                    where the editor does. RENDERED-AND-DISABLED when the stack is
+                    empty, deliberately the opposite of the transition control above:
+                    "there is nothing to undo yet" needs no sentence, and a control
+                    that appeared only after the first assistant write would move the
+                    save control under the author's cursor.
+
+                    The depth is read straight from the module, NOT through a `get`
+                    computed: `chapterUndoDepth` reads a plain `Map` with no observable
+                    inside it, so a computed over it would be cached and never
+                    invalidated. This read is current because every push and every pop
+                    is paired with a bump of the OBSERVABLE
+                    `state.bodyEditorGeneration`, which this component already reads
+                    for the editor's `key` — that read is what schedules the
+                    re-render. */}
+                <Button
+                  variant="light"
+                  aria-label="Undo the assistant's last write"
+                  disabled={chapterUndoDepth(book, chapterId) === 0}
+                  onClick={handleUndoAssistantWrite}
+                >
+                  {"Undo the assistant's last write"}
                 </Button>
               </Group>
             </>

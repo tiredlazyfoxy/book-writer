@@ -59,12 +59,22 @@ export interface LoadedSubject {
  * maps a subject to exactly one of these, EXCEPT for the one partially editable
  * row this feature introduces (see {@link Editability.editableRegions}).
  *
- * The two chapter members were added by feature `014.chapter-skeleton` step 008,
- * which makes a `planned` chapter editable in exactly those two regions while its
- * body text stays read-only. There is deliberately NO `"chapter-text"` member: on
- * a chapter the body IS the whole subject (an `open` chapter's `"whole"` verdict
- * is precisely the body-writable one), so naming it separately would change the
- * answer `open` gives today for no behaviour this feature ships.
+ * The two `chapter-*` members below `"book-state-notes"` were added by feature
+ * `014.chapter-skeleton` step 008, which makes a `planned` chapter editable in
+ * exactly those two regions while its body text stays read-only.
+ *
+ * `"chapter-text"` is added by feature `015.chapter-writing-free-mode` step 011,
+ * and it supersedes `014`'s note that no such member was needed. `014` declined it
+ * because *"naming it separately would change the answer `open` gives today for no
+ * behaviour that feature ships"* — `015` DOES ship that behaviour (the whole-body
+ * Markdown editor on the `open` chapter), and the `open` verdict now has to say two
+ * things `"whole"` alone cannot: the BODY TEXT is editable, and the SKETCH is NOT.
+ * UC-033 confines sketch edits to `planned`, which is the exact OPPOSITE window
+ * from the body, so the two cannot share one wholesale answer.
+ *
+ * `"whole"` keeps its meaning on a chapter — it is the body-text write region for
+ * {@link checkWritePermission}, which is why {@link WriteRegion} needed no member
+ * and `checkWritePermission` is byte-untouched by `015`.
  *
  * `"chapter-own-prompt"` says *own* on purpose: decision D1 made the chapter
  * system prompt per-author, so there is no shared chapter prompt for a region to
@@ -75,7 +85,8 @@ export type EditableRegion =
   | "whole"
   | "book-state-notes"
   | "chapter-sketch"
-  | "chapter-own-prompt";
+  | "chapter-own-prompt"
+  | "chapter-text";
 
 /**
  * The editability verdict for a loaded subject: what is editable, plus an
@@ -93,16 +104,24 @@ export interface Editability {
   editable: EditableRegion;
   readOnlyReason: string | null;
   /**
-   * The regions of a PARTIALLY editable subject, present only when the subject's
-   * editability cannot be expressed as one whole-subject region. Absent for every
-   * other verdict, whose editable set is exactly
-   * `editable === "none" ? [] : [editable]` — which is why adding this field
-   * changed no existing verdict's object shape.
+   * The regions of a subject whose editability is stated REGION BY REGION rather
+   * than by the single `editable` verdict. Absent for every verdict that does not
+   * need it, whose editable set is exactly `editable === "none" ? [] : [editable]`.
    *
-   * Today exactly one subject is partially editable: the `planned` chapter
-   * (`["chapter-sketch", "chapter-own-prompt"]`, feature `014` step 008 — UC-033 /
-   * US-034.AC-1). Its `readOnlyReason` remains the reason its **body text** is
-   * read-only, unchanged.
+   * Two chapter states enumerate regions, and they are deliberately disjoint:
+   *
+   * - `planned` — `["chapter-sketch", "chapter-own-prompt"]` (feature `014` step
+   *   008 — UC-033 / US-034.AC-1), with `editable: "none"`, because nothing about a
+   *   planned chapter is editable wholesale; its `readOnlyReason` remains the reason
+   *   its **body text** is read-only.
+   * - `open` — the chapter's **body text** and the caller's **own prompt**, with
+   *   `editable` still `"whole"` and `readOnlyReason` still `null` (feature `015`
+   *   step 011). Here the list does NOT narrow a read-only subject; it spells out
+   *   what `"whole"` means on an `open` chapter — the body, which is what `"whole"`
+   *   has always been the write region for — and, by omission, says the SKETCH is
+   *   not among them (UC-033's window is `planned` only).
+   *
+   * `closing` and `closed` enumerate nothing and are untouched by either feature.
    */
   editableRegions?: EditableRegion[];
 }
@@ -121,6 +140,14 @@ export interface Editability {
  * gate could only ever refuse would be vocabulary for a write path nothing ships.
  * Whoever first routes a sketch or own-prompt write through this gate adds the
  * member together with the `editableRegions` lookup it needs.
+ *
+ * DELIBERATELY UNCHANGED AGAIN by feature `015` step 011, for the same reason and
+ * with the same consequence: `015` widened {@link EditableRegion} with
+ * `"chapter-text"`, but a chapter body write is still `checkWritePermission(chapter,
+ * "whole")` — `"whole"` IS the body on a chapter — so an `open` chapter allows it
+ * and `planned` / `closing` / `closed` refuse it exactly as they do today. No
+ * `"chapter-text"` write region is minted, because nothing routes a write through
+ * this gate under that name.
  */
 export type WriteRegion = "whole" | "book-state-notes";
 
@@ -155,6 +182,11 @@ export function resolveSubjectPaneTarget(subject: LoadedSubject): WorkPaneTarget
  * — and editable in `editableRegions: ["chapter-sketch", "chapter-own-prompt"]`.
  * `open`, `closing` and `closed` are untouched by that amendment, wording
  * included, and so are the codex, Book-state and list rows.
+ *
+ * Feature `015.chapter-writing-free-mode` step 011 amends ONE more case — `open`,
+ * and nothing else in this function. See the branch itself; `planned`, `closing`
+ * and `closed` keep `014`'s answers with their author-facing reason strings
+ * VERBATIM, and the codex, Book-state, list and fallback rows are untouched.
  */
 export function resolveEditability(subject: LoadedSubject): Editability {
   switch (subject.kind) {
@@ -164,7 +196,19 @@ export function resolveEditability(subject: LoadedSubject): Editability {
       // assistant alike) per `domain-chapter.md`.
       switch (subject.chapterState) {
         case "open":
-          return { editable: "whole", readOnlyReason: null };
+          // The second partially-enumerated row (feature `015` step 011). Unlike
+          // `planned`'s, this list does NOT narrow a read-only subject: `editable`
+          // stays `"whole"` and `readOnlyReason` stays `null` — which is what keeps
+          // `checkWritePermission(open, "whole")` allowing the body write — and the
+          // list spells out what `"whole"` means on an OPEN chapter: the chapter's
+          // BODY TEXT and the caller's OWN chapter prompt. `"chapter-sketch"` is
+          // deliberately absent: UC-033 confines sketch edits to `planned`, the
+          // exact OPPOSITE window from the body.
+          return {
+            editable: "whole",
+            readOnlyReason: null,
+            editableRegions: ["chapter-text", "chapter-own-prompt"],
+          };
         case "closing":
           return {
             editable: "none",

@@ -314,7 +314,12 @@ async def test_canvas_frame_reaches_the_stream_between_deltas__DoD2(
     # The payload is the CanvasFrame model's JSON.
     canvas_data = [d for e, d in frames if e == "canvas"][0]
     payload = json.loads(canvas_data)
-    assert set(payload) == {"subject_kind", "subject_id", "field", "text"}
+    # Widened by 015 step 009 (D17): the frame gained `op`, DEFAULTED to
+    # "replace", so the codex emission is unchanged apart from that field --
+    # step 009's DoD-2 wording ("identical to today's apart from the defaulted
+    # operation field") supersedes the four-key set asserted here originally.
+    assert set(payload) == {"subject_kind", "subject_id", "field", "text", "op"}
+    assert payload["op"] == "replace"
     assert payload["subject_kind"] == "codex-entry"
     assert payload["subject_id"] == str(entry.id)
     assert payload["field"] == "body"
