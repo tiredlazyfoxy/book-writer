@@ -26,6 +26,8 @@ from app.db import vector
 from app.routes import auth
 from app.routes import book_author_prompts
 from app.routes import books
+from app.routes import chapter_author_prompts
+from app.routes import chapters
 from app.routes import chats
 from app.routes import codex
 from app.routes import health
@@ -88,9 +90,11 @@ app = FastAPI(title="BookWriter Backend", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(books.router)
+app.include_router(chapters.router)
 app.include_router(chats.router)
 app.include_router(codex.router)
 app.include_router(book_author_prompts.router)
+app.include_router(chapter_author_prompts.router)
 app.include_router(admin_users.router)
 app.include_router(admin_llm_servers.router)
 app.include_router(admin_db.router)

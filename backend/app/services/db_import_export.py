@@ -29,6 +29,7 @@ from app.models.book import Book, BookState, CollaborationMode, Visibility
 from app.models.book_author_prompt import BookAuthorPrompt
 from app.models.book_member import BookMember, MemberRole
 from app.models.chapter import Chapter, ChapterState, SummaryStatus
+from app.models.chapter_author_prompt import ChapterAuthorPrompt
 from app.models.chapter_change import ChangeStatus, ChapterChange, PlacementKind
 from app.models.chapter_notes import ChapterNoteChangeset, NoteStatus
 from app.models.chapter_text_revision import ChapterTextRevision
@@ -477,6 +478,53 @@ def _dict_to_book_author_prompt(data: dict[str, object]) -> BookAuthorPrompt:
     return BookAuthorPrompt(
         id=int(raw_id) if raw_id is not None else None,
         book_id=int(data["book_id"]),
+        user_id=int(data["user_id"]),
+        system_prompt=data["system_prompt"],
+        created_at=datetime.fromisoformat(created_at) if created_at else None,
+        modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
+    )
+
+
+def _chapter_author_prompt_to_dict(
+    prompt: ChapterAuthorPrompt,
+) -> dict[str, object]:
+    """Serialize a ``ChapterAuthorPrompt`` row to a JSON-safe dict for export.
+
+    ``id`` / ``chapter_id`` / ``user_id`` emitted as ``str(...)``; the required
+    ``system_prompt`` passed through verbatim (``""`` is a value, never
+    ``None``); ``created_at`` / ``modified_at`` via ``.isoformat()`` or ``None``.
+    Exported key set (frozen):
+    ``{"id", "chapter_id", "user_id", "system_prompt", "created_at",
+    "modified_at"}``.
+    """
+    return {
+        "id": str(prompt.id),
+        "chapter_id": str(prompt.chapter_id),
+        "user_id": str(prompt.user_id),
+        "system_prompt": prompt.system_prompt,
+        "created_at": prompt.created_at.isoformat() if prompt.created_at else None,
+        "modified_at": (
+            prompt.modified_at.isoformat() if prompt.modified_at else None
+        ),
+    }
+
+
+def _dict_to_chapter_author_prompt(
+    data: dict[str, object],
+) -> ChapterAuthorPrompt:
+    """Restore a ``ChapterAuthorPrompt`` row from an exported dict (inverse of
+    ``_chapter_author_prompt_to_dict``).
+
+    ``id`` / ``chapter_id`` / ``user_id`` parsed as string-or-legacy-number to
+    ``int``; ``system_prompt`` read directly (``""`` stays ``""``); datetimes
+    parsed from isoformat.
+    """
+    raw_id = data.get("id")
+    created_at = data.get("created_at")
+    modified_at = data.get("modified_at")
+    return ChapterAuthorPrompt(
+        id=int(raw_id) if raw_id is not None else None,
+        chapter_id=int(data["chapter_id"]),
         user_id=int(data["user_id"]),
         system_prompt=data["system_prompt"],
         created_at=datetime.fromisoformat(created_at) if created_at else None,
@@ -1011,6 +1059,12 @@ TABLE_REGISTRY: list[RegistryEntry] = [
         BookAuthorPrompt,
         _book_author_prompt_to_dict,
         _dict_to_book_author_prompt,
+    ),
+    (
+        "chapter_author_prompts",
+        ChapterAuthorPrompt,
+        _chapter_author_prompt_to_dict,
+        _dict_to_chapter_author_prompt,
     ),
     ("chapters", Chapter, _chapter_to_dict, _dict_to_chapter),
     (

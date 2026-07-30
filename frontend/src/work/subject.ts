@@ -53,26 +53,74 @@ export interface LoadedSubject {
 }
 
 /**
- * Which region of a subject is editable: nothing, the whole subject, or (Book
- * state only) the state notes. `frontend-workspace.md`'s editability table maps a
- * subject to exactly one of these.
+ * Which region of a subject is editable: nothing, the whole subject, (Book state
+ * only) the state notes, or — for a `planned` chapter — its sketch and the
+ * caller's own chapter system prompt. `frontend-workspace.md`'s editability table
+ * maps a subject to exactly one of these, EXCEPT for the one partially editable
+ * row this feature introduces (see {@link Editability.editableRegions}).
+ *
+ * The two chapter members were added by feature `014.chapter-skeleton` step 008,
+ * which makes a `planned` chapter editable in exactly those two regions while its
+ * body text stays read-only. There is deliberately NO `"chapter-text"` member: on
+ * a chapter the body IS the whole subject (an `open` chapter's `"whole"` verdict
+ * is precisely the body-writable one), so naming it separately would change the
+ * answer `open` gives today for no behaviour this feature ships.
+ *
+ * `"chapter-own-prompt"` says *own* on purpose: decision D1 made the chapter
+ * system prompt per-author, so there is no shared chapter prompt for a region to
+ * name (`014.chapter-skeleton/context.md`).
  */
-export type EditableRegion = "none" | "whole" | "book-state-notes";
+export type EditableRegion =
+  | "none"
+  | "whole"
+  | "book-state-notes"
+  | "chapter-sketch"
+  | "chapter-own-prompt";
 
 /**
  * The editability verdict for a loaded subject: what is editable, plus an
  * author-facing read-only reason (a *warning*, never a *flag*, in the wording).
  * `readOnlyReason` is `null` when the whole subject is editable and a stated
  * reason otherwise.
+ *
+ * `editable` is the WHOLE-SUBJECT verdict and stays a single region: it answers
+ * "what may be edited wholesale", and `readOnlyReason` is the reason the rest is
+ * not. A subject that is editable only in *some* regions answers `"none"` there —
+ * nothing about it is editable wholesale — and enumerates those regions in
+ * {@link Editability.editableRegions}.
  */
 export interface Editability {
   editable: EditableRegion;
   readOnlyReason: string | null;
+  /**
+   * The regions of a PARTIALLY editable subject, present only when the subject's
+   * editability cannot be expressed as one whole-subject region. Absent for every
+   * other verdict, whose editable set is exactly
+   * `editable === "none" ? [] : [editable]` — which is why adding this field
+   * changed no existing verdict's object shape.
+   *
+   * Today exactly one subject is partially editable: the `planned` chapter
+   * (`["chapter-sketch", "chapter-own-prompt"]`, feature `014` step 008 — UC-033 /
+   * US-034.AC-1). Its `readOnlyReason` remains the reason its **body text** is
+   * read-only, unchanged.
+   */
+  editableRegions?: EditableRegion[];
 }
 
 /**
  * The region a write targets. Covers the writable regions only — the whole
  * subject, or Book state's state notes. Passed to {@link checkWritePermission}.
+ *
+ * DELIBERATELY UNCHANGED by feature `014` step 008. A chapter's **body text** is
+ * `"whole"` here (that is what an `open` chapter's write is today), so DoD-13's
+ * "still refuses a write to a `planned` chapter's body text" is
+ * `checkWritePermission(plannedChapter, "whole")` and needs no new member. The
+ * sketch and the own-prompt are NOT added: feature `014` routes neither save
+ * through this gate — the sketch's refusal is the server's `409` on a
+ * non-`planned` chapter and the prompt has no state gate at all — and a member the
+ * gate could only ever refuse would be vocabulary for a write path nothing ships.
+ * Whoever first routes a sketch or own-prompt write through this gate adds the
+ * member together with the `editableRegions` lookup it needs.
  */
 export type WriteRegion = "whole" | "book-state-notes";
 
@@ -99,10 +147,14 @@ export function resolveSubjectPaneTarget(subject: LoadedSubject): WorkPaneTarget
  * Resolve a loaded subject to its editability verdict, implementing
  * `frontend-workspace.md`'s table exactly: the `open` chapter and a non-archived
  * codex entry are editable whole; Book state is `book-state-notes`-editable;
- * `planned` / `closing` / `closed` chapters, archived codex entries and every list
- * are read-only with a stated reason.
+ * `closing` / `closed` chapters, archived codex entries and every list are
+ * read-only with a stated reason.
  *
- * SKELETON: unimplemented — body throws.
+ * The one PARTIAL row (feature `014.chapter-skeleton` step 008): a `planned`
+ * chapter is read-only in its body text — the reason it already carried, verbatim
+ * — and editable in `editableRegions: ["chapter-sketch", "chapter-own-prompt"]`.
+ * `open`, `closing` and `closed` are untouched by that amendment, wording
+ * included, and so are the codex, Book-state and list rows.
  */
 export function resolveEditability(subject: LoadedSubject): Editability {
   switch (subject.kind) {
@@ -120,10 +172,21 @@ export function resolveEditability(subject: LoadedSubject): Editability {
               "This chapter is closing while its owner approves continuity for this body — it is read-only until the review completes.",
           };
         case "planned":
+          // The ONE partially editable row (feature `014.chapter-skeleton` step
+          // 008): a planned chapter's SKETCH and the caller's OWN chapter system
+          // prompt are editable (UC-033 / US-034.AC-1), while its BODY TEXT stays
+          // read-only with the reason it already carried, verbatim.
+          //
+          // `editable` stays `"none"` because nothing about a planned chapter is
+          // editable WHOLESALE, and `readOnlyReason` is still the body text's
+          // reason — which is exactly what keeps
+          // `checkWritePermission(planned, "whole")` refusing the body write
+          // (DoD-13) without that function being touched at all.
           return {
             editable: "none",
             readOnlyReason:
               "This chapter is still planned and cannot be edited until it is opened for writing.",
+            editableRegions: ["chapter-sketch", "chapter-own-prompt"],
           };
         case "closed":
           return {

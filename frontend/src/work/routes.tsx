@@ -2,6 +2,8 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { BookStatePage } from "./pages/BookStatePage";
+import { ChapterPage } from "./pages/ChapterPage";
+import { ChaptersPage } from "./pages/ChaptersPage";
 import { CodexEntryPage } from "./pages/CodexEntryPage";
 import { CodexListPage } from "./pages/CodexListPage";
 import { SubjectPlaceholderPage } from "./pages/SubjectPlaceholderPage";
@@ -29,7 +31,10 @@ function WorkspaceRoute() {
  */
 function ChapterItemRoute() {
   const { id } = useParams();
-  return <SubjectPlaceholderPage key={id} heading="Chapter" owner="014.chapter-skeleton" />;
+  // 014/008 swapped the ELEMENT only: the wrapper and its `key={id}` are what make
+  // `chapter/1` → `chapter/2` produce a FRESH `ChapterPageState` rather than showing
+  // the previous chapter's drafts (008 DoD-14), and they already existed.
+  return <ChapterPage key={id} />;
 }
 
 function CodexEntryItemRoute() {
@@ -76,10 +81,7 @@ export const WorkRoutes = observer(function WorkRoutes() {
       <Route path="/:bookId" element={<WorkspaceRoute />}>
         <Route index element={<Navigate to="state" replace />} />
         <Route path="state" element={<BookStatePage />} />
-        <Route
-          path="chapters"
-          element={<SubjectPlaceholderPage heading="Chapters" owner="014.chapter-skeleton" />}
-        />
+        <Route path="chapters" element={<ChaptersPage />} />
         <Route path="chapter/:id" element={<ChapterItemRoute />} />
         {/*
           The three codex lists (013/011) share ONE parameterized page — the kind is

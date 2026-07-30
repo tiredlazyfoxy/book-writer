@@ -167,3 +167,112 @@ describe("resolveSubjectPaneTarget (DoD-4)", () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------------------------
+ * 014.chapter-skeleton / 008.work-chapter-item — the `planned` chapter becomes
+ * PARTIALLY editable.  DoD-12 · DoD-13.
+ *
+ * Bound to the frozen signatures in status.md -> `## Skeleton` (step 008), which records
+ * the two decisions the plan delegated:
+ *   type EditableRegion = "none" | "whole" | "book-state-notes"
+ *                       | "chapter-sketch" | "chapter-own-prompt"        // widened
+ *   interface Editability { editable: EditableRegion; readOnlyReason: string | null;
+ *                           editableRegions?: EditableRegion[] }         // NEW, optional
+ *   type WriteRegion = "whole" | "book-state-notes"                      // NOT widened
+ *   resolveEditability(subject): Editability          // only the `planned` case changes
+ *   checkWritePermission(subject, region): WriteDecision   // byte-untouched
+ * On a chapter the body IS the whole subject, so the body-text write region is `"whole"`.
+ *
+ * Every expected value comes from the spec, never from code:
+ *   - the skeleton feature makes a `planned` chapter's SKETCH editable (UC-033 /
+ *     US-034.AC-1) and every member's OWN chapter prompt editable (decision D1), while
+ *     its BODY TEXT stays read-only with the reason it already carried
+ *     (`008.context.md` -> "Why the subject model changes at all");
+ *   - the `planned` verdict's `readOnlyReason` is the string the branch already carried,
+ *     recorded verbatim in the step-008 skeleton freeze — it is copy the author reads;
+ *   - `open`, `closing` and `closed` keep the answers they give today, and none of them
+ *     becomes partially editable (`008` Interface intent: "open, closing and closed are
+ *     untouched");
+ *   - widening editability is not widening the write path: a write into a `planned`
+ *     chapter's body is still refused (DoD-13, `008.context.md`).
+ * ---------------------------------------------------------------------------------- */
+
+/** The reason the `planned` branch already carried, kept verbatim for the body text. */
+const PLANNED_READ_ONLY_REASON =
+  "This chapter is still planned and cannot be edited until it is opened for writing.";
+
+const PLANNED_CHAPTER: LoadedSubject = {
+  kind: "chapter",
+  entityId: "ch-1",
+  chapterState: "planned",
+};
+
+describe("resolveEditability — a `planned` chapter is editable by REGION (DoD-12)", () => {
+  it("DoD-12: a `planned` chapter is editable in its sketch and in the caller's own prompt", () => {
+    const result = resolveEditability(PLANNED_CHAPTER);
+
+    // The two regions this feature ships, and only those two.
+    expect(result.editableRegions).toEqual(
+      expect.arrayContaining(["chapter-sketch", "chapter-own-prompt"]),
+    );
+    expect(result.editableRegions).toHaveLength(2);
+  });
+
+  it("DoD-12: a `planned` chapter's BODY TEXT stays read-only, with the reason it already carried", () => {
+    const result = resolveEditability(PLANNED_CHAPTER);
+
+    // Nothing about the chapter is editable wholesale: the body is what `editable`
+    // answers for, and it is still read-only.
+    expect(result.editable).toBe("none");
+    expect(result.readOnlyReason).toBe(PLANNED_READ_ONLY_REASON);
+  });
+
+  it("DoD-12: `open` keeps the answer it gives today — editable whole, no reason, no region list", () => {
+    const result = resolveEditability({ kind: "chapter", entityId: "ch-2", chapterState: "open" });
+
+    expect(result.editable).toBe("whole");
+    expect(result.readOnlyReason).toBeNull();
+    // An `open` chapter is editable WHOLE, not partially: it enumerates no regions.
+    expect(result.editableRegions).toBeUndefined();
+  });
+
+  it("DoD-12: `closing` and `closed` keep the answers they give today — read-only, each with its own stated reason, and no editable region", () => {
+    const closing = resolveEditability({
+      kind: "chapter",
+      entityId: "ch-3",
+      chapterState: "closing",
+    });
+    const closed = resolveEditability({
+      kind: "chapter",
+      entityId: "ch-4",
+      chapterState: "closed",
+    });
+
+    for (const result of [closing, closed]) {
+      expect(result.editable).toBe("none");
+      // A stated, author-facing reason (US-097.AC-1) — unchanged by this amendment.
+      expect(typeof result.readOnlyReason).toBe("string");
+      expect((result.readOnlyReason ?? "").length).toBeGreaterThan(0);
+      // Neither state gained a partially-editable region.
+      expect(result.editableRegions ?? []).toEqual([]);
+    }
+
+    // The two reasons stay distinct from each other and from the `planned` one: each
+    // state's own author-facing copy survives the amendment.
+    expect(closing.readOnlyReason).not.toBe(PLANNED_READ_ONLY_REASON);
+    expect(closed.readOnlyReason).not.toBe(PLANNED_READ_ONLY_REASON);
+  });
+});
+
+describe("checkWritePermission — the body write path is unchanged (DoD-13)", () => {
+  it("DoD-13: a write into a `planned` chapter's body text is still refused, with a reason", () => {
+    // The body IS the whole subject on a chapter, so `"whole"` is the body-text region.
+    const decision = checkWritePermission(PLANNED_CHAPTER, "whole");
+
+    // The amendment widened EDITABILITY, not the write path.
+    expect(decision.allowed).toBe(false);
+    // Refused with a stated reason, exactly as every other read-only subject is.
+    expect(decision.reason).toBeTruthy();
+    expect((decision.reason ?? "").length).toBeGreaterThan(0);
+  });
+});

@@ -47,8 +47,8 @@ class AccessRole(str, enum.Enum):
 
 
 class Capability(str, enum.Enum):
-    """The 009 book capabilities plus the 013 members-only codex capabilities,
-    all gated by the matrix."""
+    """The 009 book capabilities, the 013 members-only codex capabilities, and
+    the 014 chapter-skeleton capabilities — all gated by the matrix."""
 
     read_book = "read_book"
     view_book_detail = "view_book_detail"
@@ -60,6 +60,14 @@ class Capability(str, enum.Enum):
     # 013 step 001 — ``authorization.md`` → "Members-only material".
     browse_codex = "browse_codex"
     edit_codex_entry = "edit_codex_entry"
+    # 014 step 002 — ``authorization.md``'s chapter matrix, which existed on
+    # paper with no enum behind it. Reading a chapter is **not** here: the two
+    # read paths reuse ``read_book`` unchanged, whose row already names exactly
+    # the roles the chapter matrix gives "read chapter text" to.
+    add_chapter = "add_chapter"
+    edit_chapter_sketch = "edit_chapter_sketch"
+    remove_chapter = "remove_chapter"
+    set_chapter_order = "set_chapter_order"
 
 
 @dataclass(frozen=True)
@@ -109,6 +117,24 @@ _CAPABILITY_MATRIX: dict[Capability, frozenset[AccessRole]] = {
     Capability.edit_codex_entry: frozenset(
         {AccessRole.owner, AccessRole.co_author}
     ),
+    # Chapter skeleton (``authorization.md``'s chapter matrix, FEAT-008 /
+    # UC-031..034): adding, sketch-editing and removing are the owner's and a
+    # co-author's; **setting chapter order is owner-only** (US-033.AC-2) — a
+    # co-author reordering is refused here, and ``ChapterListResponse``'s
+    # ``can_reorder`` hint is only ever a mirror of this row, never the gate.
+    # None of these rows is mode-qualified: a chapter-skeleton change applies
+    # immediately even in ``proposal`` mode, so no collaboration-mode rule is
+    # layered on them in ``services/chapters.py``.
+    Capability.add_chapter: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
+    Capability.edit_chapter_sketch: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
+    Capability.remove_chapter: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
+    Capability.set_chapter_order: frozenset({AccessRole.owner}),
 }
 
 

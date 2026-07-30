@@ -96,6 +96,7 @@ CANONICAL_ORDER = [
     "books",
     "book_members",
     "book_author_prompts",
+    "chapter_author_prompts",
     "chapters",
     "chapter_changes",
     "chapter_text_revisions",

@@ -15,9 +15,12 @@
  *
  * Every expected value comes from the spec, never from code:
  *   - the owner label each route names is pinned VERBATIM by the step file /
- *     `004.context.md` -> "Owner labels": chapters + one chapter -> `014.chapter-skeleton`;
- *     characters / locations / facts + one codex entry -> `013.codex`; variants + one
- *     chapter's variants -> `018.chapter-history-variants`;
+ *     `004.context.md` -> "Owner labels": characters / locations / facts + one codex
+ *     entry -> `013.codex`; variants + one chapter's variants ->
+ *     `018.chapter-history-variants`. The `014.chapter-skeleton` pair is GONE: feature
+ *     014 step 006 gave `/:bookId/chapters` its real list page and step 008 gives
+ *     `/:bookId/chapter/:id` the real `ChapterPage`, so neither route names an owner
+ *     placeholder any more;
  *   - `/:bookId/chats` no longer renders a content-pane view: under
  *     011.chat-panel / 004 (DoD-5, retarget 2026-07-26) it redirects to the
  *     book-state route (`/:bookId/state`), so no `011.chat-panel` surface appears in
@@ -190,7 +193,6 @@ describe("subject list routes render a read-only empty state naming their owner 
   // 013.codex step 011 fills the three codex routes, so their rows moved to the block below;
   // chapters and variants are still placeholders and stay here unchanged.
   const LIST_ROUTES: Array<[string, RegExp]> = [
-    ["/bk-1/chapters", /014\.chapter-skeleton/],
     ["/bk-1/variants", /018\.chapter-history-variants/],
   ];
 
@@ -251,9 +253,17 @@ describe("the /chats deep link redirects out of the content pane (011.chat-panel
 
 describe("subject item routes resolve into the content pane, not the catch-all (DoD-6)", () => {
   // 013.codex step 012 fills `/codex/:id` with the real entry page, so its row moved to the
-  // block below; chapter and variants item routes are still placeholders and stay here.
+  // block below.
+  //
+  // 014.chapter-skeleton step 008 retires the `/bk-1/chapter/ch-1` row: that route now
+  // renders the real `ChapterPage`, so asserting a `014.chapter-skeleton` placeholder there
+  // is false. It is DELETED rather than moved to a block below, following the sibling
+  // precedent from the same feature — step 006 removed `/bk-1/chapters` from `LIST_ROUTES`
+  // without a replacement block, because the real page's own spec owns the route assertion
+  // (`ChapterPage.test.tsx` DoD-1 asserts `/work/:bookId/chapter/:id` resolves to the page
+  // and that no placeholder survives in the pane; `ChaptersPage.test.tsx` DoD-11 does the
+  // same for the list). The variants item route is still a placeholder and stays here.
   const ITEM_ROUTES: Array<[string, RegExp]> = [
-    ["/bk-1/chapter/ch-1", /014\.chapter-skeleton/],
     ["/bk-1/variants/ch-9", /018\.chapter-history-variants/],
   ];
 
