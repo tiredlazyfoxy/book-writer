@@ -28,6 +28,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import type { BookResponse } from "../../src/types/books";
 import * as booksApi from "../../src/api/books";
+import * as readerApi from "../../src/api/reader";
 import { BookshelfPage } from "../../src/user/pages/BookshelfPage";
 import { renderWithProviders } from "../support/render";
 
@@ -53,6 +54,19 @@ vi.mock("../../src/api/books", () => ({
   ],
 }));
 
+// Same module-factory rule, second module: feature 022 gave `loadBookshelf` a third
+// async-resource trio (publicBooks / publicStatus / publicError) loaded from
+// `src/api/reader::listPublicBooks` in the same mount effect (022 plan, D16). Left
+// unmocked it reaches the real `api/client::request` -> `fetch`, which rejects under
+// jsdom. All three exports of the module are stubbed so the factory replacement is
+// total; only `listPublicBooks` is reached from this page. Signatures come from the
+// 022 `## Skeleton` record (`listPublicBooks(signal?): Promise<PublicBookListResponse>`).
+vi.mock("../../src/api/reader", () => ({
+  getReaderBook: vi.fn(),
+  getReaderChapter: vi.fn(),
+  listPublicBooks: vi.fn(),
+}));
+
 /** A fully-typed BookResponse fixture; only id + title vary per row. */
 function makeBook(id: string, title: string): BookResponse {
   return {
@@ -72,6 +86,9 @@ beforeEach(() => {
   // `restoreMocks` wipes implementations between tests — default to empty lists.
   vi.mocked(booksApi.listOwnedBooks).mockResolvedValue({ items: [] });
   vi.mocked(booksApi.listSharedBooks).mockResolvedValue({ items: [] });
+  // Public-book discovery is not what this spec drives: a stable empty list keeps
+  // the third trio inert so the /work/<id> anchors stay the only links rendered.
+  vi.mocked(readerApi.listPublicBooks).mockResolvedValue({ items: [] });
 });
 
 describe("BookshelfPage — work links", () => {

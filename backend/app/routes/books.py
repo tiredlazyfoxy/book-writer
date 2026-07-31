@@ -10,7 +10,16 @@ supplies the 401 (no anonymous book surface).
 
 Route ordering is load-bearing: FastAPI matches in declaration order, so the
 static ``GET /shared`` route is declared **before** any ``/{book_id}`` param route
-(added in step 004) — otherwise ``shared`` is captured as a ``book_id``.
+(added in step 004) — otherwise ``shared`` is captured as a ``book_id``. Feature
+022 adds a second static route under the same rule, ``GET /public``, declared
+immediately after ``/shared`` and before ``/{book_id}`` (decision D15).
+
+Feature 022 also **removed** ``GET /{book_id}/read`` from this module: the whole
+reader surface moved to ``routes/reader.py`` + ``services/reader.py`` (decision
+D3), at the same URL. ``GET /public`` is the one reader-facing route that stayed,
+and only because ``/public`` and ``/{book_id}`` collide at the same path depth —
+declaring it in a second router would make ``main.py``'s include order
+load-bearing and invisible; its logic still lives in ``services/reader.py``.
 
 Typed-error → status map the handlers implement: ``not-found`` → 404.
 
@@ -29,14 +38,15 @@ from app.models.schemas.books import (
     BookListResponse,
     BookResponse,
     CreateBookRequest,
-    ReaderBookResponse,
     SetVisibilityRequest,
     TransferOwnershipRequest,
 )
+from app.models.schemas.reader import PublicBookListResponse
 from app.models.user import User
 from app.services import auth as auth_service
 from app.services import authz
 from app.services import books as books_service
+from app.services import reader as reader_service
 
 router = APIRouter(prefix="/api/books", tags=["books"])
 
@@ -104,6 +114,31 @@ async def list_shared(
     return await books_service.list_shared(caller)
 
 
+@router.get("/public")
+async def list_public_books(
+    caller: User = Depends(auth_service.get_current_user),
+) -> PublicBookListResponse:
+    """Public books the caller can discover but is not part of
+    (``GET /api/books/public`` → 200, UC-029 discovery, feature 022).
+
+    Declared **immediately after** ``GET /shared`` and **before** ``GET
+    /{book_id}`` — declaration order is load-bearing (decision D15): FastAPI
+    matches in declaration order, so a ``/public`` declared after the param route
+    would be captured as a ``book_id`` and answer 422. Keeping it in this file,
+    beside ``/shared``, is what makes static-before-dynamic provable by reading
+    one module.
+
+    Delegates to ``reader_service.list_public_books(caller)`` — the route is the
+    only reader-surface line that lives outside the reader module pair; every
+    line of reader *logic* and every reader DTO stays there (D15). Gated by
+    authentication alone: there is no ``book_id`` to resolve a role against, so
+    ``Depends(authz.book_access)`` is inapplicable and ``get_current_user`` (the
+    same gate the two delivered list routes use) supplies the 401 (D14). The
+    service raises no typed refusal on this path — an empty feed is an empty
+    list, not an error."""
+    return await reader_service.list_public_books(caller)
+
+
 @router.get("/{book_id}")
 async def get_book_detail(
     access: authz.BookAccess = Depends(authz.book_access),
@@ -116,22 +151,6 @@ async def get_book_detail(
     ``/shared`` route so the param route does not capture it."""
     try:
         return await books_service.get_book_detail(access)
-    except authz.BookAuthorizationError as err:
-        raise _map_authz_error(err)
-    except books_service.BookError as err:
-        raise _map_book_error(err)
-
-
-@router.get("/{book_id}/read")
-async def get_reader_book(
-    access: authz.BookAccess = Depends(authz.book_access),
-) -> ReaderBookResponse:
-    """Reader-safe projection (``GET /api/books/{book_id}/read`` → 200, UC-029 /
-    US-030). Open to owner/co-author/reader via ``read_book``; a private-book
-    non-member is 404'd by the resolver, an anonymous caller 401'd by
-    ``get_current_user``."""
-    try:
-        return await books_service.get_reader_book(access)
     except authz.BookAuthorizationError as err:
         raise _map_authz_error(err)
     except books_service.BookError as err:

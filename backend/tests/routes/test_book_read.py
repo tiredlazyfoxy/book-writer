@@ -52,7 +52,8 @@ import datetime
 from app.db import book_members, users
 from app.db.engine import init_db, set_db_ready
 from app.models.book_member import BookMember, MemberRole
-from app.models.schemas.books import BookDetailResponse, ReaderBookResponse
+from app.models.schemas.books import BookDetailResponse
+from app.models.schemas.reader import ReaderBookResponse
 from app.models.user import User, UserRole
 from app.services import auth
 

@@ -33,6 +33,7 @@ from app.routes import codex
 from app.routes import continuity
 from app.routes import flags
 from app.routes import health
+from app.routes import reader
 from app.routes.admin import assistant_config as admin_assistant_config
 from app.routes.admin import db as admin_db
 from app.routes.admin import llm_servers as admin_llm_servers
@@ -93,6 +94,12 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(books.router)
 app.include_router(chapters.router)
+# Reader surface (feature 022). Shares the ``/api/books`` prefix with
+# ``books.router``, but no path collides: both reader paths carry the literal
+# ``read`` segment, so include order is NOT load-bearing here (the one route that
+# would have made it load-bearing, ``GET /public``, is deliberately declared in
+# ``routes/books.py`` beside ``/shared`` — decision D15).
+app.include_router(reader.router)
 app.include_router(chats.router)
 app.include_router(codex.router)
 app.include_router(continuity.router)

@@ -98,34 +98,12 @@ class BookDetailResponse(BookResponse):
     *caller's own* prompt. Putting it on a book-shaped DTO would be dishonest —
     two authors reading the same book would need different bytes in the same
     field — so the settings page fetches it separately rather than from here.
-    This DTO is members-only: readers never receive it (they get
-    :class:`ReaderBookResponse`).
+    This DTO is members-only: readers never receive it — the reader-safe book
+    projection is a separate DTO, and lives in :mod:`app.models.schemas.reader`
+    together with the rest of the reader surface (feature 022, decision D3).
     """
 
     members: list[BookMemberResponse]
-
-
-class ReaderBookResponse(BaseModel):
-    """Reader-safe book projection (feature 009, step 004, UC-029 / US-030).
-
-    The deliberately narrow reader view: the book ``title`` plus a placeholder
-    table-of-contents / ``chapters`` field. No chapters exist until Stage 5, so
-    ``chapters`` is an empty placeholder. Carries **none** of the members-only
-    surface — no members, owner id, codex, notes, book state, visibility,
-    settings, ``system_prompt`` or any mutation-bearing field. The exclusion is
-    enforced structurally by this being a separate DTO from
-    :class:`BookDetailResponse` (UC-029 exclusion list).
-
-    ``system_prompt`` is doubly excluded (feature 021): beyond the reader
-    exclusion list, there is no book-wide prompt left to project. The prompt is
-    **per-author** and lives on its own endpoint (``GET`` / ``PUT
-    /api/books/{book_id}/system-prompt``), which serves the caller their own
-    prompt and is members-only — a reader has none, and no book-shaped DTO could
-    carry a value that differs per caller.
-    """
-
-    title: str
-    chapters: list[str]
 
 
 class TransferOwnershipRequest(BaseModel):

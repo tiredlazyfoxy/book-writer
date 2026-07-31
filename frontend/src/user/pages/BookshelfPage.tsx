@@ -13,16 +13,24 @@ import {
 } from "@mantine/core";
 import { IconPlus } from "@tabler/icons-react";
 import type { BookResponse } from "../../types/books";
+import type { PublicBookRef } from "../../types/reader";
 import { BookshelfPageState, loadBookshelf } from "./bookshelfPageState";
 import { CreateBookModal } from "../components/books/CreateBookModal";
 
 /**
  * Shell SPA root page (`/`) — the bookshelf. Owns a stable `BookshelfPageState`
- * via `useState`, loads both lists on mount / aborts on unmount via a single
- * page-level `useEffect([state])` spinning an `AbortController`. Renders the owned
- * and shared book lists (two async-resource trios) plus a header Create button and
- * the create-book modal; a successful create re-loads the shelf. Modal open flag is
- * component-local `useState`, not page state.
+ * via `useState`, loads all three lists on mount / aborts on unmount via a single
+ * page-level `useEffect([state])` spinning an `AbortController`. Renders the owned,
+ * shared and public book lists (three async-resource trios) plus a header Create
+ * button and the create-book modal; a successful create re-loads the shelf. Modal
+ * open flag is component-local `useState`, not page state.
+ *
+ * "Public books" (feature 022, D16) is the discovery feed: books the caller can
+ * READ but is not part of. It gets its own renderer rather than reusing
+ * `renderList` — the rows are `PublicBookRef`, which deliberately carries no
+ * visibility, state or owner (D14) — and its rows link into `/read/<id>` with a
+ * plain `<a href>`, because the reader is a separate Vite entry and crossing to it
+ * is a full page load, not a react-router navigation.
  */
 export const BookshelfPage = observer(function BookshelfPage() {
   const [state] = useState(() => new BookshelfPageState());
@@ -90,6 +98,58 @@ export const BookshelfPage = observer(function BookshelfPage() {
     );
   };
 
+  /**
+   * The public discovery feed's own renderer: two columns (title + description),
+   * a labelled empty state rather than a headed-but-blank table, and a plain
+   * `<a href="/read/<id>">` per row.
+   */
+  const renderPublicList = (
+    books: PublicBookRef[],
+    status: BookshelfPageState["publicStatus"],
+    error: string | null,
+  ) => {
+    const loading = status === "idle" || status === "loading";
+    if (error) return <Text c="red">{error}</Text>;
+    if (loading) {
+      return (
+        <Group justify="center" py="md">
+          <Loader />
+        </Group>
+      );
+    }
+    if (books.length === 0) {
+      return <Text c="dimmed">No public books to read right now.</Text>;
+    }
+    return (
+      <Table striped highlightOnHover>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Title</Table.Th>
+            <Table.Th>Description</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {books.map((book) => (
+            <Table.Tr key={book.id}>
+              <Table.Td>
+                {/* Plain <a>: /read is a separate Vite entry, so this is a full
+                    page load across entries, not a react-router link. */}
+                <a href={`/read/${book.id}`}>
+                  <Text size="sm">{book.title}</Text>
+                </a>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c="dimmed">
+                  {book.description}
+                </Text>
+              </Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    );
+  };
+
   return (
     <Container size="lg" py="md">
       <Group justify="space-between" mb="md">
@@ -107,6 +167,14 @@ export const BookshelfPage = observer(function BookshelfPage() {
         <Stack gap="xs">
           <Title order={5}>Shared with me</Title>
           {renderList(state.sharedBooks, state.sharedStatus, state.sharedError)}
+        </Stack>
+        <Stack gap="xs">
+          <Title order={5}>Public books</Title>
+          {renderPublicList(
+            state.publicBooks,
+            state.publicStatus,
+            state.publicError,
+          )}
         </Stack>
       </Stack>
 

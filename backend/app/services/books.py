@@ -11,6 +11,11 @@ The private :func:`_to_response` hand-maps a ``Book`` ORM row to a
 :class:`BookResponse` (never dumps the ORM), exposing ``id`` / ``owner_id`` as
 strings and omitting moderation internals.
 
+The reader-safe book projection **left this module** in feature 022 (decision
+D3): the whole reader surface now lives in :mod:`app.services.reader`, so "what
+can a reader reach?" is answerable without auditing this twelve-function book
+service. The URL it served (``GET /api/books/{book_id}/read``) is unchanged.
+
 Skeleton (step 003): signatures + the error taxonomy are frozen; the function
 bodies are UNIMPLEMENTED (raise ``NotImplementedError``). This module is
 **extended** by steps 004 (read projections) and 005 (settings mutations) — the
@@ -30,7 +35,6 @@ from app.models.schemas.books import (
     BookMemberResponse,
     BookResponse,
     CreateBookRequest,
-    ReaderBookResponse,
 )
 from app.models.user import User
 from app.services import authz
@@ -182,24 +186,6 @@ async def get_book_detail(access: BookAccess) -> BookDetailResponse:
             for member in members
         ],
     )
-
-
-async def get_reader_book(access: BookAccess) -> ReaderBookResponse:
-    """Return the reader-safe :class:`ReaderBookResponse` for ``access``'s book.
-
-    Calls ``authz.require(access, Capability.read_book)`` (owner/co-author/reader),
-    loads the book via ``db/books.get_by_id`` and returns a
-    :class:`ReaderBookResponse` carrying the ``title`` and a placeholder
-    (empty) TOC/``chapters`` field — no chapters exist until Stage 5. Realizes
-    UC-029 / US-030.
-
-    Skeleton (step 004): UNIMPLEMENTED.
-    """
-    authz.require(access, Capability.read_book)
-    book = await books.get_by_id(access.book_id)
-    if book is None:
-        raise BookError(BookErrorReason.not_found, "Book not found")
-    return ReaderBookResponse(title=book.title, chapters=[])
 
 
 async def archive_book(access: BookAccess) -> BookResponse:
