@@ -1,5 +1,17 @@
 # fast/003.book-system-prompt — Book-wide system prompt
+
 <!-- roadmap:start -->
+> **RETIRED 2026-07-31 — do not plan or build this.** Superseded by
+> `docs/plans/021.per-author-system-prompt/` (delivered 2026-07-29). FEAT-019
+> pivoted from a book-wide prompt to a **per-author** one: UC-093 and US-108,
+> which this brief delivers, are tombstoned `withdrawn` in
+> `docs/product/quick-reference.md` (→ UC-098 / → US-115), and
+> `Book.system_prompt` is no longer read by
+> `backend/app/services/prompt_composition.py` — it composes
+> `BookAuthorPrompt.system_prompt` instead. The definition below is kept as
+> decision history only; every "Open question" in it was answered differently
+> by `021`. See `roadmap.md` → "Retired features".
+
 - **Stage:** 3.workspace · **Track:** fast · **Size:** S/M
 - **Delivers:** FEAT-019 (book half), UC-093, US-108
 - **Depends on:** `009.books`

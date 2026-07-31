@@ -8,7 +8,7 @@ renumbered.)
 ### US-056 — Author starts chats freely; chats persist until archived
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:**
   UC-053, UC-057
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to start a composition chat freely and
   leave it without losing it, so that I can pick it up again later instead
   of being forced to finish or bind it to one edit or chapter.
@@ -65,7 +65,7 @@ renumbered.)
 
 ### US-058 — Author iterates with the LLM to refine the next edit
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-054
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to send free-form prompts and get
   responses inside the chat, so that I can create, recreate and polish the
   next edit before producing it.
@@ -105,7 +105,7 @@ renumbered.)
 
 ### US-060 — A failed composition shows an error, offers retry, preserves the conversation
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-056
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want a clear error and a retry option when the
   LLM fails, so that I don't lose my conversation or retype it.
 - **Acceptance criteria:**
@@ -121,7 +121,7 @@ renumbered.)
 ### US-061 — A composition chat is visible only to its author, even once persisted
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:**
   UC-057, UC-081, UC-082
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want my composition chats kept private, so
   that only my saved output is shared with others.
 - **Acceptance criteria:**
@@ -139,7 +139,7 @@ renumbered.)
 
 ### US-089 — A composition chat can draw on the book's codex
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-078
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want my composition chat to draw on the book's
   codex, so that generated content stays consistent with established lore.
 - **Acceptance criteria:**
@@ -153,7 +153,7 @@ renumbered.)
 
 ### US-095 — Chats persist and are managed (list, pick, continue)
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-081
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want my stored chats listed so I can pick one
   and continue it, so that I don't lose earlier work when I step away.
 - **Acceptance criteria:**
@@ -169,7 +169,7 @@ renumbered.)
 
 ### US-096 — Archive a chat instead of ending it
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-082
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to archive a chat I'm done with instead
   of losing it, so that I can still find it later if I need it.
 - **Acceptance criteria:**
@@ -245,7 +245,7 @@ renumbered.)
 
 ### US-101 — The assistant may consult the web
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-087
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want the assistant to look things up on the
   web when my question needs outside information, so that I'm not limited
   to what's in my book.
@@ -297,7 +297,7 @@ renumbered.)
 
 ### US-105 — Author browses the book's material by kind from the working page
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-090
-- **Status:** proposed
+- **Status:** partially delivered
 - **Story:** As an author, I want to browse the book's material by kind
   from the working page's navigator, so that I can find and open what I
   need without leaving the page.

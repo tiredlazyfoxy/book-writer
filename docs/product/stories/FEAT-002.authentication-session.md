@@ -3,7 +3,7 @@
 
 ### US-003 — Log in
 - **Feature:** FEAT-002 · **Actor:** ACT-001, ACT-002 · **Realizes:** UC-003
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a user, I want to log in with my username and password, so
   that I can access the system as myself.
 - **Acceptance criteria:**
@@ -20,7 +20,7 @@
 
 ### US-004 — Log out / session expiry
 - **Feature:** FEAT-002 · **Actor:** ACT-001, ACT-002 · **Realizes:** UC-004
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a user, I want to log out or have my session expire, so that
   access ends when I'm done or inactive.
 - **Acceptance criteria:**

@@ -3,7 +3,7 @@
 
 ### US-015 — View consistency report
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-015
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to view a per-table consistency report, so
   that I know whether the database matches its expected structure.
 - **Acceptance criteria:**
@@ -17,7 +17,7 @@
 
 ### US-016 — Create missing table
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-016
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to create a table the report shows as
   missing, so that the database matches its expected structure.
 - **Acceptance criteria:**
@@ -29,7 +29,7 @@
 
 ### US-017 — Sync table schema
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-017
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to sync a table's schema when it's in
   drift, so that its columns match what's expected.
 - **Acceptance criteria:**
@@ -43,7 +43,7 @@
 
 ### US-018 — Export database
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-018
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to export the database, so that I have a
   portable backup or transfer artifact.
 - **Acceptance criteria:**
@@ -54,7 +54,7 @@
 
 ### US-019 — Import database (admin)
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-019
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to import a database export into a running
   instance, so that I can restore or merge prior data.
 - **Acceptance criteria:**
@@ -69,7 +69,7 @@
 
 ### US-020 — Rebuild vector index
 - **Feature:** FEAT-005 · **Actor:** ACT-001 · **Realizes:** UC-020
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to rebuild the vector index, so that
   semantic search reflects the current data.
 - **Acceptance criteria:**

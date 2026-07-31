@@ -3,7 +3,7 @@
 
 ### US-086 — Author has the assistant fill a codex entry on the shared canvas
 - **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-076
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to open a blank codex entry and have the
   assistant fill it, so that I don't have to write lore by hand.
 - **Acceptance criteria:**
@@ -19,7 +19,7 @@
 
 ### US-087 — Author has the assistant rewrite an existing entry on the shared canvas
 - **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-077
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to open an existing codex entry and have
   the assistant rewrite it in place, so that I can revise lore without
   leaving the working page.
@@ -37,7 +37,7 @@
 ### US-088 — A chat-authored entry is saved only on explicit request
 - **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005 · **Realizes:**
   UC-076, UC-077
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want a chat-generated or chat-rewritten entry
   to require my explicit save, so that nothing lands in the codex without
   my approval.

@@ -3,7 +3,7 @@
 
 ### US-022 — Author creates a book and becomes its owner
 - **Feature:** FEAT-006 · **Actor:** ACT-002 · **Realizes:** UC-021
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an author, I want to create a book with a collaboration
   mode and visibility, so that I become its owner and can start building
   it.
@@ -18,7 +18,7 @@
 
 ### US-023 — Author sees the books they own
 - **Feature:** FEAT-006 · **Actor:** ACT-004 · **Realizes:** UC-022
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to see the books I own, so that I can
   find and manage them.
 - **Acceptance criteria:**
@@ -29,7 +29,7 @@
 
 ### US-024 — Owner archives a book
 - **Feature:** FEAT-006 · **Actor:** ACT-004 · **Realizes:** UC-023
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to archive a book, so that I can shelve
   it without losing its content.
 - **Acceptance criteria:**
@@ -51,7 +51,7 @@
 
 ### US-025 — Owner transfers a book to a co-author
 - **Feature:** FEAT-006 · **Actor:** ACT-004 · **Realizes:** UC-024
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to transfer ownership to a co-author,
   so that the book can change lead author or I can step away.
 - **Acceptance criteria:**

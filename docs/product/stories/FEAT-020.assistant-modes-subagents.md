@@ -3,7 +3,7 @@
 
 ### US-110 — Admin sets a mode's optional system prompt
 - **Feature:** FEAT-020 · **Actor:** ACT-001 · **Realizes:** UC-095
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to set an optional system prompt on a
   working mode, so that the assistant carries standing instructions
   whenever it runs in that mode.
@@ -22,7 +22,7 @@
 
 ### US-111 — Admin sets which tools a mode may use
 - **Feature:** FEAT-020 · **Actor:** ACT-001 · **Realizes:** UC-095
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to choose which tools are available to
   the assistant in a given mode, so that its capabilities match what
   that mode is for.
@@ -37,7 +37,7 @@
 
 ### US-112 — Admin sets which sub-agents a mode may delegate to
 - **Feature:** FEAT-020 · **Actor:** ACT-001 · **Realizes:** UC-095
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to choose which sub-agents a mode can
   delegate to, so that the assistant hands off scoped work only where
   I've allowed it.
@@ -56,7 +56,7 @@
 
 ### US-113 — Admin creates a sub-agent
 - **Feature:** FEAT-020 · **Actor:** ACT-001 · **Realizes:** UC-096
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to create a sub-agent with a name,
   prompt, tools, accessible modes and model, so that I have a reusable
   delegated worker for scoped tasks.
@@ -83,7 +83,7 @@
 
 ### US-114 — Admin edits or disables a sub-agent
 - **Feature:** FEAT-020 · **Actor:** ACT-001 · **Realizes:** UC-097
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to edit a sub-agent's fields — name,
   prompt, tools, accessible modes, model — or disable it, so that I can
   correct its configuration or retire it while keeping the option to

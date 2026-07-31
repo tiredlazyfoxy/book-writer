@@ -3,7 +3,7 @@
 
 ### US-010 — Register LLM server
 - **Feature:** FEAT-004 · **Actor:** ACT-001 · **Realizes:** UC-010
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to register an LLM server connection, so
   that its models become available to the system.
 - **Acceptance criteria:**
@@ -19,7 +19,7 @@
 
 ### US-011 — Test connection / probe models
 - **Feature:** FEAT-004 · **Actor:** ACT-001 · **Realizes:** UC-011
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to test a registered server's connection, so
   that I can see which models it actually offers before enabling any.
 - **Acceptance criteria:**
@@ -34,7 +34,7 @@
 
 ### US-012 — Enable models
 - **Feature:** FEAT-004 · **Actor:** ACT-001 · **Realizes:** UC-012
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to enable a subset of a server's probed
   models, so that only vetted models are available for use.
 - **Acceptance criteria:**
@@ -45,7 +45,7 @@
 
 ### US-013 — Edit / delete LLM server
 - **Feature:** FEAT-004 · **Actor:** ACT-001 · **Realizes:** UC-013
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to edit or delete a registered LLM server,
   so that I can correct its details or remove one no longer in use.
 - **Acceptance criteria:**
@@ -57,7 +57,7 @@
 
 ### US-014 — Designate embedding server
 - **Feature:** FEAT-004 · **Actor:** ACT-001 · **Realizes:** UC-014
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to designate one server and model as the
   embedding provider, so that embedding operations have a single, known
   source.
@@ -75,7 +75,7 @@
 - **Feature:** FEAT-004 · **Actor:** ACT-001
 - **Realizes:** _(none — cross-cutting security requirement on FEAT-004, no
   dedicated use case)_
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want an LLM server's API key to be stored
   indirectly and never shown back to me in full, so that the credential
   isn't exposed through the system.

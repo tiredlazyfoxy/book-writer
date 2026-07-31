@@ -3,7 +3,7 @@
 
 ### US-078 — Member creates a codex entry of a given kind
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-069
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book member, I want to create a codex entry of a chosen
   kind, so that I can record a character, location or fact in the book's
   reference volume.
@@ -20,7 +20,7 @@
 ### US-079 — Codex entries follow the book's collaboration mode
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-069,
   UC-070
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book member, I want codex entries to follow the book's
   collaboration mode, so that authoring an entry works the same as
   authoring a state note.
@@ -36,7 +36,7 @@
 
 ### US-080 — Member browses and searches the codex
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-071
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book member, I want to browse and search the codex, so
   that I can find an entry without scanning the whole list.
 - **Acceptance criteria:**
@@ -48,7 +48,7 @@
 
 ### US-081 — Member archives a codex entry rather than deleting it
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-072
-- **Status:** proposed
+- **Status:** deferred
 - **Story:** As a book member, I want to archive a codex entry instead of
   deleting it, so that removed lore stays recoverable.
 - **Acceptance criteria:**
@@ -60,7 +60,7 @@
 
 ### US-082 — Member views an entry's edit history
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-073
-- **Status:** proposed
+- **Status:** deferred
 - **Story:** As a book member, I want to view a codex entry's edit history,
   so that I can see how it changed over time.
 - **Acceptance criteria:**
@@ -71,7 +71,7 @@
 
 ### US-083 — Member restores an entry to an earlier version
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-074
-- **Status:** proposed
+- **Status:** deferred
 - **Story:** As a book member, I want to restore a codex entry to an earlier
   version, so that I can undo an unwanted change.
 - **Acceptance criteria:**
@@ -98,7 +98,7 @@
 
 ### US-085 — The codex is invisible to readers and non-members
 - **Feature:** FEAT-017 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-071
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want the codex hidden from readers and
   non-members, so that behind-the-scenes lore isn't exposed alongside the
   public book.

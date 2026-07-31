@@ -3,7 +3,7 @@
 
 ### US-001 — First-run: create DB + admin
 - **Feature:** FEAT-001 · **Actor:** ACT-003 · **Realizes:** UC-001
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a first-run operator, I want to create a new database with a
   first admin account, so that I can start using an otherwise empty instance.
 - **Acceptance criteria:**
@@ -22,7 +22,7 @@
 
 ### US-002 — First-run: import DB
 - **Feature:** FEAT-001 · **Actor:** ACT-003 · **Realizes:** UC-002
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a first-run operator, I want to import an existing database
   export during first-run, so that I can restore a prior instance's data
   instead of starting empty.

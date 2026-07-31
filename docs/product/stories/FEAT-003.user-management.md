@@ -3,7 +3,7 @@
 
 ### US-005 — Admin lists users
 - **Feature:** FEAT-003 · **Actor:** ACT-001 · **Realizes:** UC-005
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to list all user accounts, so that I can see
   who has access and in what role.
 - **Acceptance criteria:**
@@ -19,7 +19,7 @@
 
 ### US-006 — Admin creates user
 - **Feature:** FEAT-003 · **Actor:** ACT-001 · **Realizes:** UC-006
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to create a new user account with a role, so
   that new admins or authors can access the system.
 - **Acceptance criteria:**
@@ -33,7 +33,7 @@
 
 ### US-007 — Admin resets password
 - **Feature:** FEAT-003 · **Actor:** ACT-001 · **Realizes:** UC-007
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to reset a user's password, so that they can
   regain access or I can recover from a lost credential.
 - **Acceptance criteria:**
@@ -47,7 +47,7 @@
 
 ### US-008 — Admin changes role
 - **Feature:** FEAT-003 · **Actor:** ACT-001 · **Realizes:** UC-008
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to change another user's role, so that I can
   move accounts between admin and author.
 - **Acceptance criteria:**
@@ -61,7 +61,7 @@
 
 ### US-009 — Admin disables user
 - **Feature:** FEAT-003 · **Actor:** ACT-001 · **Realizes:** UC-009
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As an admin, I want to disable a user account, so that it can no
   longer log in while its data is preserved.
 - **Acceptance criteria:**
