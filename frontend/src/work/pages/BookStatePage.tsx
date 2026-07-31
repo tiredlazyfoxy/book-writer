@@ -3,11 +3,13 @@ import { observer } from "mobx-react-lite";
 import { useParams } from "react-router-dom";
 import {
   Alert,
+  Badge,
   Button,
   Container,
   Divider,
   Group,
   Loader,
+  Paper,
   Stack,
   Table,
   Text,
@@ -15,12 +17,26 @@ import {
   Title,
 } from "@mantine/core";
 import type { ISODateString } from "../../types/common";
+import type { ContinuityStatus } from "../../types/continuity";
 import {
   BookStatePageState,
+  loadBookContinuity,
   loadBookState,
+  loadStateNotes,
   loadSystemPrompt,
+  saveStateNotes,
   saveSystemPrompt,
 } from "./bookStatePageState";
+
+/**
+ * Author-facing labels for a continuity artifact's freshness (016). Module-private,
+ * like every other label map on this page's tier — no shared map is exported.
+ */
+const CONTINUITY_STATUS_LABELS: Record<ContinuityStatus, string> = {
+  draft: "Draft",
+  approved: "Approved",
+  stale: "Stale",
+};
 
 /** Render an ISO timestamp for the author, or an em dash when the field is null. */
 function formatTimestamp(value: ISODateString | null): string {
@@ -52,6 +68,10 @@ export const BookStatePage = observer(function BookStatePage() {
     const ctrl = new AbortController();
     void loadBookState(state, bookId ?? "", ctrl.signal);
     void loadSystemPrompt(state, bookId ?? "", ctrl.signal);
+    // 016: two more loads on the SAME controller, filling the page's two stubs. Each
+    // has its own trio and fails independently of the other three.
+    void loadStateNotes(state, bookId ?? "", ctrl.signal);
+    void loadBookContinuity(state, bookId ?? "", ctrl.signal);
     return () => ctrl.abort();
   }, [state]);
 
@@ -85,6 +105,18 @@ export const BookStatePage = observer(function BookStatePage() {
 
   const promptLoading =
     state.systemPromptStatus === "idle" || state.systemPromptStatus === "loading";
+
+  /** Save the book's live state notes; the draft is read off the state by the effect. */
+  const handleSaveStateNotes = () => {
+    if (!state.canSaveStateNotes) return;
+    const ctrl = new AbortController();
+    void saveStateNotes(state, bookId ?? "", ctrl.signal);
+  };
+
+  const stateNotesLoading =
+    state.stateNotesStatus === "idle" || state.stateNotesStatus === "loading";
+  const continuityLoading =
+    state.continuityStatus === "idle" || state.continuityStatus === "loading";
 
   return (
     <Container size="lg" py="md">
@@ -191,11 +223,51 @@ export const BookStatePage = observer(function BookStatePage() {
 
         <Divider />
 
+        {/* THE BOOK'S LIVE STATE NOTES (016; UC-049 / UC-050's direct-edit path —
+            US-052.AC-1, US-053.AC-1). Editable by owner and co-author; a co-author in
+            a PROPOSAL-mode book is refused `403` server-side and reads that refusal
+            here, because this page has no caller-role signal and manufactures none.
+            `""` is a legal save that clears the set, so there is no emptiness check
+            and no delete control. */}
         <Stack gap="xs">
           <Title order={5}>State notes</Title>
           <Text size="sm" c="dimmed">
-            The book's state notes are not yet exposed by the API and cannot be shown here yet.
+            What is true in the book right now — the live set every chapter is written
+            against. A close run proposes the next version of it; you can also edit it
+            directly here.
           </Text>
+
+          {stateNotesLoading ? (
+            <Group py="xs">
+              <Loader size="sm" />
+            </Group>
+          ) : state.stateNotesStatus === "error" ? (
+            <Alert color="red">
+              {state.stateNotesError ?? "Could not load the state notes."}
+            </Alert>
+          ) : (
+            <>
+              {state.stateNotesServerErrors.form && (
+                <Alert color="red">{state.stateNotesServerErrors.form}</Alert>
+              )}
+              <Textarea
+                label="State notes"
+                placeholder="What is established in this book so far?"
+                value={state.stateNotesDraft}
+                autosize
+                minRows={6}
+                error={state.stateNotesServerErrors.active_notes}
+                onChange={(event) => {
+                  state.stateNotesDraft = event.currentTarget.value;
+                }}
+              />
+              <Group>
+                <Button onClick={handleSaveStateNotes} disabled={!state.canSaveStateNotes}>
+                  Save state notes
+                </Button>
+              </Group>
+            </>
+          )}
         </Stack>
 
         <Divider />
@@ -248,12 +320,111 @@ export const BookStatePage = observer(function BookStatePage() {
 
         <Divider />
 
+        {/* PER-CHAPTER CONTINUITY (016; UC-089 / UC-091 — US-104.AC-1,
+            US-106.AC-2 / AC-3). READ-ONLY: one entry per chapter in ordinal order with
+            its summary, its note changeset and its OPEN warnings, all produced by the
+            close run and none of them edited here. */}
         <Stack gap="xs">
           <Title order={5}>Per-chapter continuity</Title>
-          <Text size="sm" c="dimmed">
-            Per-chapter continuity — each chapter's title, summary, after-chapter notes and any
-            active warnings — is delivered by 016.chapter-close-continuity and is not available yet.
-          </Text>
+
+          {continuityLoading ? (
+            <Group py="xs">
+              <Loader size="sm" />
+            </Group>
+          ) : state.continuityStatus === "error" || state.continuity === null ? (
+            <Alert color="red">
+              {state.continuityError ?? "Could not load the per-chapter continuity."}
+            </Alert>
+          ) : state.continuity.items.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              This book has no chapters yet.
+            </Text>
+          ) : (
+            <Stack gap="sm">
+              {state.continuity.items.map((entry) => (
+                <Paper key={entry.chapter_id} withBorder p="sm">
+                  <Stack gap={4}>
+                    <Group gap="sm" align="center">
+                      <Text size="sm" c="dimmed">
+                        {entry.ordinal}
+                      </Text>
+                      <Text size="sm" fw={600}>
+                        {entry.title}
+                      </Text>
+                      {entry.summary_status !== null && (
+                        <Badge
+                          variant="light"
+                          size="sm"
+                          aria-label={CONTINUITY_STATUS_LABELS[entry.summary_status]}
+                        >
+                          {CONTINUITY_STATUS_LABELS[entry.summary_status]}
+                        </Badge>
+                      )}
+                    </Group>
+
+                    {entry.summary === null ? (
+                      <Text size="sm" c="dimmed">
+                        No summary yet.
+                      </Text>
+                    ) : (
+                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                        {entry.summary}
+                      </Text>
+                    )}
+
+                    {entry.changeset !== null && (
+                      /* Three separate deltas, never merged (backend D7). */
+                      <Stack gap={2}>
+                        <Text size="sm" c="dimmed">
+                          Added: {entry.changeset.added === "" ? "—" : entry.changeset.added}
+                        </Text>
+                        <Text size="sm" c="dimmed">
+                          Changed:{" "}
+                          {entry.changeset.modified === "" ? "—" : entry.changeset.modified}
+                        </Text>
+                        <Text size="sm" c="dimmed">
+                          No longer true:{" "}
+                          {entry.changeset.deleted === "" ? "—" : entry.changeset.deleted}
+                        </Text>
+                      </Stack>
+                    )}
+
+                    {/* THE CHAPTER'S ACTIVE WARNINGS, named as warnings.
+                        `frontend-workspace.md` fixes the vocabulary as a project
+                        rule: **"warning" is the author-facing word for a flag** —
+                        the entity, table, DTOs and API stay `flag`, and every
+                        string the author reads says *warning*. The heading, the
+                        per-item accessible label and the empty state all carry the
+                        word, exactly as `ChapterPage`'s own warnings section does,
+                        so an author never sees an unexplained coloured sentence
+                        under a chapter's summary. Open warnings only — the roll-up
+                        carries what still needs attention. */}
+                    <Text size="sm" fw={600}>
+                      Warnings
+                    </Text>
+                    {entry.warnings.length === 0 ? (
+                      <Text size="sm" c="dimmed">
+                        No warnings on this chapter.
+                      </Text>
+                    ) : (
+                      <Stack gap={2}>
+                        {entry.warnings.map((warning) => (
+                          <Text
+                            key={warning.id}
+                            size="sm"
+                            c="orange"
+                            aria-label={`Warning on ${entry.title}: ${warning.comment}`}
+                          >
+                            {warning.comment}
+                          </Text>
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          )}
         </Stack>
       </Stack>
     </Container>

@@ -23,10 +23,11 @@ internals:
     - across a sequence of open / close / reopen calls at most one chapter is ever
       `open` (DoD-5, US-037.AC-1);
     - opening a chapter that is not `planned` is the not-planned reason (DoD-6);
-    - a close writes `closed` DIRECTLY -- never `closing`, no summary, no continuity,
-      no approval record (DoD-7, US-038.AC-1, "The close seam"); a co-author is
-      refused (DoD-8, US-038.AC-2); a close of a chapter that is not `open` is the
-      not-open reason (DoD-9); after a close the slot is genuinely released (DoD-10);
+    - a close moves the chapter to `closing` and writes no summary, no continuity and
+      no approval record of its own (DoD-7, US-038.AC-1 + 016's US-038.AC-3); a
+      co-author is refused (DoD-8, US-038.AC-2); a close of a chapter that is not
+      `open` is the not-open reason (DoD-9); the one-open slot is released once the
+      chapter leaves `closing` for `closed` (DoD-10);
     - the owner reopens a `closed` chapter (DoD-11, US-039.AC-1, UC-037); a reopen
       while a different chapter is `open` (DoD-12, US-039.AC-2, CF1) or `closing`
       (DoD-13, US-038.AC-4) is refused with the another-chapter-open reason; a reopen
@@ -39,8 +40,16 @@ internals:
       written (DoD-17);
     - another book's chapter is NOT FOUND on all three (DoD-18, 014's D4).
 
-US-038.AC-3 (the close gate) is `016`'s and is asserted NOWHERE here (D8). The only
-sanctioned use of `closing` is the seeded row DoD-4 / DoD-9 / DoD-13 / DoD-14 need.
+RE-BOUND by `016.chapter-close-continuity` (`plan.md` -> DoD-1, US-038.AC-3): the
+close gate is now BUILT, so `close_chapter` writes `closing` rather than `closed`,
+and `closing` -- which `_require_open_slot_free` has always treated as slot-holding
+-- is now produced by the transition itself and not only by a seeded row. Only the
+close's DESTINATION moved; every other claim in this module is untouched. What ENDS
+the `closing` window (`finalize_close_turn` / `cancel_close`, the artifacts, the
+check-flag sweep, the stale reopen) is `016`'s and is asserted in
+`tests/test_chapter_close.py`, never here -- so where a case needs a chapter to have
+finished closing, that `closed` row is written straight through `db/chapters.py`,
+the same convention this module already uses to reach a starting state.
 
 Async tests use asyncio_mode = "auto"; the `db` fixture (conftest) supplies an
 initialized throwaway temp-SQLite engine. User / Book / Chapter rows are seeded
@@ -151,6 +160,19 @@ async def _seed_chapter(
             version=version,
         )
     )
+
+
+async def _force_state(chapter_id: int, state: ChapterState) -> Chapter:
+    """Write a chapter's state straight through db/chapters.py, bypassing the service.
+
+    Used only to stand in for the END of a `closing` window -- the step `016` owns and
+    this module deliberately does not exercise. Same convention as `_seed_chapter`: a
+    state this module is not testing is never reached through a transition it is.
+    """
+    row = await chapters.get_by_id(chapter_id)
+    assert row is not None
+    row.state = state
+    return await chapters.update(row)
 
 
 async def _stored(chapter_id: int) -> Chapter:
@@ -299,6 +321,9 @@ async def test_another_books_open_chapter_does_not_hold_the_slot__DoD3_US037_AC2
 # DoD-5 (US-037.AC-1): across a sequence of open / close / reopen calls, at most one
 # of the book's chapters is ever in the `open` state. Each step asserts the
 # transition's OWN success first, so the invariant is never satisfied vacuously.
+# Re-bound by `016`: a close now parks the chapter in `closing`, so each close is
+# followed by the end of that window -- written directly (`_force_state`), because
+# what ENDS a close is `016`'s step and not one of the three transitions under test.
 async def test_at_most_one_open_across_a_sequence__DoD5_US037_AC1(db: DbConfig):
     owner = await _seed_user("sequence-owner")
     book = await _seed_book(owner.id)
@@ -311,10 +336,11 @@ async def test_at_most_one_open_across_a_sequence__DoD5_US037_AC1(db: DbConfig):
     assert opened_a.state == ChapterState.open
     assert await _open_ids(book.id) == [a.id]
 
-    # 2. close A
-    closed_a = await chapters_service.close_chapter(access, str(a.id))
-    assert closed_a.state == ChapterState.closed
+    # 2. close A -- it leaves `open` at once, and its close window then ends.
+    closing_a = await chapters_service.close_chapter(access, str(a.id))
+    assert closing_a.state == ChapterState.closing
     assert await _open_ids(book.id) == []
+    await _force_state(a.id, ChapterState.closed)
 
     # 3. open B
     opened_b = await chapters_service.open_chapter(access, str(b.id))
@@ -322,9 +348,10 @@ async def test_at_most_one_open_across_a_sequence__DoD5_US037_AC1(db: DbConfig):
     assert await _open_ids(book.id) == [b.id]
 
     # 4. close B
-    closed_b = await chapters_service.close_chapter(access, str(b.id))
-    assert closed_b.state == ChapterState.closed
+    closing_b = await chapters_service.close_chapter(access, str(b.id))
+    assert closing_b.state == ChapterState.closing
     assert await _open_ids(book.id) == []
+    await _force_state(b.id, ChapterState.closed)
 
     # 5. reopen A
     reopened_a = await chapters_service.reopen_chapter(access, str(a.id))
@@ -363,14 +390,17 @@ async def test_open_on_a_non_planned_chapter_is_refused__DoD6(
 
 
 # ---------------------------------------------------------------------------
-# DoD-7 — a close writes `closed` DIRECTLY, with no continuity mechanics
+# DoD-7 — a close opens the close window, with no continuity mechanics of its own
 # ---------------------------------------------------------------------------
 
 
-# DoD-7 (US-038.AC-1, context.md -> "The close seam"): the owner closes an `open`
-# chapter and its state becomes `closed` directly -- it does NOT pass through
-# `closing`, and no summary, continuity or approval record is written.
-async def test_close_goes_straight_to_closed__DoD7_US038_AC1(db: DbConfig):
+# DoD-7 (US-038.AC-1, plus `016`'s US-038.AC-3): the owner closes an `open` chapter
+# and its state becomes `closing` -- the gated destination, never `closed` in one
+# step. The close request itself drafts nothing and approves nothing: no summary,
+# no continuity artifact and no approval record is written by it. (Producing those
+# is the close TURN's job, and approving them the finalize step's -- both `016`'s,
+# both asserted in `tests/test_chapter_close.py`.)
+async def test_close_opens_the_close_window__DoD7_US038_AC1(db: DbConfig):
     owner = await _seed_user("close-owner")
     book = await _seed_book(owner.id)
     target = await _seed_chapter(
@@ -380,11 +410,11 @@ async def test_close_goes_straight_to_closed__DoD7_US038_AC1(db: DbConfig):
 
     result = await chapters_service.close_chapter(_access(book.id, owner.id), str(target.id))
 
-    assert result.state == ChapterState.closed
-    assert result.state != ChapterState.closing
+    assert result.state == ChapterState.closing
+    assert result.state != ChapterState.closed
 
     stored = await _stored(target.id)
-    assert stored.state == ChapterState.closed
+    assert stored.state == ChapterState.closing
 
     # Nothing continuity-shaped was drafted, and nothing was approved.
     assert stored.summary == before.summary
@@ -446,13 +476,17 @@ async def test_close_on_a_non_open_chapter_is_refused__DoD9(
 
 
 # ---------------------------------------------------------------------------
-# DoD-10 — a close genuinely releases the slot
+# DoD-10 — the slot is released once the closing chapter reaches `closed`
 # ---------------------------------------------------------------------------
 
 
-# DoD-10: after a close, the book has no chapter in `open` or `closing`, and a
-# DIFFERENT `planned` chapter can then be opened.
-async def test_close_releases_the_slot__DoD10(db: DbConfig):
+# DoD-10, re-bound by `016`: a close no longer releases the slot on its own -- it
+# moves the chapter into `closing`, which `_require_open_slot_free` has always
+# treated as slot-HOLDING (CF1, US-038.AC-4), so a different `planned` chapter still
+# cannot be opened. The slot is genuinely released once the chapter leaves `closing`
+# for `closed`, and only then does the second chapter open. Both halves are asserted
+# so the release claim is not weakened, only correctly located.
+async def test_slot_is_released_when_the_close_completes__DoD10(db: DbConfig):
     owner = await _seed_user("slot-release-owner")
     book = await _seed_book(owner.id)
     access = _access(book.id, owner.id)
@@ -461,9 +495,21 @@ async def test_close_releases_the_slot__DoD10(db: DbConfig):
     )
     second = await _seed_chapter(book.id, ordinal=2, title="Second")
 
-    closed = await chapters_service.close_chapter(access, str(first.id))
-    assert closed.state == ChapterState.closed
+    closing = await chapters_service.close_chapter(access, str(first.id))
+    assert closing.state == ChapterState.closing
 
+    # The chapter left `open` at once...
+    assert await _open_ids(book.id) == []
+    # ...but it still holds the one slot while it is closing, so nothing else opens.
+    assert await _slot_holder_ids(book.id) == [first.id]
+    with pytest.raises(ChapterError) as exc:
+        await chapters_service.open_chapter(access, str(second.id))
+    assert exc.value.reason == ChapterErrorReason.another_chapter_open
+    assert (await _stored(second.id)).state == ChapterState.planned
+
+    # Once the close completes the slot is genuinely free (the step that ends the
+    # `closing` window is `016`'s; here it is written directly).
+    await _force_state(first.id, ChapterState.closed)
     assert await _slot_holder_ids(book.id) == []
 
     opened = await chapters_service.open_chapter(access, str(second.id))
@@ -725,9 +771,9 @@ async def test_close_touches_state_and_modified_at_only__DoD17(db: DbConfig):
         _access(book.id, owner.id), str(target.id)
     )
 
-    assert result.state == ChapterState.closed
+    assert result.state == ChapterState.closing
     stored = await _stored(target.id)
-    assert stored.state == ChapterState.closed
+    assert stored.state == ChapterState.closing
     assert result.modified_at is not None
 
     assert stored.text == before.text

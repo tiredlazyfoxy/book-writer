@@ -18,6 +18,7 @@
 // unimplemented in a `.d.ts`.
 
 import type { ISODateString } from "./common";
+import type { ContinuityStatus } from "./continuity";
 
 /**
  * A chapter's lifecycle state on the wire — mirrors backend `ChapterState`
@@ -38,10 +39,16 @@ export type ChapterLifecycleState = "planned" | "open" | "closing" | "closed";
  * One chapter as surfaced to a book member (list / get / create / sketch-update
  * results) — mirrors backend `ChapterResponse` field-for-field.
  *
- * Deliberately carries **no `text`, no `summary` and no `summary_status`**: the body
- * belongs to `015.chapter-writing-free-mode` and the summary to
- * `016.chapter-close-continuity`. `version` tracks the *body* and is never bumped by a
- * sketch edit (decision D6). `ordinal` is server-assigned and 1-based.
+ * Deliberately carries **no `text`**: the body belongs to
+ * `015.chapter-writing-free-mode` and is its own sub-resource (D13). `version` tracks
+ * the *body* and is never bumped by a sketch edit (decision D6). `ordinal` is
+ * server-assigned and 1-based.
+ *
+ * **`016.chapter-close-continuity` adds `summary` and `summary_status`** — the two
+ * fields this declaration previously reserved for it. They ride on the chapter DTO
+ * rather than on a sub-resource of their own: a summary is a short field the chapter
+ * view and the continuity roll-up both want, so it costs nothing on a list render.
+ * Both are `null` on a chapter that has never been closed.
  */
 export interface ChapterResponse {
   id: string;
@@ -51,6 +58,8 @@ export interface ChapterResponse {
   state: ChapterLifecycleState;
   sketch: string;
   version: number;
+  summary: string | null;
+  summary_status: ContinuityStatus | null;
   created_at: ISODateString | null;
   modified_at: ISODateString | null;
 }

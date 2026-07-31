@@ -47,12 +47,17 @@ frozen.
 import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from app.db import chapter_changes, chapter_text_revisions, chapters
+from app.db import books as books_db
+from app.db import chapter_changes, chapter_note_changesets, chapter_text_revisions, chapters
+from app.db import flags as flags_db
 from app.models.book import BookState, CollaborationMode
-from app.models.chapter import Chapter, ChapterState
+from app.models.chapter import Chapter, ChapterState, SummaryStatus
 from app.models.chapter_change import ChangeStatus, ChapterChange, PlacementKind
+from app.models.chapter_notes import NoteStatus
 from app.models.chapter_text_revision import ChapterTextRevision
+from app.models.flag import FlagOrigin, FlagStatus
 from app.models.schemas.chapters import (
     ChapterListResponse,
     ChapterResponse,
@@ -64,6 +69,13 @@ from app.models.schemas.chapters import (
 )
 from app.services import authz
 from app.services.authz import AccessRole, BookAccess, Capability
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard, see finalize_close_turn
+    # ``services/tools.py`` reaches this module's world through
+    # ``services/close_tools.py``, so a runtime import of the tool context here
+    # would close a cycle. The annotation is quoted instead — the
+    # ``chapter_tools.py`` / ``codex_tools.py`` discipline, applied one layer up.
+    from app.services.tools import ToolContext
 
 
 class ChapterErrorReason(str, enum.Enum):
@@ -158,8 +170,8 @@ def _to_response(chapter: Chapter) -> ChapterResponse:
     The single mapper for every entry point, so no response can drift, and the
     single place a snowflake becomes a string: ``id`` and ``book_id`` are
     surfaced as ``str``. Copies ``ordinal`` / ``title`` / ``state`` / ``sketch``
-    / ``version`` and both timestamps, and omits ``text``, ``summary``,
-    ``summary_status`` and ``system_prompt``.
+    / ``version``, **``summary`` / ``summary_status`` (016)** and both
+    timestamps, and omits ``text`` and ``system_prompt``.
     """
     return ChapterResponse(
         id=str(chapter.id),
@@ -169,6 +181,10 @@ def _to_response(chapter: Chapter) -> ChapterResponse:
         state=chapter.state,
         sketch=chapter.sketch,
         version=chapter.version,
+        # 016: the two continuity fields 014 reserved. Plain column copies —
+        # both are ``None`` on a chapter that has never been closed.
+        summary=chapter.summary,
+        summary_status=chapter.summary_status,
         created_at=chapter.created_at,
         modified_at=chapter.modified_at,
     )
@@ -748,26 +764,33 @@ async def open_chapter(access: BookAccess, chapter_id: str) -> ChapterResponse:
 
 
 async def close_chapter(access: BookAccess, chapter_id: str) -> ChapterResponse:
-    """Move an ``open`` chapter **straight to** ``closed`` (``POST …/close``;
-    UC-036 partly, US-038.AC-1; decision D8 and ``context.md`` → "The close
-    seam").
+    """Open the close window: move an ``open`` chapter to ``closing``
+    (``POST …/close``; UC-036, US-038.AC-1 / US-038.AC-3; decision D5).
 
     1. ``authz.require(access, Capability.set_chapter_state)`` — owner only
        (US-038.AC-2);
     2. :func:`_require_not_archived`;
     3. :func:`_resolve_chapter`;
     4. ``ChapterError(chapter_not_open)`` unless ``chapter.state`` is
-       ``ChapterState.open`` — step 001's reason **reused** with this call
-       site's own message; ``planned``, ``closing`` and ``closed`` all refuse;
-    5. ``chapter.state = ChapterState.closed``, ``modified_at`` stamped, then
+       ``ChapterState.open`` — 015 step 001's reason **reused** with this call
+       site's own message; ``planned``, ``closing`` and ``closed`` all refuse,
+       and **no new reason member is minted** for the new destination;
+    5. **delete every ``origin=check`` ``Flag`` on the chapter FIRST**
+       (``db/flags.delete_check_flags_by_chapter``, decision D6). Only *this*
+       run's findings may ever block the close, and an ``origin=person`` flag is
+       advisory and survives untouched. Deleting before the state moves is what
+       makes a failed write leave the chapter ``open`` with nothing claimed;
+    6. ``chapter.state = ChapterState.closing`` — **not** ``closed``, which is
+       what 015 shipped as a placeholder — ``modified_at`` stamped, then
        ``db/chapters.update``;
-    6. return :func:`_to_response`.
+    7. return :func:`_to_response`.
 
-    **It never writes ``ChapterState.closing``**, drafts no continuity, writes
-    no summary and requires no approval — the close gate is a Stage-4 behaviour
-    and 016 changes this destination constant in exactly one place. Do not add a
-    flag, a parameter, a config switch or a marker row anticipating it. No
-    open-slot guard runs here: a close only ever **releases** the slot.
+    **No LLM call happens here** (decision D5): this endpoint only opens the
+    window. The chat pane then posts the close turn, and
+    :func:`finalize_close_turn` decides the outcome when that turn ends. No
+    open-slot guard runs: ``closing`` still holds the slot
+    (:func:`_require_open_slot_free` has always counted it), so nothing is
+    released and nothing has to be re-checked.
     """
     authz.require(access, Capability.set_chapter_state)
     _require_not_archived(access)
@@ -777,7 +800,12 @@ async def close_chapter(access: BookAccess, chapter_id: str) -> ChapterResponse:
             ChapterErrorReason.chapter_not_open,
             "Only an open chapter may be closed.",
         )
-    chapter.state = ChapterState.closed
+    # (D6) The previous run's check findings go FIRST: only this run's findings
+    # may block the close, and ``origin=person`` flags are advisory and are left
+    # exactly as they are — the origin filter is the db query's, not a policy
+    # applied to rows out here.
+    await flags_db.delete_check_flags_by_chapter(chapter.id)
+    chapter.state = ChapterState.closing
     chapter.modified_at = datetime.now(timezone.utc)
     await chapters.update(chapter)
     return _to_response(chapter)
@@ -804,6 +832,15 @@ async def reopen_chapter(access: BookAccess, chapter_id: str) -> ChapterResponse
     later edit produces comes from the ordinary save path
     (:func:`save_chapter_text`) and belongs to ``018`` — nothing here marks a
     chapter as "reopened".
+
+    **016 adds the stale-marking (US-055.AC-1).** A reopened chapter has moved
+    on, so both continuity artifacts stop describing it: ``summary_status``
+    becomes ``SummaryStatus.stale`` and, when a ``ChapterNoteChangeset`` row
+    exists, its ``status`` becomes ``NoteStatus.stale``. Neither text is
+    deleted — a stale summary is still the best account of the chapter until it
+    closes again. A chapter with **no** changeset row is a no-op on that half
+    (defensive; only reachable for a chapter closed under the pre-016 ungated
+    path).
     """
     authz.require(access, Capability.set_chapter_state)
     _require_not_archived(access)
@@ -815,6 +852,227 @@ async def reopen_chapter(access: BookAccess, chapter_id: str) -> ChapterResponse
         )
     await _require_open_slot_free(access, chapter)
     chapter.state = ChapterState.open
+    # (016 / US-055.AC-1) The summary survives, but it no longer describes a
+    # closed chapter: it is marked stale rather than cleared.
+    chapter.summary_status = SummaryStatus.stale
     chapter.modified_at = datetime.now(timezone.utc)
     await chapters.update(chapter)
+    # The changeset's half of the same claim. No row is a no-op, never an error.
+    changeset = await chapter_note_changesets.get_by_chapter(chapter.id)
+    if changeset is not None:
+        changeset.status = NoteStatus.stale
+        changeset.modified_at = chapter.modified_at
+        await chapter_note_changesets.update(changeset)
+    return _to_response(chapter)
+
+
+# ---------------------------------------------------------------------------
+# 016.chapter-close-continuity — the gated close (this feature).
+#
+# Three of this module's functions carry 016's changes, and **two of them keep
+# their 015 signatures exactly**:
+#
+# - :func:`close_chapter` — MODIFIED. Its destination becomes ``closing``
+#   instead of ``closed`` (the one constant 015's docstring named as 016's), and
+#   it first deletes every ``origin=check`` ``Flag`` on the chapter
+#   (``db/flags.delete_check_flags_by_chapter``, decision D6). It mints **no new
+#   reason**: every non-``open`` source state keeps refusing with
+#   ``ChapterErrorReason.chapter_not_open``.
+# - :func:`reopen_chapter` — MODIFIED. On ``closed → open`` it additionally sets
+#   ``Chapter.summary_status = SummaryStatus.stale`` and, when a
+#   ``ChapterNoteChangeset`` row exists for the chapter, its ``status =
+#   NoteStatus.stale`` (US-055.AC-1). A chapter with no changeset row is a no-op
+#   on that half — defensive, and only reachable for a chapter closed under the
+#   pre-016 ungated path.
+# - :func:`cancel_close` and :func:`finalize_close_turn` are NEW, below.
+#
+# The two new functions are the only ones this skeleton declares; the two
+# modifications above are body-level and are the coder's, so both existing
+# functions are left exactly as 015 shipped them.
+# ---------------------------------------------------------------------------
+
+
+async def cancel_close(access: BookAccess, chapter_id: str) -> ChapterResponse:
+    """Abandon a chapter's close run, returning it to ``open`` and discarding
+    every draft artifact the run produced (``POST …/close/cancel``; decision D4,
+    the Stop path — UC-074's "return to open", US-074.AC-1).
+
+    In order:
+
+    1. ``authz.require(access, Capability.set_chapter_state)`` — **owner only**,
+       the very capability ``POST …/close`` requires, so no new capability is
+       minted for the cancel;
+    2. :func:`_require_not_archived`;
+    3. :func:`_resolve_chapter` — another book's chapter is ``not_found``;
+    4. **when ``chapter.state`` is not ``closing``: return the unchanged
+       response** — a **200 no-op**, not a refusal. Cancelling a close that is
+       not running is exactly what a client racing the turn's own completion
+       does, and answering 409 there would surface a failure for something that
+       already holds;
+    5. otherwise wipe: ``chapter.state = ChapterState.open``,
+       ``chapter.summary = None``, ``chapter.summary_status = None``,
+       ``modified_at`` stamped here, ``db/chapters.update``, and
+       ``db/chapter_note_changesets.delete_by_chapter(chapter.id)`` — the **same
+       wipe** :func:`finalize_close_turn`'s failure branch performs, which is
+       what makes D7's "nothing was ever applied" true: ``Book.active_notes`` is
+       never written on this path, because the proposal only ever lived in the
+       turn's :class:`~app.services.tools.ToolContext`;
+    6. return :func:`_to_response` over the stored chapter.
+
+    It touches no ``ChapterChange``, no ``ChapterTextRevision``, no ``version``
+    and no ``Flag``: a cancelled run leaves the chapter's body and its warnings
+    exactly as it found them.
+    """
+    authz.require(access, Capability.set_chapter_state)
+    _require_not_archived(access)
+    chapter = await _resolve_chapter(access, chapter_id)
+    if chapter.state != ChapterState.closing:
+        # A 200 NO-OP, not a refusal: cancelling a close that is not running is
+        # exactly what a client racing the turn's own completion does, and a 409
+        # there would surface a failure for something that already holds.
+        return _to_response(chapter)
+    await _wipe_close_artifacts(chapter)
+    return _to_response(chapter)
+
+
+async def _wipe_close_artifacts(chapter: Chapter) -> None:
+    """Return ``chapter`` to ``open`` and discard everything a close run wrote.
+
+    The **one** wipe, shared by :func:`cancel_close` and by
+    :func:`finalize_close_turn`'s failure branch, so a stopped run and a failed
+    one can never diverge: ``state`` back to ``open``, ``summary`` and
+    ``summary_status`` cleared, ``modified_at`` stamped **here** (timestamps are
+    the service's, never ``db/``'s), the chapter persisted, and the chapter's
+    ``ChapterNoteChangeset`` row deleted.
+
+    **``Book.active_notes`` is never touched.** That is what decision D7 buys:
+    the run's proposal only ever lived in the turn's ``ToolContext``, so there is
+    nothing applied to undo.
+
+    The wipe is **uniform, not history-aware** (an accepted risk): a *re*-close
+    that fails deletes the chapter's prior stale changeset along with this run's
+    draft, since no changeset history mechanism exists.
+    """
+    chapter.state = ChapterState.open
+    chapter.summary = None
+    chapter.summary_status = None
+    chapter.modified_at = datetime.now(timezone.utc)
+    await chapters.update(chapter)
+    # Deleting for a chapter with no changeset row is a no-op, which is what
+    # makes the wipe idempotent.
+    await chapter_note_changesets.delete_by_chapter(chapter.id)
+    return None
+
+
+async def finalize_close_turn(
+    access: BookAccess,
+    chapter_id: str,
+    tool_context: "ToolContext",
+) -> ChapterResponse:
+    """Decide a close run's outcome deterministically once its turn has ended
+    (decision D5 — "the frontend posts the turn, the backend decides"; UC-047,
+    and UC-048 only in the divergent sense recorded in ``outcome.md``).
+
+    Called **once** by ``services/chat_turn.py`` when a close-chapter turn
+    reaches natural completion — success **or** an ``error`` frame — and skipped
+    on a client cancellation, whose recovery is :func:`cancel_close`. The model
+    never decides the outcome; this function reads four independent facts and
+    routes:
+
+    - ``Chapter.summary_status`` — is there a drafted summary?
+    - the chapter's ``ChapterNoteChangeset.status`` — is there a drafted
+      changeset?
+    - ``tool_context.active_notes_proposal`` — did ``propose_active_notes`` run?
+      **``""`` is a legitimate proposal; ``None`` (never called) is not**
+      (decision D7);
+    - any **open ``origin=check``** ``Flag`` on the chapter — did the consistency
+      check find something blocking?
+
+    **The clean branch** — ``summary_status == draft`` AND a changeset row exists
+    with ``status == draft`` AND ``active_notes_proposal is not None`` AND no
+    open ``origin=check`` flag:
+
+        ``chapter.state = ChapterState.closed``,
+        ``chapter.summary_status = SummaryStatus.approved``,
+        ``changeset.status = NoteStatus.approved``,
+        ``Book.active_notes = tool_context.active_notes_proposal``, then persist.
+
+    Both artifacts become ``approved`` in the **same step** as ``closed``: there
+    is no approval gate (decision D3).
+
+    **Every other case** — including a ``None`` proposal — routes to ``open``
+    with the artifacts wiped, exactly as :func:`cancel_close` wipes them
+    (``summary`` / ``summary_status`` cleared, the changeset row deleted).
+    **``Book.active_notes`` is never written on this branch**: treating an
+    uncalled tool as an implicit ``""`` would silently erase every accumulated
+    note in the book, which is the one failure that field exists to prevent.
+
+    **It never raises for a business-rule outcome.** There is no refusal
+    taxonomy here — every input combination has a defined destination — which is
+    what lets ``chat_turn.py`` call it from a completion path that has no
+    refusal channel left to speak on.
+
+    The wipe is **uniform, not history-aware** (an accepted risk): a *re*-close
+    that fails deletes the chapter's prior stale changeset along with this run's
+    draft, since no changeset history mechanism exists.
+    """
+    # No ``authz.require`` and no archived gate: this is not an author-facing
+    # entry point at all — ``chat_turn`` decides whether the finalize runs, and by
+    # the time it calls there is no refusal channel left to speak on. Every input
+    # combination below has a defined destination, so nothing here raises for a
+    # business-rule outcome.
+    chapter = await _resolve_chapter(access, chapter_id)
+
+    changeset = await chapter_note_changesets.get_by_chapter(chapter.id)
+    chapter_flags = await flags_db.list_by_chapter(chapter.id)
+    blocked = any(
+        flag.origin == FlagOrigin.check and flag.status == FlagStatus.open
+        for flag in chapter_flags
+    )
+    proposal = tool_context.active_notes_proposal
+
+    # THE FOUR FACTS. ``proposal is not None`` — never a truthiness test: ``""``
+    # is a legitimate proposal (a book may genuinely end up with no live notes)
+    # and "the tool was never called" is not. Conflating them would let an
+    # uncalled tool erase every accumulated note in the book (decision D7).
+    clean = (
+        chapter.summary_status == SummaryStatus.draft
+        and changeset is not None
+        and changeset.status == NoteStatus.draft
+        and proposal is not None
+        and not blocked
+    )
+
+    if not clean:
+        # Every other case — a missing summary, a missing or non-draft changeset,
+        # an uncalled ``propose_active_notes`` and an open check finding alike —
+        # takes the SAME wipe ``cancel_close`` performs, and ``Book.active_notes``
+        # is not written.
+        await _wipe_close_artifacts(chapter)
+        return _to_response(chapter)
+
+    now = datetime.now(timezone.utc)
+    # Both artifacts become ``approved`` in the SAME step as ``closed``: there is
+    # no approval gate (decision D3).
+    chapter.state = ChapterState.closed
+    chapter.summary_status = SummaryStatus.approved
+    chapter.modified_at = now
+    await chapters.update(chapter)
+
+    # ``changeset`` is non-null on this branch — the ``clean`` test proved it —
+    # but the narrowing is spelled out so the type stays honest.
+    if changeset is not None:
+        changeset.status = NoteStatus.approved
+        changeset.modified_at = now
+        await chapter_note_changesets.update(changeset)
+
+    # THE ONLY WRITE OF ``Book.active_notes`` IN THE WHOLE FEATURE, and only from
+    # the in-run proposal (decision D7). A missing book row is unreachable — the
+    # chapter resolved inside it — and is a no-op rather than a raise.
+    book = await books_db.get_by_id(access.book_id)
+    if book is not None:
+        book.active_notes = proposal if proposal is not None else ""
+        book.modified_at = now
+        await books_db.update(book)
+
     return _to_response(chapter)

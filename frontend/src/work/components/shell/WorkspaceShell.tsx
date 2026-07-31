@@ -6,6 +6,10 @@ import { WorkNavigator } from "./WorkNavigator";
 import { ChatPaneSlot } from "./ChatPaneSlot";
 import { WorkspaceShellState, loadWorkspaceBook } from "./workspaceShellState";
 import { ChatPaneState, loadChatPane, stopChatTurn } from "../chat/chatPaneState";
+import {
+  registerCloseTurnController,
+  unregisterCloseTurnController,
+} from "../../closeTurn";
 
 /**
  * The three-region working page for `/work/:bookId`. Reads `:bookId` from the
@@ -28,9 +32,17 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
 
   useEffect(() => {
     const ctrl = new AbortController();
+    // 016: the pane IS the close-turn controller (`ChatPaneState implements
+    // CloseTurnController`), so the implementation and its identity token are the
+    // same object and nothing extra is threaded anywhere. Registered in the effect
+    // that already owns the pane's lifecycle — no new effect and no new component.
+    registerCloseTurnController(chatPaneState);
     void loadWorkspaceBook(state, bookId ?? "", ctrl.signal);
     void loadChatPane(chatPaneState, bookId ?? "", ctrl.signal);
     return () => {
+      // Identity-guarded inside the registry, so a late unmount whose registration
+      // has already been superseded clears nothing.
+      unregisterCloseTurnController(chatPaneState);
       ctrl.abort();
       // Unmount also aborts any live turn stream (a separate AbortController owned
       // by the pane state, not the load signal) — the unmount half of DoD-10.

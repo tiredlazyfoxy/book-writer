@@ -10,6 +10,7 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
   Paper,
   Stack,
   Text,
@@ -23,14 +24,19 @@ import { ChapterBodyEditor } from "../components/chapter/ChapterBodyEditor";
 import { resolveEditability } from "../subject";
 import {
   ChapterPageState,
-  closeChapterState,
+  cancelChapterCloseRequest,
   editBodyDraft,
   loadChapter,
   loadChapterBody,
+  loadChapterChangeset,
+  loadChapterWarnings,
   loadSystemPrompt,
   openChapterState,
+  raiseChapterFlag,
   reopenChapterState,
+  requestChapterClose,
   resolveBodyConflict,
+  resolveChapterFlag,
   saveChapterBody,
   saveSketch,
   saveSystemPrompt,
@@ -38,6 +44,8 @@ import {
   undoAssistantBodyWrite,
 } from "./chapterPageState";
 import type { ChapterTransition } from "./chapterPageState";
+import type { ContinuityStatus } from "../../types/continuity";
+import type { FlagOrigin, FlagStatus } from "../../types/flags";
 
 /**
  * The VISIBLE label of the one offered transition control — the action word alone.
@@ -49,6 +57,34 @@ const TRANSITION_LABELS: Record<ChapterTransition, string> = {
   open: "Open",
   close: "Close",
   reopen: "Reopen",
+  // 016: the `closing` chapter's one offered transition. The action word is "Stop",
+  // not "Cancel": a `Cancel` button beside a close confirmation would read as
+  // "dismiss this dialog", while what it does is abandon the close run in progress
+  // (decision D4).
+  cancel: "Stop",
+};
+
+/**
+ * Author-facing labels for a continuity artifact's freshness (016). Module-private
+ * and deliberately not exported, exactly as `LIFECYCLE_STATE_LABELS` in
+ * `chapterPageState.ts` is: no shared label map was frozen.
+ */
+const CONTINUITY_STATUS_LABELS: Record<ContinuityStatus, string> = {
+  draft: "Draft",
+  approved: "Approved",
+  stale: "Stale",
+};
+
+/** Author-facing labels for where a warning came from — "the check" or "an author". */
+const FLAG_ORIGIN_LABELS: Record<FlagOrigin, string> = {
+  check: "Consistency check",
+  person: "Raised by an author",
+};
+
+/** Author-facing labels for a warning's lifecycle. */
+const FLAG_STATUS_LABELS: Record<FlagStatus, string> = {
+  open: "Open",
+  resolved: "Resolved",
 };
 
 /**
@@ -124,15 +160,25 @@ const TRANSITION_LABELS: Record<ChapterTransition, string> = {
  * **The state transition (step 008).** EXACTLY ONE control, rendered inside the
  * chapter header's `Group` beside the ordinal and the state badge and only when
  * `state.offeredTransition` is non-null — `planned` → `Open`, `open` → `Close`,
- * `closed` → `Reopen`, `closing` → none — never three with two disabled. Its
- * accessible name widens the visible action word with the chapter
+ * `closed` → `Reopen`, and, since `016`, `closing` → `Stop` — never four with three
+ * disabled. Its accessible name widens the visible action word with the chapter
  * (`Open chapter: {title}`), so it is reachable by role and label. Directly beneath
  * that group, still inside the header stack: the server's refusal
  * (`state.transitionError`) as a red alert, and `state.transitionUnavailableReason`
- * as readable text for the `closing` case, which carries no control beside it. The
- * control is offered to EVERY member and gated on chapter state alone (D14); a
- * non-owner's `403`, an archived book's `403` and the one-open-chapter `409` are all
- * surfaced rather than predicted. NO confirmation dialog, close included (D8).
+ * as readable text whenever a loaded chapter offers nothing. The control is offered
+ * to EVERY member and gated on chapter state alone (D14); a non-owner's `403`, an
+ * archived book's `403` and the one-open-chapter `409` are all surfaced rather than
+ * predicted.
+ *
+ * **The close confirmation, the continuity section and the warnings section
+ * (`016.chapter-close-continuity`).** `Close` is the one transition that asks first:
+ * the control opens a Mantine `Modal` and **posts nothing**, and only the modal's
+ * `Close chapter` control calls `requestChapterClose` (DoD-9) — closing is no longer
+ * a reversible one-click change, it starts an assistant turn that takes over the chat
+ * pane. Below the body: the chapter's summary and note changeset, READ-ONLY (they are
+ * written by the close run's tools, never here), and its warnings — open and resolved,
+ * newest first — with a raise form and a per-warning resolve control, both offered to
+ * every member and both enforced server-side.
  *
  * **The canvas wiring (step 012).** The mount effect registers
  * `state.subjectSource` **with `state.applyDraft`**, so the open chapter is a
@@ -182,6 +228,11 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
     void loadSystemPrompt(state, book, chapterId, ctrl.signal);
     // The third load joins the same single controller and aborts with the others.
     void loadChapterBody(state, book, chapterId, ctrl.signal);
+    // 016: two more loads on the SAME controller — the chapter's warnings and its
+    // note changeset. Each has its own trio and fails independently of the other
+    // four, so neither can blank the chapter, the body or the prompt.
+    void loadChapterWarnings(state, book, chapterId, ctrl.signal);
+    void loadChapterChangeset(state, book, chapterId, ctrl.signal);
     return () => {
       // Unregistering clears the SELECTION too — `contentSubject.ts`'s shipped
       // `clearContentSelection(source)`, identity-guarded on this same token.
@@ -234,12 +285,15 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
   };
 
   /**
-   * Run the ONE transition currently on offer (015/008) — exactly the effect matching
-   * `state.offeredTransition`, never a different one. There is no `closing` branch and
-   * no fallback: `null` means no control was rendered at all.
+   * Run the ONE transition currently on offer — exactly the effect matching
+   * `state.offeredTransition`, never a different one. `null` means no control was
+   * rendered at all.
    *
-   * NO CONFIRMATION DIALOG of any kind, close included — closing is reversible by
-   * reopening, and the approval gate is `016`'s (D8).
+   * **`close` is the exception and posts NOTHING here (016 / DoD-9):** it opens the
+   * confirmation and returns. Closing is no longer a reversible one-click state
+   * change — it starts an assistant turn that takes over the chat pane for its
+   * duration (D1 / D4) — which is a thing to say out loud before it happens. The
+   * other three go straight to their effect, as 015 shipped them.
    */
   const handleTransition = () => {
     switch (state.offeredTransition) {
@@ -247,14 +301,42 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
         void openChapterState(state, book, chapterId);
         return;
       case "close":
-        void closeChapterState(state, book, chapterId);
+        // ASKS, does not post. `requestChapterClose` runs only from the dialog's
+        // affirmative control below.
+        state.closeConfirmOpen = true;
         return;
       case "reopen":
         void reopenChapterState(state, book, chapterId);
         return;
+      case "cancel":
+        // Stop: abandon the close run (D4). It aborts the live stream AND posts
+        // `close/cancel`, which is what returns the chapter to `open`.
+        void cancelChapterCloseRequest(state, book, chapterId);
+        return;
       default:
         return;
     }
+  };
+
+  /** The confirmed close — the only caller of `requestChapterClose` (016 / DoD-9). */
+  const handleConfirmClose = () => {
+    void requestChapterClose(state, book, chapterId);
+  };
+
+  /** Dismiss the close confirmation, having posted nothing. */
+  const handleDismissClose = () => {
+    state.closeConfirmOpen = false;
+  };
+
+  /** Raise a warning from the draft comment; the draft is cleared only on acceptance. */
+  const handleRaiseFlag = () => {
+    if (state.raiseFlagDraft.trim() === "") return;
+    void raiseChapterFlag(state, book, chapterId, state.raiseFlagDraft);
+  };
+
+  /** Resolve one warning. Owner-only server-side; a co-author's `403` is surfaced. */
+  const handleResolveFlag = (flagId: string) => {
+    void resolveChapterFlag(state, book, chapterId, flagId);
   };
 
   const chapter = state.chapter;
@@ -283,6 +365,40 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
   return (
     <Container size="lg" py="md">
       <Stack gap="lg">
+        {/* THE CLOSE CONFIRMATION (016 / DoD-9) — the Close control GATES on it:
+            clicking Close posts nothing at all, and only the affirmative control
+            here calls `requestChapterClose`. Rendered at the top of the page's
+            stack, outside every trio branch, so it cannot be unmounted underneath
+            the author by a load that resolves while it is open.
+
+            The affirmative is named "Close chapter" and NOT the bare word "Close",
+            which is Mantine's own dismiss control's name. */}
+        <Modal
+          opened={state.closeConfirmOpen}
+          onClose={handleDismissClose}
+          title="Close this chapter?"
+        >
+          <Stack gap="sm">
+            <Text size="sm">
+              Closing starts a conversation with the assistant: it writes the chapter&apos;s
+              summary, works out what changed in the book&apos;s state notes and checks the
+              chapter against the rest of the book. The chat is unavailable for anything
+              else until it finishes, and the chapter only closes if the run comes back
+              clean.
+            </Text>
+            <Text size="sm" c="dimmed">
+              You can stop it at any time from this page. Stopping discards whatever the
+              run had drafted and returns the chapter to Open.
+            </Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={handleDismissClose}>
+                Keep writing
+              </Button>
+              <Button onClick={handleConfirmClose}>Close chapter</Button>
+            </Group>
+          </Stack>
+        </Modal>
+
         {/* THE CHAPTER TRIO — its own loading and error branches. The prompt
             section below is a sibling, so neither branch can hide it (DoD-11). */}
         {chapterLoading ? (
@@ -582,6 +698,179 @@ export const ChapterPage = observer(function ChapterPage(): ReactElement {
               <Markdown>{body.text}</Markdown>
             </>
           )}
+        </Stack>
+
+        <Divider />
+
+        {/* THE CHAPTER'S CONTINUITY (016) — its summary and its note changeset, both
+            READ-ONLY here: they are written by the close run's assistant tools and by
+            nothing on the client, which is why there is no draft and no save control
+            in this section. A chapter that has never been closed has neither, and says
+            so rather than rendering an empty box (DoD-12). */}
+        <Stack gap="xs">
+          <Title order={5}>Chapter continuity</Title>
+
+          <Group gap="sm" align="center">
+            <Text size="sm" fw={600}>
+              Summary
+            </Text>
+            {chapter?.summary_status != null && (
+              <Badge
+                variant="light"
+                size="sm"
+                aria-label={CONTINUITY_STATUS_LABELS[chapter.summary_status]}
+              >
+                {CONTINUITY_STATUS_LABELS[chapter.summary_status]}
+              </Badge>
+            )}
+          </Group>
+          {chapter?.summary ? (
+            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+              {chapter.summary}
+            </Text>
+          ) : (
+            <Text size="sm" c="dimmed">
+              This chapter has no summary yet. One is written when the chapter is closed.
+            </Text>
+          )}
+
+          {state.changesetStatus === "error" ? (
+            <Alert color="red" title="Could not load the state-note changeset">
+              <Text size="sm">{state.changesetError}</Text>
+            </Alert>
+          ) : (
+            <>
+              <Group gap="sm" align="center">
+                <Text size="sm" fw={600}>
+                  What this chapter changed
+                </Text>
+                {state.changeset?.status != null && (
+                  <Badge
+                    variant="light"
+                    size="sm"
+                    aria-label={CONTINUITY_STATUS_LABELS[state.changeset.status]}
+                  >
+                    {CONTINUITY_STATUS_LABELS[state.changeset.status]}
+                  </Badge>
+                )}
+              </Group>
+              {state.changeset === null || state.changeset.status === null ? (
+                <Text size="sm" c="dimmed">
+                  Nothing has been recorded against the book&apos;s state notes for this
+                  chapter yet.
+                </Text>
+              ) : (
+                /* THREE SEPARATE DELTAS and no merged view: there is no correct
+                   mechanical merge of three free-text deltas (backend D7). */
+                <Stack gap={4}>
+                  <Text size="sm" c="dimmed">
+                    Added
+                  </Text>
+                  <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                    {state.changeset.added === "" ? "—" : state.changeset.added}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    Changed
+                  </Text>
+                  <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                    {state.changeset.modified === "" ? "—" : state.changeset.modified}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    No longer true
+                  </Text>
+                  <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                    {state.changeset.deleted === "" ? "—" : state.changeset.deleted}
+                  </Text>
+                </Stack>
+              )}
+            </>
+          )}
+        </Stack>
+
+        <Divider />
+
+        {/* THE CHAPTER'S WARNINGS (016; UC-067 / UC-068) — open AND resolved, newest
+            first, each with where it came from. Raising is offered to every member and
+            resolving is owner-only SERVER-SIDE: this page has no caller-role signal
+            (the D14 rule), so both controls are rendered and the server's refusal is
+            what the author reads. */}
+        <Stack gap="xs">
+          <Title order={5}>Warnings</Title>
+
+          {state.warningsError !== null && (
+            <Alert color="red" title="Could not load or change the warnings">
+              <Text size="sm">{state.warningsError}</Text>
+            </Alert>
+          )}
+
+          {state.warningsStatus === "idle" || state.warningsStatus === "loading" ? (
+            <Group py="xs">
+              <Loader size="sm" />
+            </Group>
+          ) : state.warnings.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              No warnings on this chapter.
+            </Text>
+          ) : (
+            <Stack gap="xs">
+              {state.warnings.map((warning) => (
+                <Paper key={warning.id} withBorder p="sm">
+                  <Stack gap={4}>
+                    <Group gap="sm" align="center">
+                      <Badge
+                        variant="light"
+                        size="sm"
+                        aria-label={FLAG_STATUS_LABELS[warning.status]}
+                      >
+                        {FLAG_STATUS_LABELS[warning.status]}
+                      </Badge>
+                      <Text size="sm" c="dimmed">
+                        {FLAG_ORIGIN_LABELS[warning.origin]}
+                      </Text>
+                    </Group>
+                    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                      {warning.comment}
+                    </Text>
+                    {warning.status === "open" && (
+                      <Group>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          aria-label={`Resolve warning: ${warning.comment}`}
+                          disabled={state.raiseFlagSubmitStatus === "loading"}
+                          onClick={() => handleResolveFlag(warning.id)}
+                        >
+                          Resolve
+                        </Button>
+                      </Group>
+                    )}
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          )}
+
+          <Textarea
+            label="Raise a warning"
+            placeholder="What is wrong with this chapter, stated so someone can act on it?"
+            value={state.raiseFlagDraft}
+            autosize
+            minRows={2}
+            onChange={(event) => {
+              state.raiseFlagDraft = event.currentTarget.value;
+            }}
+          />
+          <Group>
+            <Button
+              onClick={handleRaiseFlag}
+              disabled={
+                state.raiseFlagDraft.trim() === "" ||
+                state.raiseFlagSubmitStatus === "loading"
+              }
+            >
+              Raise warning
+            </Button>
+          </Group>
         </Stack>
 
         <Divider />

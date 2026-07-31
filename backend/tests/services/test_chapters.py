@@ -48,8 +48,10 @@ authorization matrix / D5 / D6), never from implementation internals:
     - the list is ordered by ordinal ascending and `can_reorder` is true only for the
       owner (DoD-13, the wire contract);
     - every response carries string ids and exactly the wire contract's field set --
-      no body text, no summary, no summary status -- and no ORM object escapes the
-      service (DoD-14).
+      no body text -- and no ORM object escapes the service (DoD-14). RE-BOUND by
+      `016.chapter-close-continuity`: `summary` and `summary_status` ARE on the wire
+      now (`status.md` -> `## Skeleton`; `plan.md` DoD-12), so the closed set widens
+      by those two and only those two. The body text is still off the wire.
 
 002.context.md forbids asserting `read_book`'s READER behaviour here (the reader
 surface is the Reader SPA, out of scope): DoD-3 and DoD-12 are written against members
@@ -81,7 +83,12 @@ from app.services.authz import AccessRole, BookAccess, BookAuthorizationError
 from app.services.chapters import ChapterError, ChapterErrorReason
 
 
-# The exact ChapterResponse field set, from context.md -> "The wire contract".
+# The exact ChapterResponse field set, from context.md -> "The wire contract",
+# RE-BOUND by `016.chapter-close-continuity`: `status.md` -> `## Skeleton` re-froze
+# `ChapterResponse` with two additional REQUIRED fields, `summary` and
+# `summary_status` (`plan.md` -> Interface; DoD-12). The closed-set claim below is
+# therefore widened by exactly those two -- and by nothing else: the body TEXT is
+# still absent, and so is the system prompt.
 WIRE_FIELDS = {
     "id",
     "book_id",
@@ -92,6 +99,8 @@ WIRE_FIELDS = {
     "version",
     "created_at",
     "modified_at",
+    "summary",
+    "summary_status",
 }
 
 
@@ -828,8 +837,8 @@ async def test_can_reorder_is_owner_only__DoD13(db: DbConfig):
 # ---------------------------------------------------------------------------
 
 
-# DoD-14: ChapterResponse carries exactly the wire contract's fields -- no body text,
-# no summary, no summary status.
+# DoD-14: ChapterResponse carries exactly the wire contract's fields -- no body text.
+# Re-bound by `016`: the contract now includes `summary` / `summary_status`.
 def test_chapter_response_exposes_only_the_wire_fields__DoD14():
     assert set(ChapterResponse.model_fields) == WIRE_FIELDS
 

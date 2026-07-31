@@ -89,6 +89,18 @@ from app.services.chapter_tools import (
     bind_set_chapter_text,
     bind_update_selection,
 )
+from app.services.close_tools import (
+    DraftChapterNotesArgs,
+    DraftChapterSummaryArgs,
+    ProposeActiveNotesArgs,
+    RaiseCheckFlagArgs,
+    ReadContinuityContextArgs,
+    bind_draft_chapter_notes,
+    bind_draft_chapter_summary,
+    bind_propose_active_notes,
+    bind_raise_check_flag,
+    bind_read_continuity_context,
+)
 from app.services.codex_tools import (
     CodexEntryReadArgs,
     CodexSearchArgs,
@@ -120,11 +132,11 @@ logger = logging.getLogger(__name__)
 FrameEmitter = Callable[[str, BaseModel], Awaitable[None]]
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolContext:
     """What a **bound** tool needs from the turn it runs inside.
 
-    A frozen typed record (the ``ToolDef`` / ``ParentTurn`` / ``ResolvedSubject``
+    A typed record (the ``ToolDef`` / ``ParentTurn`` / ``ResolvedSubject``
     precedent — no free dictionaries), built once per turn by
     ``services/chat_turn.py:run_turn`` and closed over by every bound tool's
     callable, because the ``llm`` client passes no context argument.
@@ -158,8 +170,27 @@ class ToolContext:
       range, no anchor (``015/context.md`` → D5) — and never persisted. ``None``
       when nothing is selected, which is also the whole test a selection-write
       tool applies before refusing.
+    - ``active_notes_proposal`` — the book's proposed live note set for **this
+      close run**, written **in place** by
+      ``services/close_tools.py:propose_active_notes`` and read once by
+      ``services/chapters.py:finalize_close_turn`` (016, decision D7). It is the
+      one field a tool WRITES rather than reads, and it is why this record is
+      **no longer** ``frozen=True``: the proposal must survive from the tool call
+      to the post-turn finalize step without ever being persisted, which is
+      exactly what makes a stopped or failed close run free to discard —
+      ``Book.active_notes`` is never written until a run finishes cleanly.
 
-    All four non-``book_id`` fields **default**, so step 009's
+      ``None`` means ``propose_active_notes`` was **never called**, and routes
+      the run to the wipe branch; ``""`` is a legitimate proposal and does not.
+      The two are never conflated.
+
+    **This record was ``frozen=True`` through 015 and is not any more** (016).
+    Nothing hashes a ``ToolContext`` or uses one as a dict key, and no
+    construction site changes; the mutation is confined to the field above, while
+    every other field is still written once at build time by
+    ``chat_turn.run_turn`` and only read thereafter.
+
+    All five non-``book_id`` fields **default**, so step 009's
     ``ToolContext(book_id=…)`` construction keeps binding and a caller with no
     turn to speak of (a sub-agent built without one) still gets a usable record —
     a tool that needs a field it was not given refuses with a string rather than
@@ -177,6 +208,7 @@ class ToolContext:
     subject: "ResolvedSubject | None" = None
     emit_frame: FrameEmitter | None = None
     selection_text: str | None = None
+    active_notes_proposal: str | None = None
 
 
 # A ``ToolDef.binder``: given the turn's context, return the callable to
@@ -323,6 +355,77 @@ TOOL_REGISTRY: list[ToolDef] = [
         ),
         args_schema=AddTextArgs,
         binder=bind_add_text,
+    ),
+    # The five CLOSE entries (016). All bound, all context-bearing, and — like
+    # 015's four — **shipped unreachable**: this feature seeds NO ``mode_tool``
+    # row, and a mode with zero rows is an empty allowlist, so registration alone
+    # grants nothing until an admin selects them for the ``close-chapter`` mode.
+    #
+    # Their descriptions are part of the contract, not prose. Two facts are load
+    # bearing and are stated to the model in every relevant description: the
+    # summary and the changeset are SAVED (unlike every canvas tool, which only
+    # reaches the author's editor), and the chapter is closed by the SERVER after
+    # the turn, never by the model deciding it is done.
+    ToolDef(
+        name="draft_chapter_summary",
+        description=(
+            "Write the summary of the chapter that is being closed: what "
+            "happened in it, as a later chapter would need to know. Send the "
+            "whole summary in one call — it replaces any summary already "
+            "drafted. This is saved on the chapter. It does not close the "
+            "chapter: the server decides that after this conversation ends."
+        ),
+        args_schema=DraftChapterSummaryArgs,
+        binder=bind_draft_chapter_summary,
+    ),
+    ToolDef(
+        name="draft_chapter_notes",
+        description=(
+            "Record what this chapter changed about the book's state, as three "
+            "separate lists: what it added, what it modified, and what it made "
+            "no longer true. Send all three every time; each replaces its own "
+            "list. This is saved against the chapter and is what the resulting "
+            "state notes are worked out from."
+        ),
+        args_schema=DraftChapterNotesArgs,
+        binder=bind_draft_chapter_notes,
+    ),
+    ToolDef(
+        name="propose_active_notes",
+        description=(
+            "Propose the book's state notes as they should read AFTER this "
+            "chapter closes — the previous notes with this chapter's changeset "
+            "worked in. Send the whole set, not just what moved: it replaces "
+            "the book's notes entirely. Nothing is written yet; the proposal "
+            "only takes effect if the chapter closes cleanly, so you must call "
+            "this before you finish or the close cannot complete."
+        ),
+        args_schema=ProposeActiveNotesArgs,
+        binder=bind_propose_active_notes,
+    ),
+    ToolDef(
+        name="raise_check_flag",
+        description=(
+            "Record one consistency problem you found in the chapter being "
+            "closed — something it contradicts, breaks or leaves impossible "
+            "given what the book already establishes. One call per finding, and "
+            "say what an author would need in order to act on it. A finding "
+            "recorded this way stops the chapter from closing until a person "
+            "deals with it, so raise one only for a real inconsistency."
+        ),
+        args_schema=RaiseCheckFlagArgs,
+        binder=bind_raise_check_flag,
+    ),
+    ToolDef(
+        name="read_continuity_context",
+        description=(
+            "Read what this book has established so far: its current state "
+            "notes and the summary of every chapter that has already been "
+            "closed. Use it to check the closing chapter against the rest of "
+            "the book. It takes no arguments and changes nothing."
+        ),
+        args_schema=ReadContinuityContextArgs,
+        binder=bind_read_continuity_context,
     ),
 ]
 

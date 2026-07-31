@@ -91,6 +91,8 @@ import type {
 } from "../../src/types/chapters";
 import { ApiError } from "../../src/api/client";
 import * as chaptersApi from "../../src/api/chapters";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
 import { readBuffer, restoreBufferKey, writeBuffer } from "../../src/work/restoreBuffer";
 import { ChapterPage } from "../../src/work/pages/ChapterPage";
 import { renderWithProviders } from "../support/render";
@@ -108,6 +110,24 @@ vi.mock("../../src/api/chapters", () => ({
   updateOwnChapterSystemPrompt: vi.fn(),
   getChapterText: vi.fn(),
   updateChapterText: vi.fn(),
+}));
+
+// HARNESS ONLY, added by `016.chapter-close-continuity`: the chapter page's mount now
+// also reads the chapter's warnings and its note changeset (`plan.md` -> Interface for
+// `chapterPageState.ts`; DoD-12). Enumerated in factory form and armed benignly in
+// `beforeEach` so the mount cannot reach the network. NOTHING in this file asserts on
+// either, and no assertion here changed.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
 }));
 
 /**
@@ -189,6 +209,8 @@ function makeChapter(overrides: Partial<ChapterResponse> = {}): ChapterResponse 
     version: CHAPTER_VERSION,
     created_at: "2026-01-02T08:00:00Z",
     modified_at: "2026-03-04T09:00:00Z",
+    summary: null,
+    summary_status: null,
     ...overrides,
   };
 }
@@ -367,10 +389,28 @@ function fillBufferStoreWithSiblings(chunkSize: number): string[] {
   }
 }
 
+/**
+ * HARNESS ONLY (`016.chapter-close-continuity`): the page's two new mount reads answer
+ * benignly — no warnings, an empty changeset. Nothing here is asserted on.
+ */
+function armContinuityReads(): void {
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: CHAPTER_ID,
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   editorMounts().length = 0;
   armLoads();
+  armContinuityReads();
 });
 
 /* ------------------------------------------------- DoD-1 — the buffer key and its version */

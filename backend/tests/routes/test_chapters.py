@@ -74,7 +74,12 @@ from app.services import auth
 BASE = "/api/books"
 
 # The exact ChapterResponse field set, from context.md -> "The wire contract":
-# no `text`, no `summary`, no `summary_status`, no `system_prompt`.
+# no `text`, no `system_prompt`.
+#
+# RE-BOUND by `016.chapter-close-continuity`: `status.md` -> `## Skeleton` re-froze
+# `ChapterResponse` with `summary` and `summary_status` as REQUIRED fields
+# (`plan.md` -> Interface; DoD-12), so the closed set widens by exactly those two.
+# The body text and the system prompt are still off this route's wire.
 WIRE_FIELDS = {
     "id",
     "book_id",
@@ -85,6 +90,8 @@ WIRE_FIELDS = {
     "version",
     "created_at",
     "modified_at",
+    "summary",
+    "summary_status",
 }
 
 
@@ -269,7 +276,7 @@ async def test_list_returns_ordinal_ascending_string_ids_no_text__DoD1(http_clie
     for chapter in body["chapters"]:
         assert isinstance(chapter["id"], str)
         assert isinstance(chapter["book_id"], str)
-        # The wire contract carries no body text (and no summary fields).
+        # The wire contract carries no body text.
         assert "text" not in chapter
         assert set(chapter.keys()) == WIRE_FIELDS
 

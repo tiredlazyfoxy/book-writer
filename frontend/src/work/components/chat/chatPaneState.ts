@@ -15,6 +15,8 @@ import {
   readActiveChatId,
   writeActiveChatId,
 } from "../../activeChat";
+import { clearCloseTurnActive } from "../../closeTurn";
+import type { CloseTurnController } from "../../closeTurn";
 import {
   currentContentSelection,
   currentContentSubject,
@@ -140,7 +142,7 @@ function seedSettingsDraft(state: ChatPaneState): void {
   state.settingsDraft.temperature = chat.sampling.temperature;
 }
 
-export class ChatPaneState {
+export class ChatPaneState implements CloseTurnController {
   chats: ChatResponse[] = [];
   chatsStatus: "idle" | "loading" | "ready" | "error" = "idle";
   chatsError: string | null = null;
@@ -199,9 +201,117 @@ export class ChatPaneState {
   /** The live turn's abort handle — owned and returned by `streamPost` — or none. */
   turnController: AbortController | null = null;
 
+  // --- The close-chapter turn (016) ---
+
+  /**
+   * THE CLOSE CURRENTLY IN PROGRESS, or `null` (016).
+   *
+   * **Written only through {@link ChatPaneState.setActive}, which only
+   * `work/closeTurn.ts` calls** — never assigned by page code, never assigned by
+   * an effect in this module. `closeTurn.ts` owns the fact ("is a close running")
+   * because it has to be readable independently of which pane mounted first; this
+   * field is the pane's OBSERVABLE MIRROR of it, pushed in synchronously so the
+   * composer re-renders in the same tick (the paired-observable-bump idiom
+   * `contentSubject.ts` / `chapterUndo.ts` already use).
+   *
+   * It is deliberately NOT derived from `turnStatus`: a page reload mid-close has
+   * no stream running and must still show the composer read-only.
+   */
+  closeTurnActive: { bookId: string; chapterId: string } | null = null;
+
   constructor() {
-    makeAutoObservable(this);
+    // The three `CloseTurnController` members are excluded for the reason
+    // `ChapterPageState` excludes `subjectSource` / `applyDraft`: the module tier
+    // (`work/closeTurn.ts`) holds this object across the module boundary and calls
+    // them itself, and MobX would otherwise wrap each bound member as an action.
+    makeAutoObservable(this, {
+      start: false,
+      stop: false,
+      setActive: false,
+    });
   }
+
+  /**
+   * WHETHER THE COMPOSER IS READ-ONLY (016) — `true` for the whole `closing`
+   * window, driven by {@link ChatPaneState.closeTurnActive} and NOT by
+   * "a stream is running", so a page reload mid-close still renders it read-only
+   * (DoD-9).
+   *
+   * The plan states this as "`closeTurnActive.bookId` matches the pane's own
+   * book". **`ChatPaneState` holds no book id** — every effect in this module takes
+   * `bookId` as an argument, and the shell already remounts the pane per book
+   * (`key={bookId}`), so one pane instance only ever sees one book and the
+   * comparison has nothing to compare against. The coder resolves it as
+   * "a close is active at all"; **no `bookId` field is added to this class** to
+   * manufacture the other side of a comparison that cannot disagree.
+   *
+   * Pure — no side effects, no I/O.
+   */
+  get isComposerReadOnly(): boolean {
+    return this.closeTurnActive !== null;
+  }
+
+  /**
+   * WHY the composer is read-only, as author-facing READABLE TEXT — `null` exactly
+   * when {@link ChatPaneState.isComposerReadOnly} is `false`, and a non-empty
+   * sentence otherwise (the `ChapterPageState.transitionUnavailableReason` shape:
+   * a reason must be text a screen reader and a role/label query can reach, never a
+   * visual state).
+   *
+   * The sentence must say that the chapter is being closed and that the close turn
+   * owns the conversation until it finishes or is stopped — the author's exit is
+   * the chapter page's Stop control, not the composer.
+   *
+   * Pure.
+   */
+  get composerReadOnlyReason(): string | null {
+    if (!this.isComposerReadOnly) return null;
+    return (
+      "This chapter is being closed. The close conversation has this chat until it " +
+      "finishes, so you cannot send a message here. Use Stop on the chapter's page " +
+      "to abandon the close."
+    );
+  }
+
+  /**
+   * `CloseTurnController.start` — post the close turn for `(bookId, chapterId)`.
+   *
+   * A bound arrow property, excluded from `makeAutoObservable`'s annotations. It
+   * delegates to {@link startCloseTurn}, the external effect, so the class keeps no
+   * effectful method of its own (the MobX hard rule) and the registry has something
+   * to call.
+   *
+   */
+  readonly start = (bookId: string, chapterId: string): void => {
+    void startCloseTurn(this, bookId, chapterId);
+  };
+
+  /**
+   * `CloseTurnController.stop` — abort the live close turn, delegating to
+   * {@link stopCloseTurn}. A bound arrow property, as {@link ChatPaneState.start}
+   * is.
+   */
+  readonly stop = (): void => {
+    stopCloseTurn(this);
+  };
+
+  /**
+   * `CloseTurnController.setActive` — the ONLY writer of
+   * {@link ChatPaneState.closeTurnActive}, called synchronously by
+   * `work/closeTurn.ts` so the composer's read-only state changes in the same tick
+   * as the module's own value.
+   *
+   * A bound arrow property. Writes through `runInAction`, changes nothing else, and
+   * never touches the stream: marking a close active does not start one and
+   * clearing it does not stop one.
+   */
+  readonly setActive = (
+    active: { bookId: string; chapterId: string } | null,
+  ): void => {
+    runInAction(() => {
+      this.closeTurnActive = active;
+    });
+  };
 
   /** The chats to show given `showArchived` — active list or the archived view. */
   get visibleChats(): ChatResponse[] {
@@ -809,4 +919,153 @@ async function finishTurn(state: ChatPaneState, bookId: string, chatId: string):
     state.turnError = null;
     state.turnController = null;
   });
+}
+
+// ---------------------------------------------------------------------------
+// THE CLOSE-CHAPTER TURN (`016.chapter-close-continuity`)
+//
+// Closing a chapter is an ORDINARY assistant turn in this pane (decision D1) — not
+// a second streaming subsystem and not a hidden call. These two effects are the
+// pane's half of `work/closeTurn.ts`'s controller seam; the chapter page's half is
+// `chapterPageState.ts`'s `requestChapterClose` / `cancelChapterCloseRequest`.
+//
+// The pane registers ITSELF (`ChatPaneState implements CloseTurnController`) in the
+// shell's existing mount effect and unregisters on unmount — the same effect that
+// already owns `stopChatTurn`. No new effect, no new component, no new registry.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SYNTHETIC PROMPT a close turn posts. The author did not type it, but it is a
+ * real user message in a real chat (decision D1) — the transcript is the point, so
+ * it reads as an instruction rather than as a machine token.
+ *
+ * It names the four things the close procedure must produce and states the one fact
+ * the model would otherwise get wrong: the SERVER decides the outcome once the
+ * conversation ends. The tool descriptions in `services/tools.py` say the same, and
+ * the `close-chapter` mode's own system prompt is an admin's to write.
+ */
+const CLOSE_TURN_PROMPT =
+  "Close this chapter. Read it and the book's continuity so far, then: write the " +
+  "chapter's summary, record what it added to, changed in and removed from the " +
+  "book's state notes, propose the resulting state notes in full, and raise a " +
+  "finding for anything in this chapter that contradicts what the book already " +
+  "establishes. When you are done, the server decides whether the chapter closes.";
+
+/**
+ * POST THE CLOSE TURN for `(bookId, chapterId)` (016; DoD-9).
+ *
+ * Intent: send a **synthetic prompt** through the pane's EXISTING
+ * `chatsApi.streamChatTurn` pipeline — the same handlers {@link sendChatTurn} wires,
+ * the same optimistic-message / streaming-buffer / `turnController` bookkeeping —
+ * with the turn's subject fixed to this chapter (`subject_kind: "chapter"`,
+ * `subject_id: chapterId`) rather than read from `work/contentSubject.ts`: the close
+ * is about the chapter that is closing, whatever the author may have navigated to.
+ *
+ * There is **no second turn runner and no new frame type**: the backend's
+ * `chat_turn.run_turn` streams this turn like any other and finalizes the close
+ * deterministically once it ends (decision D5).
+ *
+ * Its `done` / `error` handling must ALSO call
+ * `work/closeTurn.ts::clearCloseTurnActive()`, so the composer stops being read-only
+ * when the turn finishes either way — the close window ends with the turn, and the
+ * server has already decided the outcome by then.
+ *
+ */
+export async function startCloseTurn(
+  state: ChatPaneState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chat = state.activeChat;
+  // No chat to post into: the close window is already open server-side and the
+  // author's exit is the chapter page's Stop control, so this is a silent no-op
+  // rather than an error. Nothing here may clear the close signal — the chapter
+  // IS closing.
+  if (chat === null || signal?.aborted) return;
+
+  const optimistic: ChatMessageResponse = {
+    id: `pending-user-${Date.now()}`,
+    chat_id: chat.id,
+    role: "user",
+    content: CLOSE_TURN_PROMPT,
+    reasoning: null,
+    position: state.messages.length,
+    created_at: null,
+  };
+
+  runInAction(() => {
+    // The SAME optimistic-message / streaming-buffer bookkeeping `sendChatTurn`
+    // does — this is an ordinary turn in this pane (decision D1), not a second
+    // streaming subsystem. `pendingPrompt` is deliberately NOT cleared: the
+    // author did not type this, and whatever they had half-written survives.
+    state.messages = [...state.messages, optimistic];
+    state.streamingContent = "";
+    state.streamingThinking = "";
+    state.liveThinkingExpanded = false;
+    state.turnStatus = "streaming";
+    state.turnError = null;
+  });
+
+  const controller = await chatsApi.streamChatTurn(
+    bookId,
+    chat.id,
+    CLOSE_TURN_PROMPT,
+    closeTurnStreamHandlers(state, bookId, chat.id),
+    // FIXED to the closing chapter, never read from `work/contentSubject.ts`: the
+    // close is about the chapter that is closing, whatever the author may have
+    // navigated to since. This is what routes the turn into the backend's
+    // `close-chapter` mode and its close tools.
+    { subject_kind: "chapter", subject_id: chapterId, codex_kind: null },
+    // No selection rides on a close turn: nothing is being rewritten in an editor.
+    undefined,
+  );
+  runInAction(() => {
+    state.turnController = controller;
+  });
+}
+
+/**
+ * The close turn's frame handlers: {@link turnStreamHandlers}'s, with `done` and
+ * `error` ALSO releasing the close signal through
+ * `work/closeTurn.ts::clearCloseTurnActive()`.
+ *
+ * The close window ends with the turn either way — the server has already decided
+ * the outcome by the time the terminal frame arrives (decision D5) — so the
+ * composer stops being read-only on both endings and on neither is anything else
+ * about the pane's turn bookkeeping different.
+ */
+function closeTurnStreamHandlers(
+  state: ChatPaneState,
+  bookId: string,
+  chatId: string,
+): chatsApi.TurnStreamHandlers {
+  const base = turnStreamHandlers(state, bookId, chatId);
+  return {
+    ...base,
+    onDone: () => {
+      clearCloseTurnActive();
+      base.onDone();
+    },
+    onError: (message: string) => {
+      clearCloseTurnActive();
+      base.onError(message);
+    },
+  };
+}
+
+/**
+ * STOP THE LIVE CLOSE TURN (016) — reuses the pane's existing stream-abort control
+ * ({@link stopChatTurn}), so there is exactly one abort path for every turn this pane
+ * runs.
+ *
+ * Aborting the stream is only half of the Stop path: `chapterPageState.ts` also calls
+ * `POST …/close/cancel`, which is what returns the chapter to `open` and discards the
+ * run's artifacts (decision D4). This function neither calls the server nor clears
+ * {@link ChatPaneState.closeTurnActive} — that flows back in through
+ * `closeTurn.ts::clearCloseTurnActive` on the successful cancel.
+ */
+export function stopCloseTurn(state: ChatPaneState): void {
+  // EXACTLY ONE abort path for every turn this pane runs.
+  stopChatTurn(state);
 }

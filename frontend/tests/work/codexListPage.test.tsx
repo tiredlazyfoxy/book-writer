@@ -60,6 +60,60 @@ import * as apiClient from "../../src/api/client";
 import * as codexApi from "../../src/api/codex";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
+
+// HARNESS ONLY, added by `016.chapter-close-continuity`: the work surfaces this file
+// mounts now read continuity data on mount — the Book-state landing reads the book's
+// state notes and its per-chapter continuity, and a chapter surface reads that chapter's
+// warnings and note changeset (`plan.md` -> Interface for `bookStatePageState.ts` /
+// `chapterPageState.ts`). Whole-module factories (never `fetch`), armed with EMPTY
+// fixtures in `beforeEach`, so those loads resolve locally instead of reaching the real
+// HTTP client and leaving rejected promises behind. `vi.mock` is hoisted, so declaring
+// these beside the imports they pair with is equivalent to declaring them below.
+// NOTHING in this file asserts on either module — no assertion here changed.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
+}));
+
+/**
+ * HARNESS ONLY (`016.chapter-close-continuity`): every continuity read the work surfaces
+ * make on mount, answered with EMPTY fixtures. Nothing here is asserted on — the
+ * Book-state surface's own content is on `plan.md` -> Test plan -> "Not tested
+ * (deliberate)".
+ */
+function armContinuityReads(): void {
+  vi.mocked(continuityApi.getStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.updateStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.getBookContinuity).mockResolvedValue({ items: [] });
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: "ch-1",
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
+}
 import {
   CodexListPageState,
   loadCodexEntries,
@@ -291,6 +345,7 @@ function currentSearch(): URLSearchParams {
 }
 
 beforeEach(() => {
+  armContinuityReads();
   // `restoreMocks` wipes implementations between tests — re-arm every mock the mount path
   // touches. The codex list answers with the book's entries OF THE REQUESTED KIND, so a page
   // that asked for the wrong kind renders the wrong rows.

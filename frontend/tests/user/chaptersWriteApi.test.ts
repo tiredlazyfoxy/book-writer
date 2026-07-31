@@ -95,6 +95,8 @@ function makeChapter(state: "planned" | "open" | "closing" | "closed"): ChapterR
     version: 4,
     created_at: "2026-01-02T09:00:00Z",
     modified_at: "2026-07-03T11:30:00Z",
+    summary: null,
+    summary_status: null,
   };
 }
 

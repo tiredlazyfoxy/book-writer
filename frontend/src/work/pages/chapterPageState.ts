@@ -1,6 +1,8 @@
 import { makeAutoObservable, runInAction } from "mobx";
 import * as chaptersApi from "../../api/chapters";
 import { ApiError } from "../../api/client";
+import * as continuityApi from "../../api/continuity";
+import * as flagsApi from "../../api/flags";
 import type {
   ChapterAuthorPromptResponse,
   ChapterLifecycleState,
@@ -11,7 +13,15 @@ import type {
   UpdateChapterTextRequest,
 } from "../../types/chapters";
 import type { CanvasField, CanvasOp } from "../../types/chats";
+import type { ChapterNoteChangesetResponse } from "../../types/continuity";
+import type { FlagResponse } from "../../types/flags";
 import { popChapterUndoSnapshot, pushChapterUndoSnapshot } from "../chapterUndo";
+import {
+  clearCloseTurnActive,
+  markCloseTurnActive,
+  requestCloseTurnStart,
+  requestCloseTurnStop,
+} from "../closeTurn";
 import { setContentSelection } from "../contentSubject";
 import type { ContentSubjectSource } from "../contentSubject";
 import { clearBuffer, readBuffer, restoreBufferKey, writeBuffer } from "../restoreBuffer";
@@ -104,8 +114,19 @@ export type ChapterReconciliationSide = "server" | "draft";
  * and that refusal text is what the author reads. No caller-relative field is added
  * to any DTO and the chapter LIST (with 014's `can_reorder` hint) is never fetched
  * here.
+ *
+ * `016.chapter-close-continuity` adds a FOURTH member, `"cancel"`, and with it the
+ * `closing` row of the table: a closing chapter now offers **Stop** (abort the close
+ * turn and `POST …/close/cancel`), where 015 offered nothing and stated a reason
+ * instead. `closing` stops being a dead end, which is exactly what decision D4 means
+ * by "Stop discards, and is the only exit from `closing`".
+ *
+ * IT STAYS HERE, in the page's state module, and is deliberately NOT moved to
+ * `types/chapters.d.ts`: that file declares WIRE DTOs matching the backend Pydantic
+ * schemas 1:1, and a transition is a UI affordance the wire has no notion of — the
+ * server has three endpoints and a cancel, not a `transition` field.
  */
-export type ChapterTransition = "open" | "close" | "reopen";
+export type ChapterTransition = "open" | "close" | "reopen" | "cancel";
 
 /**
  * Page state for `ChapterPage`, held via
@@ -396,6 +417,74 @@ export class ChapterPageState {
    */
   unappliedSelectionWrite: string | null = null;
 
+  // --- Continuity and warnings (016) ---
+  //
+  // TWO MORE INDEPENDENT TRIOS beside the chapter, prompt and body trios, plus the
+  // raise-a-warning form and the close confirmation. Each loadable fails on its own:
+  // a warnings failure must not blank the chapter view or the body, and neither may
+  // hide a changeset error.
+
+  /**
+   * THE CHAPTER'S WARNINGS (`GET …/flags`) — every flag on this chapter, open AND
+   * resolved, newest first (UC-067 / UC-068; US-075, US-077). Empty until the first
+   * successful load, which is indistinguishable from "loaded and there are none" —
+   * `warningsStatus` is what tells them apart.
+   *
+   * An ARRAY rather than a nullable envelope, unlike the other trios here: the page
+   * renders a list, and `[]` is the natural empty rendering.
+   */
+  warnings: FlagResponse[] = [];
+  warningsStatus: "idle" | "loading" | "ready" | "error" = "idle";
+  warningsError: string | null = null;
+
+  /**
+   * THE CHAPTER'S NOTE CHANGESET (`GET …/notes`) — the three free-text deltas and
+   * their freshness (UC-051 / US-054.AC-1). `null` until the first successful load.
+   *
+   * A chapter with no changeset row loads a NORMAL default-empty response (all three
+   * texts `""`, `status: null`), not a `404` — so a non-null value here does not mean
+   * "this chapter has continuity notes", and the page reads `status` for that.
+   *
+   * READ-ONLY on this page: the changeset is written by the close run's assistant
+   * tools and by nothing on the client, so there is no draft and no submit status
+   * beside it.
+   */
+  changeset: ChapterNoteChangesetResponse | null = null;
+  changesetStatus: "idle" | "loading" | "ready" | "error" = "idle";
+  changesetError: string | null = null;
+
+  /**
+   * The raise-a-warning form's draft comment (UC-067 / US-075.AC-1). Cleared only
+   * once a raise is ACCEPTED, so a refused raise never eats what the author typed.
+   *
+   * The server refuses a blank comment `422`; the client's own emptiness check is an
+   * affordance on the submit control and never the enforcement.
+   */
+  raiseFlagDraft = "";
+
+  /**
+   * In-flight state of the raise-a-warning submit — its OWN status, separate from
+   * `warningsStatus`: raising is a command against the chapter's flags, not a load of
+   * them, and it must never make the warnings list look like it is loading.
+   *
+   * A resolve shares this holder: the two are the same surface's commands, only one
+   * of which can be in flight at a time from one control set.
+   */
+  raiseFlagSubmitStatus: "idle" | "loading" | "ready" | "error" = "idle";
+
+  /**
+   * WHETHER THE CLOSE CONFIRMATION IS OPEN (016; DoD-9) — `false` until the author
+   * uses the Close control, `false` again once they confirm or dismiss.
+   *
+   * A confirmation exists here where 015 deliberately had none, because closing is no
+   * longer a reversible one-click state change: it starts an assistant turn that takes
+   * over the chat pane for its duration (decision D1 / D4), which is a thing to say
+   * out loud before it happens.
+   *
+   * Plain page state — the modal renders off it and nothing else reads it.
+   */
+  closeConfirmOpen = false;
+
   constructor(bookId: string, chapterId: string) {
     this.bookId = bookId;
     this.chapterId = chapterId;
@@ -581,7 +670,7 @@ export class ChapterPageState {
    * | `planned` | `"open"` (UC-035 / US-036.AC-1) |
    * | `open` | `"close"` (UC-036 / US-038.AC-1) |
    * | `closed` | `"reopen"` (UC-037 / US-039.AC-1) |
-   * | `closing` | **`null`** — see {@link ChapterPageState.transitionUnavailableReason} |
+   * | `closing` | `"cancel"` — **Stop**, 016's decision D4 (was `null`) |
    *
    * `null` before the first successful chapter load and on a failed one, too: there
    * is no state to derive an offer from, and the chapter section is showing its own
@@ -604,9 +693,12 @@ export class ChapterPageState {
         return "close";
       case "closed":
         return "reopen";
+      case "closing":
+        // 016 / D4: `closing` stops being a dead end. Stop is the ONLY exit from
+        // it, and it discards — the row 015 had to leave empty.
+        return "cancel";
       default:
-        // `closing` — nothing in this feature can change it (D8) — and the
-        // not-yet-loaded / failed-load case, where there is no state to derive an
+        // The not-yet-loaded / failed-load case: there is no state to derive an
         // offer from at all.
         return null;
     }
@@ -639,9 +731,12 @@ export class ChapterPageState {
     if (this.chapter === null) return null;
     // A control IS offered, so there is nothing to explain either.
     if (this.offeredTransition !== null) return null;
-    // The one remaining case the state machine admits: `closing`. The sentence names
-    // the close gate as NOT YET BUILT rather than merely restating the state.
-    return "This chapter is closing. The close approval step is not built yet, so its state cannot be changed here.";
+    // UNREACHABLE since 016: every state the machine admits now offers a control,
+    // `closing` included (D4). The branch stays because the contract is "non-null
+    // exactly when the chapter is loaded and no transition is offered", and a
+    // silent `null` for a state nobody anticipated would read as a bug rather than
+    // as a state.
+    return "This chapter's state cannot be changed here right now.";
   }
 
   /**
@@ -830,6 +925,13 @@ export async function loadChapter(
       state.sketchDraft = chapter.sketch;
       state.chapterStatus = "ready";
     });
+    // 016 / DoD-9 — THE LOAD PATH IS THE MECHANISM, not an optimization. The
+    // close-in-progress signal is derived from the SERVER's state, so a reload
+    // mid-close renders the chat composer read-only with NO stream running at all;
+    // and a chapter that is no longer `closing` clears a signal left behind by a
+    // close that finished while this page was not mounted.
+    if (chapter.state === "closing") markCloseTurnActive(bookId, chapterId);
+    else clearCloseTurnActive();
   } catch (err) {
     if (signal?.aborted) return;
     if (err instanceof ApiError) {
@@ -1454,7 +1556,7 @@ async function runChapterTransition(
   chapterId: string,
   transition: () => Promise<ChapterResponse>,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ChapterResponse | null> {
   runInAction(() => {
     state.transitionStatus = "loading";
     state.transitionError = null;
@@ -1463,9 +1565,9 @@ async function runChapterTransition(
   let chapter: ChapterResponse;
   try {
     chapter = await transition();
-    if (signal?.aborted) return;
+    if (signal?.aborted) return null;
   } catch (err) {
-    if (signal?.aborted) return;
+    if (signal?.aborted) return null;
     if (!(err instanceof ApiError)) throw err;
     runInAction(() => {
       // A co-author's `403` (D14), an archived book's `403` (D10) and the `409`
@@ -1476,7 +1578,10 @@ async function runChapterTransition(
       state.transitionError = err.message || "Could not change the chapter state.";
       state.transitionStatus = "error";
     });
-    return;
+    // 016: the SERVER's answer is what the two close effects branch on — `null`
+    // means "the chapter did not move", so nothing may claim a close is running or
+    // has been abandoned. An abort answers `null` for the same reason.
+    return null;
   }
 
   runInAction(() => {
@@ -1495,14 +1600,14 @@ async function runChapterTransition(
   // the reconciliation fields are all left exactly as they are.
   try {
     const body = await chaptersApi.getChapterText(bookId, chapterId, signal);
-    if (signal?.aborted) return;
+    if (signal?.aborted) return null;
     runInAction(() => {
       state.body = body;
       state.bodyStatus = "ready";
       state.transitionStatus = "ready";
     });
   } catch (err) {
-    if (signal?.aborted) return;
+    if (signal?.aborted) return null;
     if (!(err instanceof ApiError)) throw err;
     runInAction(() => {
       // A failed re-read is a BODY load failure and lands in the body trio's own
@@ -1513,6 +1618,8 @@ async function runChapterTransition(
       state.transitionStatus = "ready";
     });
   }
+  // The transition itself succeeded whether or not the body re-read did.
+  return chapter;
 }
 
 /**
@@ -1543,15 +1650,17 @@ export async function openChapterState(
 }
 
 /**
- * CLOSE the chapter — the only transition an `open` chapter is offered (US-038.AC-1).
- * Calls `chaptersApi.closeChapterState(bookId, chapterId, signal)`, which the server
- * answers by writing **`closed`** directly: nothing in this feature produces or drafts
- * a `closing` chapter (D8), and there is **no confirmation dialog** — a close is
- * reversible by a reopen, and the approval gate is `016`'s.
+ * CLOSE the chapter — the bare transition, with the same contract as
+ * {@link openChapterState}: re-seed both trios on success, so the body region becomes
+ * read-only and its save control disappears without a navigation; on `ApiError`
+ * surface the message and change nothing (US-038.AC-2).
  *
- * Same contract as {@link openChapterState}: re-seed both trios on success, so the
- * body region becomes read-only and its save control disappears without a navigation;
- * on `ApiError` surface the message and change nothing (US-038.AC-2).
+ * **`016` SUPERSEDED THIS AS THE PAGE'S CLOSE PATH.** The server now answers this
+ * endpoint with `closing`, not `closed`, and the close is a three-part procedure the
+ * page drives through {@link requestChapterClose} — which runs this same transition
+ * *and* marks the close active and asks the chat pane to post the turn. `ChapterPage`
+ * calls that one, behind its confirmation. This function is kept because it is 015's
+ * shipped contract for the transition itself and nothing about that contract moved.
  */
 export async function closeChapterState(
   state: ChapterPageState,
@@ -1687,4 +1796,315 @@ export function undoAssistantBodyWrite(
     // restored text (D15).
     state.bodyEditorGeneration += 1;
   });
+}
+
+// ---------------------------------------------------------------------------
+// CONTINUITY, WARNINGS AND THE GATED CLOSE (`016.chapter-close-continuity`)
+//
+// Six external effects in this module's frozen `(state, bookId, chapterId, …,
+// signal?)` shape. The first four are ordinary loads and commands over the flag and
+// changeset endpoints; the last two are the page's half of `work/closeTurn.ts`'s
+// controller seam.
+//
+// THE CLOSE IS THREE PARTS AND THIS PAGE OWNS THE FIRST (decision D5):
+// `POST …/close` moves the chapter `open → closing` (deleting the previous run's
+// check flags) with NO LLM call; the CHAT pane then posts the close turn; and the
+// SERVER finalizes the outcome deterministically when that turn ends. Nothing on this
+// page decides whether the chapter closes.
+//
+// The `closing` window is signalled through `work/closeTurn.ts`, never inferred from
+// "a stream is running": `ChapterPage`'s load effect calls `markCloseTurnActive` when
+// the freshly loaded chapter's state IS `closing` and `clearCloseTurnActive` when it
+// is not, so a RELOAD MID-CLOSE still renders the chat composer read-only with no
+// stream running at all (DoD-9).
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the chapter's warnings (016; UC-067 / UC-068).
+ *
+ * The {@link loadChapter} shape verbatim: `warningsStatus = "loading"` and clear
+ * `warningsError`, await `flagsApi.listFlags(bookId, chapterId, signal)`, then
+ * `runInAction` `warnings = response.items` + `warningsStatus = "ready"`; return
+ * silently when `signal?.aborted`; map an `ApiError` into `warningsError` /
+ * `warningsStatus = "error"` **leaving `warnings` as it was** — an unreachable
+ * refresh must not blank a list the author is already reading — else rethrow.
+ *
+ * Touches nothing in the chapter, prompt, body or changeset trios. Also the retry
+ * path behind the warnings error branch, and the re-read after a successful raise or
+ * resolve.
+ *
+ */
+export async function loadChapterWarnings(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.warningsStatus = "loading";
+    state.warningsError = null;
+  });
+  try {
+    const response = await flagsApi.listFlags(bookId, chapterId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.warnings = response.items;
+      state.warningsStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        // `warnings` is left as it was: an unreachable refresh must not blank a
+        // list the author is already reading.
+        state.warningsError = err.message;
+        state.warningsStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Load the chapter's note changeset (016; UC-051 / US-054.AC-1).
+ *
+ * The {@link loadChapter} shape verbatim, over
+ * `continuityApi.getChapterChangeset(bookId, chapterId, signal)`, into the
+ * `changeset` / `changesetStatus` / `changesetError` trio, leaving `changeset` null
+ * on an error so nothing renders off data that never arrived.
+ *
+ * A chapter with no changeset row answers a NORMAL default-empty `200` — that is a
+ * successful load, not an error and not an absence.
+ *
+ */
+export async function loadChapterChangeset(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.changesetStatus = "loading";
+    state.changesetError = null;
+  });
+  try {
+    const changeset = await continuityApi.getChapterChangeset(bookId, chapterId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      // A chapter with no changeset row answers a NORMAL default-empty `200`:
+      // that is a successful load, not an absence.
+      state.changeset = changeset;
+      state.changesetStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.changesetError = err.message;
+        state.changesetStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Raise a warning on this chapter (016; UC-067 / US-075.AC-1).
+ *
+ * The `comment` is passed as an argument rather than read off
+ * {@link ChapterPageState.raiseFlagDraft}, so the caller decides what is submitted and
+ * this function stays testable without seeding a draft — the one departure from
+ * `saveSketch`'s "read it off the state" shape, and it is deliberate.
+ *
+ * Contract: `raiseFlagSubmitStatus = "loading"`, await
+ * `flagsApi.raiseFlag(bookId, chapterId, { comment }, signal)`, then on success clear
+ * {@link ChapterPageState.raiseFlagDraft} (the raise was ACCEPTED — not before) and
+ * re-read the warnings through {@link loadChapterWarnings}, so the list shows the
+ * SERVER's row rather than an optimistic one. Abort-guarded. On `ApiError` surface the
+ * server's message and set `raiseFlagSubmitStatus = "error"`, **leaving the draft
+ * untouched**; anything else rethrows.
+ *
+ * The stored flag is always `origin: "person"` and attributed to the caller — the
+ * client cannot forge a check finding.
+ *
+ */
+export async function raiseChapterFlag(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  comment: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.warningsError = null;
+    state.raiseFlagSubmitStatus = "loading";
+  });
+  try {
+    await flagsApi.raiseFlag(bookId, chapterId, { comment }, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      // The raise was ACCEPTED — not before: a refused raise never eats what the
+      // author typed.
+      state.raiseFlagDraft = "";
+      state.raiseFlagSubmitStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.warningsError = err.message || "Could not raise the warning.";
+        state.raiseFlagSubmitStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+  // Re-read, so the list shows the SERVER's row rather than an optimistic one.
+  await loadChapterWarnings(state, bookId, chapterId, signal);
+}
+
+/**
+ * Resolve one of this chapter's warnings (016; UC-068 / US-076.AC-2, US-077.AC-1).
+ *
+ * Same contract as {@link raiseChapterFlag} minus the draft: submit, then re-read the
+ * warnings on success so `status` / `resolved_by` / `resolved_at` come from the
+ * server. **Owner-only server-side** — a co-author's control is offered (this page has
+ * no caller-role signal, the D14 rule) and their attempt is refused `403`, whose
+ * message is what the author reads; an already-resolved flag is `409` and reads the
+ * same way.
+ *
+ */
+export async function resolveChapterFlag(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  flagId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.warningsError = null;
+    state.raiseFlagSubmitStatus = "loading";
+  });
+  try {
+    await flagsApi.resolveFlag(bookId, chapterId, flagId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.raiseFlagSubmitStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        // A co-author's `403` (owner-only server-side) and an already-resolved
+        // `409` both read the same way: the server's own message.
+        state.warningsError = err.message || "Could not resolve the warning.";
+        state.raiseFlagSubmitStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+  // Re-read, so `status` / `resolved_by` / `resolved_at` come from the server.
+  await loadChapterWarnings(state, bookId, chapterId, signal);
+}
+
+/**
+ * REQUEST THE CLOSE (016; UC-036 / US-038.AC-3 — the gated close steps 015 left
+ * uncited) — the confirmed Close control's effect, and the first of decision D5's
+ * three parts.
+ *
+ * Contract, on top of the module's shared transition contract
+ * (`transitionStatus` / `transitionError`, re-seeding both the chapter and body trios
+ * from the server, changing nothing on a refusal):
+ *
+ * 1. call `chaptersApi.closeChapterState(bookId, chapterId, signal)` — the SAME
+ *    endpoint 015 shipped; only the server's destination changed (`open → closing`),
+ *    which is why the api function's signature did not;
+ * 2. **on success**, call `closeTurn.ts::markCloseTurnActive(bookId, chapterId)` and
+ *    then `closeTurn.ts::requestCloseTurnStart(bookId, chapterId)`. In that order:
+ *    the composer must be read-only BEFORE the turn starts streaming into it, and
+ *    `markCloseTurnActive` is what makes it so;
+ * 3. on `ApiError`, surface the message in
+ *    {@link ChapterPageState.transitionError} and call NEITHER — no close is running,
+ *    so nothing may claim one is.
+ *
+ * It also lowers {@link ChapterPageState.closeConfirmOpen}: the confirmation's job
+ * ends when the author confirms.
+ *
+ */
+export async function requestChapterClose(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    // The confirmation's job ends when the author confirms.
+    state.closeConfirmOpen = false;
+  });
+
+  const chapter = await runChapterTransition(
+    state,
+    bookId,
+    chapterId,
+    // The SAME endpoint 015 shipped: only the server's destination changed
+    // (`open → closing`), which is why the api function's signature did not.
+    () => chaptersApi.closeChapterState(bookId, chapterId, signal),
+    signal,
+  );
+  // A refusal (or an abort) calls NEITHER: no close is running, so nothing may
+  // claim one is.
+  if (chapter === null) return;
+
+  // IN THIS ORDER: the composer must be read-only BEFORE the turn starts
+  // streaming into it, and `markCloseTurnActive` is what makes it so.
+  markCloseTurnActive(bookId, chapterId);
+  requestCloseTurnStart(bookId, chapterId);
+}
+
+/**
+ * CANCEL THE CLOSE (016; decision D4 — Stop discards, and is the only exit from
+ * `closing`; US-074.AC-1) — the `closing` chapter's one offered transition.
+ *
+ * Contract, the mirror of {@link requestChapterClose}:
+ *
+ * 1. call `chaptersApi.cancelChapterClose(bookId, chapterId, signal)` — a `200`
+ *    no-op when the chapter is no longer `closing`, which is exactly the race a Stop
+ *    pressed as the turn completes runs into, so that answer is a SUCCESS here;
+ * 2. **on success**, call `closeTurn.ts::clearCloseTurnActive()` and then
+ *    `closeTurn.ts::requestCloseTurnStop()` — the composer is released and the live
+ *    stream aborted. The server has already discarded the run's draft summary and
+ *    changeset by the time this resolves;
+ * 3. on `ApiError`, surface the message in
+ *    {@link ChapterPageState.transitionError} and call neither: the chapter is still
+ *    closing, so the composer must stay read-only.
+ *
+ * Re-seeds both trios from the server on success, exactly as the three 015
+ * transitions do, so the chapter reads `open` again with no navigation.
+ *
+ */
+export async function cancelChapterCloseRequest(
+  state: ChapterPageState,
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chapter = await runChapterTransition(
+    state,
+    bookId,
+    chapterId,
+    // A `200` no-op when the chapter is no longer `closing` — exactly the race a
+    // Stop pressed as the turn completes runs into — so that answer is a SUCCESS
+    // here, and the composer is released either way.
+    () => chaptersApi.cancelChapterClose(bookId, chapterId, signal),
+    signal,
+  );
+  // A refusal (or an abort) calls neither: the chapter is still closing, so the
+  // composer must stay read-only.
+  if (chapter === null) return;
+
+  clearCloseTurnActive();
+  requestCloseTurnStop();
 }

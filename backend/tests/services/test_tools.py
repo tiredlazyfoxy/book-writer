@@ -58,6 +58,14 @@ from app.services.web_search import web_search
 # `update_selection` / `add_text`) to be in this registry with names colliding
 # with no existing entry -- so this pinned name set is superseded by that step's
 # own contract. Their own assertions live in tests/services/test_chapter_tools.py.
+#
+# Widened once more by 016.chapter-close-continuity, whose DoD-14 requires the five
+# close-chapter tools (`draft_chapter_summary` / `draft_chapter_notes` /
+# `propose_active_notes` / `raise_check_flag` / `read_continuity_context`) to be
+# registered and context-bound (`status.md` -> `## Skeleton` -> "Backend — tools
+# registry"). Their own assertions live in tests/test_close_tools.py. As with every
+# widening above, the intent of THIS test is unchanged: the registry's contents are
+# pinned rather than open-ended, and `web_search` is still its first entry.
 def test_registry_has_single_web_search_entry__DoD3():
     assert {t.name for t in tools.TOOL_REGISTRY} == {
         "web_search",
@@ -68,6 +76,11 @@ def test_registry_has_single_web_search_entry__DoD3():
         "set_chapter_text",
         "update_selection",
         "add_text",
+        "draft_chapter_summary",
+        "draft_chapter_notes",
+        "propose_active_notes",
+        "raise_check_flag",
+        "read_continuity_context",
     }
 
     entry = tools.TOOL_REGISTRY[0]

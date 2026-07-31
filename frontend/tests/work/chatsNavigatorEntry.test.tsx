@@ -32,6 +32,8 @@ import { useLocation } from "react-router-dom";
 import type { BookDetailResponse } from "../../src/types/books";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
 import { WorkNavigator } from "../../src/work/components/shell/WorkNavigator";
 import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
@@ -63,6 +65,27 @@ vi.mock("../../src/api/chats", () => ({
   listModelOptions: vi.fn(),
 }));
 
+// HARNESS ONLY, added by `016.chapter-close-continuity`: the work surfaces this file
+// mounts now read continuity data on mount — the Book-state landing reads the book's
+// state notes and its per-chapter continuity, and a chapter surface reads that chapter's
+// warnings and note changeset (`plan.md` -> Interface for `bookStatePageState.ts` /
+// `chapterPageState.ts`). Whole-module factories (never `fetch`), armed with EMPTY
+// fixtures in `beforeEach`, so those loads resolve locally instead of reaching the real
+// HTTP client and leaving rejected promises behind. NOTHING in this file asserts on
+// either module — no assertion here changed.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
+}));
+
 /** A fully-typed BookDetailResponse fixture; only the id matters here. */
 function makeDetail(id: string): BookDetailResponse {
   return {
@@ -85,8 +108,40 @@ function LocationProbe(): ReactElement {
   return <span data-testid="pathname">{location.pathname}</span>;
 }
 
+/**
+ * HARNESS ONLY (`016.chapter-close-continuity`): every continuity read the work surfaces
+ * make on mount, answered with EMPTY fixtures. Nothing here is asserted on — the
+ * Book-state surface's own content is on `plan.md` -> Test plan -> "Not tested
+ * (deliberate)". This only keeps those mounts off the real HTTP client, exactly as the
+ * prompt and chat arming below does for their modules.
+ */
+function armContinuityReads(): void {
+  vi.mocked(continuityApi.getStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.updateStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.getBookContinuity).mockResolvedValue({ items: [] });
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: "ch-1",
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
+}
+
 beforeEach(() => {
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1"));
+  armContinuityReads();
   // The Book-state landing loads the caller's own prompt on mount — a prompt-shaped
   // resolved value ("" + `modified_at: null` = no stored prompt) keeps that load off the
   // network and out of the rejected-promise path.

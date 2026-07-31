@@ -30,6 +30,8 @@ from app.routes import chapter_author_prompts
 from app.routes import chapters
 from app.routes import chats
 from app.routes import codex
+from app.routes import continuity
+from app.routes import flags
 from app.routes import health
 from app.routes.admin import assistant_config as admin_assistant_config
 from app.routes.admin import db as admin_db
@@ -93,6 +95,8 @@ app.include_router(books.router)
 app.include_router(chapters.router)
 app.include_router(chats.router)
 app.include_router(codex.router)
+app.include_router(continuity.router)
+app.include_router(flags.router)
 app.include_router(book_author_prompts.router)
 app.include_router(chapter_author_prompts.router)
 app.include_router(admin_users.router)

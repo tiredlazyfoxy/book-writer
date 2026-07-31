@@ -10,28 +10,46 @@
  * edit / save surface stays step 006's subject and the buffer stays step 007's; both appear
  * below only as the things a transition must move (DoD-7) or must not disturb (DoD-8).
  *
+ * RE-BOUND by `016.chapter-close-continuity` (`plan.md` -> DoD-1 and DoD-9): the close
+ * gate this file was written against as "not built yet" is now built. Three things moved,
+ * and nothing else in this file did:
+ *   (a) a close now writes `closing`, not `closed` (016 DoD-1, US-038.AC-3);
+ *   (b) the Close control now opens a CONFIRMATION before it posts (016 DoD-9;
+ *       `context.md` -> "No confirmation dialog exists today (this feature adds one
+ *       before `close`)");
+ *   (c) a `closing` chapter no longer offers nothing behind a placeholder sentence — it
+ *       offers the `cancel` ("Stop") transition (016 DoD-9, D4: "Stop discards, and is
+ *       the only exit from `closing`"; `context.md` -> "This feature replaces that with
+ *       the in-progress view + cancel control").
+ * The close TURN itself — the signal, the pane's read-only composer, the posting of the
+ * turn — is `frontend/tests/work/ChapterPageClose.test.tsx`'s subject and is asserted
+ * nowhere here: this file stays about the ONE transition control and its refusal surface.
+ *
  * Bound to the frozen signatures in status.md -> `## Skeleton` (step 008, plus steps 004 /
- * 005 / 006 / 007 and 014 consumed unchanged):
+ * 005 / 006 / 007 and 014 consumed unchanged, and 016's additions):
  *   const ChapterPage: FunctionComponent            // observer, ZERO props; reads :bookId
  *                                                   // and :id from the router
- *   type ChapterTransition = "open" | "close" | "reopen"
- *   class ChapterPageState { … transitionStatus; transitionError;
+ *   type ChapterTransition = "open" | "close" | "reopen" | "cancel"     // 016 widened it
+ *   class ChapterPageState { … transitionStatus; transitionError; closeConfirmOpen;
  *                            get offeredTransition; get transitionUnavailableReason }
  *   openChapterState(state, bookId, chapterId, signal?): Promise<void>
  *   closeChapterState(state, bookId, chapterId, signal?): Promise<void>
  *   reopenChapterState(state, bookId, chapterId, signal?): Promise<void>
  *   chaptersApi.openChapterState / closeChapterState / reopenChapterState   // step 004
+ *   chaptersApi.cancelChapterClose                                          // 016
  *   chaptersApi.getChapter / getChapterText                                 // re-seed reads
  *   ChapterBodyEditor({ initialMarkdown, onChange, onSelectionChange, ariaLabel })
  *   restoreBufferKey(bookId, subjectKind, subjectId) / readBuffer(key)      // CONSUMED
  *
  * The frozen view surface this file queries (status.md -> step 008 -> "the frozen view
  * surface", plus 014's state `Badge` and step 006's two body controls):
- *   `Open chapter: {title}` / `Close chapter: {title}` / `Reopen chapter: {title}`
- *                                                     (the ONE transition control)
+ *   `<Action> chapter: {title}`                       (the ONE transition control; 016's
+ *                                                      `TRANSITION_LABELS` gains
+ *                                                      `cancel: "Stop"`). Queried
+ *                                                      VERB-AGNOSTICALLY, so the count
+ *                                                      and the endpoint it calls are what
+ *                                                      is asserted, not the wording.
  *   `Could not change the chapter state`              (the refusal alert)
- *   `This chapter is closing. The close approval step is not built yet, so its state
- *    cannot be changed here.`                         (the `closing` reason, verbatim)
  *   `Planned` / `Open` / `Closing` / `Closed`         (014's state badge word — its text
  *                                                      AND its `aria-label`)
  *   `Chapter body` (editor) · `Save body` (save control)
@@ -41,10 +59,10 @@
  *     rendered — `context.md` -> D14, `008.context.md` -> "Only one control is ever
  *     offered": `planned` -> open (US-036.AC-1 / UC-035) — DoD-1; `open` -> close
  *     (US-038.AC-1) — DoD-2; `closed` -> reopen (US-039.AC-1 / UC-037) — DoD-3;
- *   - close writes `closed` DIRECTLY and the body is then read-only with no save control —
- *     `context.md` -> D8, "The close seam", US-038.AC-1 — DoD-2;
- *   - `closing` offers NOTHING and states a reason naming the close gate as `016`'s —
- *     D8 — DoD-4;
+ *   - the close is CONFIRMED before it is posted, writes `closing`, and the body is then
+ *     read-only with no save control — 016 DoD-1 / DoD-9, US-038.AC-1 / AC-3 — DoD-2;
+ *   - `closing` offers the Stop control, which posts to `close/cancel` and returns the
+ *     chapter to `open` — 016 D4 — DoD-4;
  *   - the control is offered to every member and the server's refusal is what the author
  *     reads: a 403 (co-author, or an archived book — D10 / D14) — US-036.AC-2 /
  *     US-038.AC-2 — DoD-5; a 409 (another chapter holds the one open slot — CF1) —
@@ -57,11 +75,15 @@
  *   - each control names both the action and the chapter, so it is reachable by role and
  *     label — DoD-9.
  *
- * Two whole-module mocks, per `008.context.md` -> Testing:
- *   - `api/chapters` is replaced by a factory enumerating ALL THIRTEEN frozen exports —
- *     014's eight plus step 004's five. Steps 006 / 007 enumerated ten; the three
- *     transitions make it thirteen, and an omitted export would be `undefined` for every
- *     importer and fail for the wrong reason;
+ * Whole-module mocks, per `008.context.md` -> Testing:
+ *   - `api/chapters` is replaced by a factory enumerating ALL FOURTEEN frozen exports —
+ *     014's eight, step 004's five and 016's `cancelChapterClose`. Steps 006 / 007
+ *     enumerated ten; the three transitions made it thirteen, and an omitted export would
+ *     be `undefined` for every importer and fail for the wrong reason;
+ *   - `api/flags` and `api/continuity` are mocked for the same reason and armed benignly:
+ *     016's chapter page loads a chapter's warnings and changeset on mount. NOTHING here
+ *     asserts on either — they are harness only, so the page's mount cannot reach the
+ *     network;
  *   - `work/components/chapter/ChapterBodyEditor` (folder SINGULAR — 014's unrelated
  *     `components/chapters/` sits beside it) is replaced by the same trivial stub over its
  *     frozen four-prop seam. ProseMirror is never driven under jsdom — the feature's
@@ -82,7 +104,7 @@
  * `globals: false`: every primitive is imported explicitly.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import type { RenderResult } from "@testing-library/react";
 import type { ChangeEvent } from "react";
@@ -94,6 +116,8 @@ import type {
 } from "../../src/types/chapters";
 import { ApiError } from "../../src/api/client";
 import * as chaptersApi from "../../src/api/chapters";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
 import { readBuffer, restoreBufferKey } from "../../src/work/restoreBuffer";
 import { ChapterPage } from "../../src/work/pages/ChapterPage";
 import { renderWithProviders } from "../support/render";
@@ -115,6 +139,22 @@ vi.mock("../../src/api/chapters", () => ({
   openChapterState: vi.fn(),
   closeChapterState: vi.fn(),
   reopenChapterState: vi.fn(),
+  cancelChapterClose: vi.fn(),
+}));
+
+// 016's two new api modules — harness only, so the page's mount reads never reach the
+// network. Nothing in this file asserts on either.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
 }));
 
 /**
@@ -164,10 +204,6 @@ const SAVE_LABEL = "Save body";
 /** Step 008's frozen refusal surface. */
 const REFUSAL_TITLE = "Could not change the chapter state";
 
-/** Step 008's frozen `closing` sentence, verbatim. */
-const CLOSING_REASON =
-  "This chapter is closing. The close approval step is not built yet, so its state cannot be changed here.";
-
 /** 014's readable lifecycle words — the state badge's text AND its `aria-label`. */
 const LIFECYCLE_WORDS = ["Planned", "Open", "Closing", "Closed"] as const;
 
@@ -185,6 +221,8 @@ function makeChapter(overrides: Partial<ChapterResponse> = {}): ChapterResponse 
     version: CHAPTER_VERSION,
     created_at: "2026-01-02T08:00:00Z",
     modified_at: "2026-03-04T09:00:00Z",
+    summary: null,
+    summary_status: null,
     ...overrides,
   };
 }
@@ -219,6 +257,17 @@ function armLoads(state: ChapterLifecycleState, text: string = STORED_BODY): voi
   vi.mocked(chaptersApi.getChapter).mockResolvedValue(makeChapter({ state }));
   vi.mocked(chaptersApi.getOwnChapterSystemPrompt).mockResolvedValue(makePrompt());
   vi.mocked(chaptersApi.getChapterText).mockResolvedValue(makeBody({ state, text }));
+  // 016's two mount reads — harness only, nothing here asserts on them.
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: CHAPTER_ID,
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
 }
 
 /**
@@ -253,9 +302,42 @@ function transitionName(action: TransitionAction, title: string = CHAPTER_TITLE)
   return `${action} chapter: ${title}`;
 }
 
-/** Every transition control currently on the page — the offer is "exactly one, or none". */
+/**
+ * Every transition control currently on the page — the offer is "exactly one, or none".
+ *
+ * Matched VERB-AGNOSTICALLY on the frozen `<action> chapter: <title>` shape. 016 widened
+ * `ChapterTransition` with `"cancel"` and its label map with `cancel: "Stop"`, but the
+ * accessible wording of that one control is not part of the frozen interface, so what is
+ * asserted below is how MANY controls are offered and WHICH endpoint the offered one
+ * calls — never the verb.
+ */
 function transitionControls(): HTMLElement[] {
-  return screen.queryAllByRole("button", { name: /^(Open|Close|Reopen) chapter: / });
+  return screen.queryAllByRole("button", { name: /\bchapter: / });
+}
+
+/**
+ * Confirms the close. 016's DoD-9 puts a confirmation between the Close control and the
+ * post. The confirmation's affirmative control names the action it confirms — the same
+ * convention every other control on this page follows (`Close chapter: <title>`) — so it
+ * is located INSIDE the dialog by that action word, with the dialog's own dismiss control
+ * (whose accessible name is the bare word "Close") excluded. Exactly one candidate must
+ * remain, so a mis-binding fails loudly here rather than silently clicking the wrong
+ * button.
+ */
+async function confirmClose(): Promise<void> {
+  const dialog = await screen.findByRole("dialog");
+  const affirmative = within(dialog)
+    .getAllByRole("button")
+    .filter((button) => {
+      const name = (button.getAttribute("aria-label") ?? button.textContent ?? "").trim();
+      return /close/i.test(name) && name.toLowerCase() !== "close";
+    });
+  if (affirmative.length !== 1) {
+    throw new Error(
+      `the close confirmation offers ${affirmative.length} affirmative controls, expected exactly one`,
+    );
+  }
+  fireEvent.click(affirmative[0]);
 }
 
 function queryTransitionControl(action: TransitionAction): HTMLElement | null {
@@ -313,8 +395,10 @@ function typeBody(text: string): void {
 
 beforeEach(() => {
   vi.mocked(chaptersApi.openChapterState).mockResolvedValue(makeChapter({ state: "open" }));
-  vi.mocked(chaptersApi.closeChapterState).mockResolvedValue(makeChapter({ state: "closed" }));
+  // 016 DoD-1: a close now answers with `closing`, the gated destination.
+  vi.mocked(chaptersApi.closeChapterState).mockResolvedValue(makeChapter({ state: "closing" }));
   vi.mocked(chaptersApi.reopenChapterState).mockResolvedValue(makeChapter({ state: "open" }));
+  vi.mocked(chaptersApi.cancelChapterClose).mockResolvedValue(makeChapter({ state: "open" }));
   armLoads("open");
 });
 
@@ -363,7 +447,7 @@ describe("a planned chapter offers open (DoD-1)", () => {
 /* ---------------------------------------------------------------- DoD-2 — an open chapter */
 
 describe("an open chapter offers close (DoD-2)", () => {
-  it("DoD-2: the only control is close, and using it shows the chapter as closed with the body read-only and no save control — US-038.AC-1", async () => {
+  it("DoD-2: the only control is close, and confirming it shows the chapter as closing with the body read-only and no save control — US-038.AC-1, US-038.AC-3", async () => {
     armLoads("open");
 
     renderPage();
@@ -377,11 +461,15 @@ describe("an open chapter offers close (DoD-2)", () => {
     expect(querySaveControl()).not.toBeNull();
     await expectStateShown("Open");
 
-    // The close writes `closed` DIRECTLY — never `closing` (D8, "The close seam").
-    vi.mocked(chaptersApi.closeChapterState).mockResolvedValue(makeChapter({ state: "closed" }));
-    armPostTransition("closed");
+    // 016 DoD-1: the close writes `closing`, the gated destination.
+    vi.mocked(chaptersApi.closeChapterState).mockResolvedValue(makeChapter({ state: "closing" }));
+    armPostTransition("closing");
 
     fireEvent.click(control);
+
+    // 016 DoD-9: the click alone posts nothing — a confirmation intervenes first.
+    expect(vi.mocked(chaptersApi.closeChapterState)).not.toHaveBeenCalled();
+    await confirmClose();
 
     await waitFor(() => {
       expect(vi.mocked(chaptersApi.closeChapterState)).toHaveBeenCalledTimes(1);
@@ -392,10 +480,11 @@ describe("an open chapter offers close (DoD-2)", () => {
     expect(vi.mocked(chaptersApi.openChapterState)).not.toHaveBeenCalled();
     expect(vi.mocked(chaptersApi.reopenChapterState)).not.toHaveBeenCalled();
 
-    // The state on screen became `Closed` — not `Closing` — and the stored body is still
-    // shown, now as read-only text...
-    await expectStateShown("Closed");
-    expect(chapterStateWords()).not.toContain("Closing");
+    // The state on screen became `Closing` — not `Closed`, which only the close turn's
+    // finalize step may produce — and the stored body is still shown, now as read-only
+    // text...
+    await expectStateShown("Closing");
+    expect(chapterStateWords()).not.toContain("Closed");
     await waitFor(() => {
       expect(pageText()).toContain(STORED_BODY);
     });
@@ -444,37 +533,54 @@ describe("a closed chapter offers reopen (DoD-3)", () => {
 
 /* -------------------------------------------------------------- DoD-4 — a closing chapter */
 
-describe("a closing chapter offers nothing, with a stated reason (DoD-4)", () => {
-  it("DoD-4: states that the close approval step is not built yet, and offers no transition control at all", async () => {
-    // Nothing in this feature writes `closing` (D8) — the state is reached by arming the
-    // server to answer with one.
+describe("a closing chapter offers the Stop control (DoD-4)", () => {
+  it("DoD-4: the one offered control posts to close/cancel and returns the chapter to open — 016 D4", async () => {
     armLoads("closing");
 
     renderPage();
 
-    // Presence first: the REASON is on screen, verbatim, and it names the close gate as
-    // not yet built rather than merely restating the state.
-    await screen.findByText(CLOSING_REASON);
-    expect(pageText()).toContain("not built yet");
+    // Presence first: the chapter is shown as closing and exactly ONE control is offered
+    // — the cancel transition 016 added, not one of the other three.
     await expectStateShown("Closing");
-
-    // ...and only then the absence: no transition control of any kind, and none of the
-    // three rendered-and-disabled either.
-    expect(transitionControls()).toHaveLength(0);
+    await waitFor(() => {
+      expect(transitionControls()).toHaveLength(1);
+    });
     expect(queryTransitionControl("Open")).toBeNull();
     expect(queryTransitionControl("Close")).toBeNull();
     expect(queryTransitionControl("Reopen")).toBeNull();
+
+    // A stop discards and returns the chapter to `open` — the only exit from `closing`
+    // besides the turn's own finalize (D4).
+    vi.mocked(chaptersApi.cancelChapterClose).mockResolvedValue(makeChapter({ state: "open" }));
+    armPostTransition("open");
+
+    fireEvent.click(transitionControls()[0]);
+
+    await waitFor(() => {
+      expect(vi.mocked(chaptersApi.cancelChapterClose)).toHaveBeenCalledTimes(1);
+    });
+    const call = vi.mocked(chaptersApi.cancelChapterClose).mock.calls[0];
+    expect(call[0]).toBe(BOOK_ID);
+    expect(call[1]).toBe(CHAPTER_ID);
+    // Stop is not one of the other three transitions.
+    expect(vi.mocked(chaptersApi.closeChapterState)).not.toHaveBeenCalled();
+    expect(vi.mocked(chaptersApi.openChapterState)).not.toHaveBeenCalled();
+    expect(vi.mocked(chaptersApi.reopenChapterState)).not.toHaveBeenCalled();
+
+    await expectStateShown("Open");
+    expect(chapterStateWords()).not.toContain("Closing");
   });
 
-  it("DoD-4: the contrast case — an open chapter does offer its one control and states no such reason", async () => {
+  it("DoD-4: the contrast case — the offer really is derived from the state, so an open chapter's one control is the close one", async () => {
     armLoads("open");
 
     renderPage();
 
-    // So "no control" above is evidence about `closing`, not about the page.
+    // So "the closing chapter's control cancels" above is evidence about `closing`, not
+    // about the page offering the same control everywhere.
     await findTransitionControl("Close");
     expect(transitionControls()).toHaveLength(1);
-    expect(screen.queryByText(CLOSING_REASON)).toBeNull();
+    expect(vi.mocked(chaptersApi.cancelChapterClose)).not.toHaveBeenCalled();
   });
 });
 
@@ -518,6 +624,8 @@ describe("a 403 from a transition (DoD-5)", () => {
     await expectStateShown("Open");
 
     fireEvent.click(control);
+    // 016 DoD-9: the confirmation is what posts, so it is what meets the server's 403.
+    await confirmClose();
 
     await screen.findByText(REFUSAL_TITLE);
     await waitFor(() => {
@@ -525,6 +633,7 @@ describe("a 403 from a transition (DoD-5)", () => {
     });
 
     expect(chapterStateWords()).toContain("Open");
+    expect(chapterStateWords()).not.toContain("Closing");
     expect(chapterStateWords()).not.toContain("Closed");
   });
 });
@@ -669,9 +778,12 @@ describe("a refused transition leaves the draft and the buffer alone (DoD-8)", (
       expect(readBuffer(BUFFER_KEY)?.draft).toBe(typed);
     });
 
-    // Now the refusal.
+    // Now the refusal. 016 DoD-9: the confirmation is what posts, so the refusal is
+    // reached through it — and neither the confirmation nor the refusal may cost the
+    // author the draft.
     const control = await findTransitionControl("Close");
     fireEvent.click(control);
+    await confirmClose();
 
     // Presence first, part three: the refusal actually happened and is on screen.
     await screen.findByText(REFUSAL_TITLE);

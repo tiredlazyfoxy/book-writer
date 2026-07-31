@@ -49,6 +49,8 @@ import type { CodexEntryResponse } from "../../src/types/codex";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
 import * as codexApi from "../../src/api/codex";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
 import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
 
@@ -91,6 +93,27 @@ vi.mock("../../src/api/codex", () => ({
   getCodexEntry: vi.fn(),
   createCodexEntry: vi.fn(),
   updateCodexEntry: vi.fn(),
+}));
+
+// HARNESS ONLY, added by `016.chapter-close-continuity`: the surfaces this route table
+// mounts now read continuity data on mount — the Book-state page reads the book's state
+// notes and its per-chapter continuity, and the chapter page reads that chapter's
+// warnings and note changeset (`plan.md` -> Interface for `bookStatePageState.ts` /
+// `chapterPageState.ts`). Mocked module-factory form (never `fetch`) and armed benignly
+// in `beforeEach`, so those loads resolve locally instead of reaching `api/client` and
+// leaving rejected promises behind. NOTHING in this file asserts on either module — no
+// assertion here changed.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
 }));
 
 /** One codex entry per kind, so a route showing the wrong kind is visible. */
@@ -160,10 +183,42 @@ function LocationProbe(): ReactElement {
   return <span data-testid="pathname">{location.pathname}</span>;
 }
 
+/**
+ * HARNESS ONLY (`016.chapter-close-continuity`): the four continuity reads this route
+ * table's pages make on mount, answered benignly — no state notes, no per-chapter
+ * continuity, no warnings, an empty changeset. Nothing here is asserted on; this only
+ * keeps those mounts off `api/client` and out of the rejected-promise path, exactly as
+ * the existing prompt / chat / codex arming above does for their modules.
+ */
+function armContinuityReads(): void {
+  vi.mocked(continuityApi.getStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.updateStateNotes).mockResolvedValue({
+    book_id: "bk-1",
+    active_notes: "",
+    modified_at: null,
+  });
+  vi.mocked(continuityApi.getBookContinuity).mockResolvedValue({ items: [] });
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: "ch-1",
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
+}
+
 beforeEach(() => {
   // `restoreMocks` wipes the implementation between tests — the shell needs a resolved
   // book so it reaches `ready` and renders its `<Outlet/>` (the subject placeholder).
   vi.mocked(booksApi.getBookDetail).mockResolvedValue(makeDetail("bk-1"));
+  armContinuityReads();
   // The Book-state page (the `/state` route + the `/chats` redirect target) loads the
   // caller's own prompt on mount; a prompt-shaped resolved value keeps that load off the
   // network and out of the rejected-promise path. `""` + `modified_at: null` is the

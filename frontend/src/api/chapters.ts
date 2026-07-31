@@ -246,9 +246,13 @@ export async function openChapterState(
 }
 
 /**
- * `POST /api/books/{bookId}/chapters/{chapterId}/close` — move the `open`
- * chapter to `closed` directly (UC-036 / US-038.AC-1; the `closing` gate is
- * `016`'s). Sends **no request body**. Returns 014's chapter response.
+ * `POST /api/books/{bookId}/chapters/{chapterId}/close` — OPEN THE CLOSE WINDOW:
+ * move the `open` chapter to `closing` (UC-036 / US-038.AC-1 / US-038.AC-3).
+ * Sends **no request body**. Returns 014's chapter response.
+ *
+ * Feature `016` changed only the SERVER's destination behind this call, which is
+ * why the signature did not move. No LLM call happens here: the chat pane posts
+ * the close turn next, and the server decides the outcome when that turn ends.
  */
 export async function closeChapterState(
   bookId: string,
@@ -259,6 +263,27 @@ export async function closeChapterState(
     method: "POST",
     signal,
   });
+}
+
+/**
+ * `POST /api/books/{bookId}/chapters/{chapterId}/close/cancel` — abandon a close
+ * run and return the chapter to `open`, discarding the draft summary and changeset
+ * (feature 016 decision D4 — the Stop path; US-074.AC-1). Sends **no request body**.
+ *
+ * Owner-only server-side, through the same capability `/close` requires. A chapter
+ * that is NOT `closing` is a `200` no-op returning the unchanged chapter, never a
+ * `409`: cancelling a close that is no longer running is exactly what a client
+ * racing the turn's own completion does.
+ */
+export async function cancelChapterClose(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterResponse> {
+  return request<ChapterResponse>(
+    `${BASE}/${bookId}/chapters/${chapterId}/close/cancel`,
+    { method: "POST", signal },
+  );
 }
 
 /**

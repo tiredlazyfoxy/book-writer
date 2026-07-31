@@ -32,7 +32,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, StringConstraints
 
-from app.models.chapter import ChapterState
+from app.models.chapter import ChapterState, SummaryStatus
 
 
 class CreateChapterRequest(BaseModel):
@@ -83,11 +83,17 @@ class ChapterResponse(BaseModel):
     results).
 
     Built by hand in the service mapper — never dumped from the ORM. ``id`` and
-    ``book_id`` are ``str``. Carries **no ``text``, no ``summary`` and no
-    ``summary_status``** by design (see the module docstring), and no
-    ``system_prompt``: the chapter prompt is **per-author** and lives on its own
-    endpoint (decision D1), while the dormant ``Chapter.system_prompt`` column is
-    read and written by nothing in this feature.
+    ``book_id`` are ``str``. Carries **no ``text``** by design (see the module
+    docstring), and no ``system_prompt``: the chapter prompt is **per-author**
+    and lives on its own endpoint (decision D1), while the dormant
+    ``Chapter.system_prompt`` column is read and written by nothing.
+
+    **016 adds ``summary`` and ``summary_status``** — the two fields 014's
+    docstring reserved for this feature. They ride on the chapter DTO rather
+    than on a sub-resource of their own (unlike the body, D13): a summary is a
+    short field the chapter view and the continuity roll-up both want, so it
+    costs nothing on a list render. Both are nullable — a chapter that has never
+    been closed has neither.
     """
 
     id: str
@@ -97,6 +103,8 @@ class ChapterResponse(BaseModel):
     state: ChapterState
     sketch: str
     version: int
+    summary: str | None
+    summary_status: SummaryStatus | None
     created_at: datetime | None
     modified_at: datetime | None
 

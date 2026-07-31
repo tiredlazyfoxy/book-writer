@@ -84,6 +84,7 @@ from pydantic import BaseModel
 
 from app.db import book_author_prompts, chapter_author_prompts, chat_messages
 from app.db import llm_servers as llm_servers_db
+from app.models.chapter import ChapterState
 from app.models.chat import Chat, ChatMessage
 from app.models.llm_server import LlmServer
 from app.models.schemas.chats import (
@@ -96,6 +97,7 @@ from app.models.schemas.chats import (
 )
 from app.services import assistant_runtime
 from app.services import authz
+from app.services import chapters as chapters_service
 from app.services import chats as chats_service
 from app.services import llm_servers as llm_servers_service
 from app.services import prompt_composition
@@ -396,6 +398,64 @@ async def compose_turn_system_prompt(context: TurnContext) -> str:
     )
 
 
+async def _finalize_close_turn_if_needed(
+    context: TurnContext, tool_context: tools_service.ToolContext
+) -> None:
+    """Run 016's deterministic post-turn step, when this turn was a close run.
+
+    Called by :func:`run_turn` **once**, at the turn's natural completion —
+    success **or** an ``error`` frame — and **before** the terminal frame is
+    yielded, which is what makes a client cancellation skip it: a disconnect
+    while the stream is still open never reaches this line, and the author's
+    recovery is the ``POST …/close/cancel`` endpoint (``016/context.md``).
+
+    A **close-chapter turn** is one whose already-resolved subject is a chapter in
+    ``ChapterState.closing`` — exactly the condition
+    ``assistant_runtime._CHAPTER_STATE_MODES`` maps to the ``close-chapter`` mode,
+    read off the subject this turn was prepared with rather than re-derived.
+
+    Two guards, and neither is a new rule:
+
+    - **no chapter subject, or one that is not ``closing``** → this is an ordinary
+      turn and nothing is finalized;
+    - **a caller who does not hold** ``Capability.set_chapter_state`` → skipped.
+      Mode determination is per-subject, not per-role, so a co-author's own chat
+      also resolves to ``close-chapter`` while somebody else's chapter is
+      ``closing``; finalizing there would discard the owner's in-flight run. It is
+      the same capability ``services/close_tools.py``'s fourth refusal rule
+      applies to that turn's tool calls, asked the same way.
+
+    It never lets a finalize failure surface as a turn failure: the turn is over,
+    its frames are decided, and there is no channel left to speak on — so an
+    unexpected exception is logged and swallowed.
+    """
+    subject = context.subject
+    chapter = subject.chapter
+    if chapter is None or chapter.state != ChapterState.closing:
+        return None
+
+    access = context.access
+    if access is None:
+        return None
+    try:
+        authz.require(access, authz.Capability.set_chapter_state)
+    except authz.BookAuthorizationError:
+        return None
+
+    try:
+        # The SAME ``ToolContext`` instance the turn's tools were bound to, so the
+        # held ``active_notes_proposal`` — which was never persisted (decision D7)
+        # — is the one finalize reads.
+        await chapters_service.finalize_close_turn(
+            access, str(chapter.id), tool_context
+        )
+    except Exception:
+        logger.warning(
+            "finalize_close_turn failed for chapter %s", chapter.id, exc_info=True
+        )
+    return None
+
+
 async def prepare_turn(
     access: authz.BookAccess,
     chat_id: str,
@@ -663,6 +723,11 @@ async def run_turn(
     # 7. Failure — one ``error`` frame, no assistant message, user message intact.
     if failure:
         logger.warning("chat turn failed: %s", failure[0])
+        # 016: a close run that FAILED still ended naturally, so the server still
+        # decides its outcome (which, with the artifacts incomplete, is the wipe
+        # branch). Run BEFORE the terminal frame is yielded: a generator suspended
+        # at a `yield` may never be resumed if the client has gone.
+        await _finalize_close_turn_if_needed(context, tool_context)
         yield TurnFrame(event="error", data=ErrorFrame(message=_ERROR_MESSAGE))
         return
 
@@ -671,6 +736,7 @@ async def run_turn(
     # nothing") treats it as a failure too.
     if not content:
         logger.warning("chat turn produced no content")
+        await _finalize_close_turn_if_needed(context, tool_context)
         yield TurnFrame(event="error", data=ErrorFrame(message=_ERROR_MESSAGE))
         return
 
@@ -688,6 +754,10 @@ async def run_turn(
             created_at=datetime.now(timezone.utc),
         )
     )
+    # 016: the deterministic post-turn step, run ONCE at natural completion and
+    # BEFORE the terminal frame — so the chapter's outcome is already decided by
+    # the time the client sees `done` and re-reads it.
+    await _finalize_close_turn_if_needed(context, tool_context)
     yield TurnFrame(
         event="done",
         data=DoneFrame(message=chats_service._to_message_response(assistant)),

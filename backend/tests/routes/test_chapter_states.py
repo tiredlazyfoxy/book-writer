@@ -39,10 +39,13 @@ from implementation internals. The taxonomy this module pins:
       chapter is `open` or `closing`            -> 409 (state-machine, NOT 403)
     any transition on an `archived` book        -> 403 (D10)
 
-A close writes `closed` DIRECTLY (D8, "The close seam"); the ONLY use of
-`closing` here is as a SEEDED slot holder, written straight through
-`app.db.chapters`, which is the only producer of that state in this feature.
-US-038.AC-3 (the close gate) is `016`'s and is cited nowhere.
+RE-BOUND by `016.chapter-close-continuity` (`plan.md` -> DoD-1, US-038.AC-3): a
+close is now GATED and writes `closing`, not `closed` -- `POST /close` opens the
+close window and the deterministic post-turn step or `POST /close/cancel` ends it.
+Only the ONE assertion about the close's destination moved; every other claim this
+module pins -- the status taxonomy above, the owner-only rule, the slot guard, the
+state-machine 409s -- is unchanged. `016`'s own route (`POST /close/cancel`) and
+the finalize decision are asserted in `tests/test_chapter_close.py`, not here.
 
 Async tests use asyncio_mode = "auto".
 """
@@ -282,8 +285,9 @@ async def test_open_refused_while_slot_held__DoD9_US037_AC2_US038_AC4(
 # ---------------------------------------------------------------------------
 
 
-# DoD-10 (US-038.AC-1): POST /close as the OWNER on the `open` chapter returns 200
-# with state `closed` -- written directly, never `closing` (D8, "The close seam").
+# DoD-10 (US-038.AC-1; re-bound by 016's DoD-1 / US-038.AC-3): POST /close as the
+# OWNER on the `open` chapter returns 200 -- with state `closing`, the gated
+# destination `016` introduced, never `closed` in one step.
 async def test_owner_closes_open_chapter__DoD10_US038_AC1(http_client):
     _owner, owner_token = await _seed_author("erin")
     book = await _create_book(http_client, owner_token)
@@ -298,9 +302,9 @@ async def test_owner_closes_open_chapter__DoD10_US038_AC1(http_client):
     body = resp.json()
     ChapterResponse.model_validate(body)
     assert body["id"] == str(chapter.id)
-    assert body["state"] == "closed"
+    assert body["state"] == "closing"
 
-    assert await _stored_state(chapter.id) == ChapterState.closed
+    assert await _stored_state(chapter.id) == ChapterState.closing
 
 
 # DoD-10 (US-038.AC-2): POST /close as a CO-AUTHOR returns 403.

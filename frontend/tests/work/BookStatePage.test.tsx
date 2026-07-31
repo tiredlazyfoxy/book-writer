@@ -26,13 +26,31 @@
  *   - the redirect target and landing view are US-106.AC-1 / the step's route map;
  *   - the rendered fields are exactly what `BookDetailResponse` carries (DoD-2 /
  *     `domain-book.md` minus the wire gap);
- *   - the state-notes empty state exists even on a SUCCESSFUL load, because it is the
- *     `BookResponse` wire gap (`context.md`), not a load failure (DoD-3);
- *   - the per-chapter region names `016.chapter-close-continuity` as owner and the page
- *     never says "flag" — "warning" is the author-facing word (DoD-4 /
- *     `frontend-workspace.md`);
+ *   - the state-notes region exists even on a SUCCESSFUL load — it is its own concern,
+ *     not a load failure (DoD-3);
+ *   - the per-chapter continuity region is present and the page never says "flag" —
+ *     "warning" is the author-facing word (DoD-4 / `frontend-workspace.md`);
  *   - the trio never blanks the pane: a pending load shows a loading state, a failed one
  *     an author-facing error (DoD-5).
+ *
+ * RE-BOUND by `016.chapter-close-continuity` (`plan.md` -> D8, DoD-12; Implementation
+ * outline 6): the two PLACEHOLDER stubs this file was written against — the "State
+ * notes" stub whose copy said the notes were "not yet available", and the "Per-chapter
+ * continuity" stub that named `016.chapter-close-continuity` as its owner — are the very
+ * things this feature replaces, with a real state-notes editor and a real per-chapter
+ * continuity list. Three things moved, and nothing else did:
+ *   (a) the marker for "the Book-state view is up" is no longer the owning feature's
+ *       literal name (DoD-1, and `expectBookStateContentIntact`);
+ *   (b) the state-notes region is a real, EDITABLE region rather than a "not yet
+ *       available" placeholder (DoD-3);
+ *   (c) the page now carries TWO editable regions, not one — the author prompt and the
+ *       state notes (021/006's DoD-9). That test's closed-set claim is widened by
+ *       exactly one region, not dropped: a third editable control still fails it.
+ * The DELIVERED surfaces' own content (per-chapter summaries, changesets and warning
+ * lists) is on `plan.md` -> Test plan -> "Not tested (deliberate)", so nothing here
+ * asserts on it; `api/continuity` is mocked and armed benignly for that reason.
+ * The `warning`-not-`flag` vocabulary rule, the book-state table, the archived branch
+ * and the prompt trio's independent failure are all unchanged.
  *
  * `globals: false`: every primitive is imported explicitly.
  */
@@ -41,9 +59,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { BookAuthorPromptResponse, BookDetailResponse } from "../../src/types/books";
+import type {
+  BookContinuityResponse,
+  BookStateNotesResponse,
+} from "../../src/types/continuity";
 import { ApiError } from "../../src/api/client";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
+import * as continuityApi from "../../src/api/continuity";
 import { BookStatePage } from "../../src/work/pages/BookStatePage";
 import { WorkRoutes } from "../../src/work/routes";
 import { renderWithProviders } from "../support/render";
@@ -85,6 +108,19 @@ vi.mock("../../src/api/chats", () => ({
   updateChat: vi.fn().mockResolvedValue(undefined),
   getChat: vi.fn().mockResolvedValue(undefined),
   listModelOptions: vi.fn().mockResolvedValue([]),
+}));
+
+// `016.chapter-close-continuity` replaces this page's two stubs with real surfaces, so
+// the page's mount now reads the book's state notes and its per-chapter continuity
+// (`plan.md` -> Interface for `bookStatePageState.ts`). Whole-module factory, armed
+// benignly in `beforeEach`. The delivered surfaces' CONTENT is on the plan's
+// "Not tested (deliberate)" list, so nothing here asserts on the returned data — it
+// exists so the page can render.
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
 }));
 
 const OWNER_ID = "u-owner-77";
@@ -129,6 +165,55 @@ function makePrompt(overrides: Partial<BookAuthorPromptResponse> = {}): BookAuth
   };
 }
 
+/** The book's live state notes, as `GET /api/books/{id}/state-notes` returns them. */
+const STORED_STATE_NOTES = "Halden holds the north gate through the long winter.";
+
+function makeStateNotes(
+  overrides: Partial<BookStateNotesResponse> = {},
+): BookStateNotesResponse {
+  return {
+    book_id: BOOK_ID,
+    active_notes: STORED_STATE_NOTES,
+    modified_at: "2026-07-01T12:00:00Z",
+    ...overrides,
+  };
+}
+
+/**
+ * One chapter's continuity, carrying one open warning. HARNESS ONLY: the per-chapter
+ * region's rendering is on `plan.md` -> Test plan -> "Not tested (deliberate)", so no
+ * case asserts on this content. It exists so the region has something to render, and it
+ * deliberately contains neither the word "flag" (DoD-4's vocabulary rule) nor a
+ * lifecycle token that would collide with DoD-2's `archiv` match.
+ */
+function makeContinuity(): BookContinuityResponse {
+  return {
+    items: [
+      {
+        chapter_id: "ch-1",
+        title: "The Long Road",
+        ordinal: 1,
+        summary: "The gate holds until the fourth month.",
+        summary_status: "approved",
+        changeset: null,
+        warnings: [
+          {
+            id: "warn-1",
+            chapter_id: "ch-1",
+            origin: "check",
+            comment: "Halden is left-handed here and right-handed in chapter two.",
+            status: "open",
+            created_by: OWNER_ID,
+            created_at: "2026-07-02T09:00:00Z",
+            resolved_by: null,
+            resolved_at: null,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /** Mounts the page directly under a `:bookId` route so `useParams().bookId` resolves. */
 function renderPage(route: string): void {
   renderWithProviders(
@@ -160,6 +245,11 @@ beforeEach(() => {
   // must resolve empty, not `undefined`, or the pane computeds crash. Pure harness mocking.
   vi.mocked(chatsApi.listChats).mockResolvedValue([]);
   vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
+  // 016's two mount reads for this page, armed on the happy path. Harness only — no case
+  // asserts on what they return.
+  vi.mocked(continuityApi.getStateNotes).mockResolvedValue(makeStateNotes());
+  vi.mocked(continuityApi.updateStateNotes).mockResolvedValue(makeStateNotes());
+  vi.mocked(continuityApi.getBookContinuity).mockResolvedValue(makeContinuity());
 });
 
 describe("BookStatePage", () => {
@@ -178,9 +268,11 @@ describe("BookStatePage", () => {
       expect(screen.getByTestId("pathname").textContent).toBe("/bk-1/state"),
     );
 
-    // The Book-state view itself is up: its per-chapter continuity region names its
-    // owning feature — a marker unique to this page (not the shell chrome).
-    expect(await screen.findByText(/016\.chapter-close-continuity/)).toBeInTheDocument();
+    // The Book-state view itself is up: its state-notes region is on screen — a marker
+    // unique to this page (not the shell chrome). Re-bound by `016`: the old marker was
+    // the per-chapter stub's literal naming of its owning feature, which that feature has
+    // now replaced with the real region.
+    expect((await screen.findAllByText(/state notes/i)).length).toBeGreaterThan(0);
   });
 
   it("DoD-2: renders every field BookDetailResponse carries — title, description, mode/visibility/state labels, both timestamps, owner and co-author", async () => {
@@ -210,27 +302,43 @@ describe("BookStatePage", () => {
     expect(pageText).toContain(CO_AUTHOR_ID);
   });
 
-  it("DoD-3: the state-notes region is a labelled empty state — present on a SUCCESSFUL load, not a load failure and not omitted", async () => {
+  it("DoD-3: the state-notes region is its own labelled region — present on a SUCCESSFUL load, not a load failure and not omitted", async () => {
     renderPage("/bk-1/state");
 
-    // A successful load (the title is on screen), yet the state-notes region still shows
-    // its empty state: the notes are not yet exposed by the API (the BookResponse wire
-    // gap), not a fetch error.
+    // A successful load (the title is on screen), and the state-notes region is present
+    // alongside it as its own concern.
     expect(await screen.findByText(BOOK_TITLE)).toBeInTheDocument();
 
-    // A spec-faithful page names "state notes" in TWO elements — the region label AND
-    // the mandated message — so match without assuming uniqueness (getAllByText).
+    // A spec-faithful page names "state notes" in more than one element — the region
+    // label and the field's own labelling — so match without assuming uniqueness.
     expect(screen.getAllByText(/state notes/i).length).toBeGreaterThan(0);
-    expect(document.body.textContent ?? "").toMatch(/not yet (available|exposed)/i);
+
+    // Re-bound by `016` (D8, Implementation outline 6): the region is no longer a "not
+    // yet available" placeholder — it is the book's live note set, offered as an editable
+    // field. That the field EXISTS and is writable is the region's presence claim; what
+    // it renders is on the plan's "Not tested (deliberate)" list.
+    await waitFor(() => {
+      expect(queryStateNotesEditor()).not.toBeNull();
+    });
+    expect(stateNotesEditor()).toBeEnabled();
+    // ...and the region is not the old placeholder dressed up as one.
+    expect(document.body.textContent ?? "").not.toMatch(/not yet (available|exposed)/i);
   });
 
-  it("DoD-4: the per-chapter continuity region names 016.chapter-close-continuity as owner, and the page says 'warning' never 'flag'", async () => {
+  it("DoD-4: the per-chapter continuity region is present, and the page says 'warning' never 'flag'", async () => {
     renderPage("/bk-1/state");
 
-    // Labelled empty state naming its owning feature literally.
-    expect(await screen.findByText(/016\.chapter-close-continuity/)).toBeInTheDocument();
+    await screen.findByText(BOOK_TITLE);
 
-    // "Warning" is the author-facing word; "flag" must never appear anywhere on the page.
+    // Re-bound by `016` (D8: the feature "reuses the two stubs that already name this
+    // feature"): the region is delivered, so it is located by its own label rather than
+    // by the owner-naming sentence the stub used to carry.
+    await waitFor(() => {
+      expect(document.body.textContent ?? "").toMatch(/continuity/i);
+    });
+
+    // UNCHANGED, and the durable half of this case: "warning" is the author-facing word;
+    // "flag" must never appear anywhere on the page (`frontend-workspace.md`).
     const pageText = document.body.textContent ?? "";
     expect(pageText).toMatch(/warning/i);
     expect(pageText).not.toMatch(/flag/i);
@@ -333,7 +441,49 @@ function queryPromptEditor(): HTMLTextAreaElement | null {
   if (areas.length === 0) return null;
   const named = areas.filter((area) => /prompt/i.test(labelTextFor(area)));
   if (named.length > 0) return named[0];
-  return areas.length === 1 ? areas[0] : null;
+  // Re-bound by `016`: this page now carries a SECOND editable region (the state-notes
+  // editor), so the old "the page's sole textarea" fallback narrows to "the sole textarea
+  // that is not that one". The helper's intent — locate the prompt editor without
+  // assuming an exact label — is unchanged.
+  const notes = queryStateNotesEditor();
+  const others = areas.filter((area) => area !== notes);
+  return others.length === 1 ? others[0] : null;
+}
+
+/**
+ * Everything that could name a control for its author — the same parts `labelTextFor`
+ * reads, widened past `<textarea>` because the state-notes region's control kind is not
+ * fixed by the frozen interface.
+ */
+function labelTextForControl(node: HTMLElement): string {
+  const parts: string[] = [
+    node.getAttribute("aria-label") ?? "",
+    node.getAttribute("placeholder") ?? "",
+    node.getAttribute("name") ?? "",
+  ];
+  const labels = (node as HTMLInputElement).labels;
+  if (labels !== null && labels !== undefined) {
+    for (const label of Array.from(labels)) parts.push(label.textContent ?? "");
+  }
+  return parts.join(" ");
+}
+
+/**
+ * The state-notes editor `016` delivers in place of the old "not yet available"
+ * placeholder (`plan.md` -> D8, Implementation outline 6): the editable control whose own
+ * labelling names the state notes.
+ */
+function queryStateNotesEditor(): HTMLElement | null {
+  const named = editableControls().filter((node) =>
+    /state notes/i.test(labelTextForControl(node)),
+  );
+  return named.length > 0 ? named[0] : null;
+}
+
+function stateNotesEditor(): HTMLElement {
+  const editor = queryStateNotesEditor();
+  if (editor === null) throw new Error("no state-notes editor is rendered");
+  return editor;
 }
 
 function promptEditor(): HTMLTextAreaElement {
@@ -436,7 +586,9 @@ async function expectBookStateContentIntact(): Promise<void> {
   expect(text).toContain(OWNER_ID);
   expect(text).toContain(CO_AUTHOR_ID);
   expect(screen.getAllByText(/state notes/i).length).toBeGreaterThan(0);
-  expect(screen.getByText(/016\.chapter-close-continuity/)).toBeInTheDocument();
+  // Re-bound by `016`: the per-chapter region is delivered, so it is located by its own
+  // label rather than by the stub's owner-naming sentence.
+  expect(text).toMatch(/continuity/i);
 }
 
 describe("BookStatePage — the author's own system prompt", () => {
@@ -636,19 +788,27 @@ describe("BookStatePage — the author's own system prompt", () => {
     expect(regionText).not.toMatch(/applies to (all|every|everyone)/i);
   });
 
-  it("DoD-9: the prompt editor is editable and is the ONLY editable region — the rest of the Book-state view stays read-only", async () => {
+  it("DoD-9: the prompt editor is editable, and the surface's editable regions are exactly it and 016's state-notes editor — nothing else", async () => {
     renderPage(STATE_ROUTE);
     const editor = await waitForEditor(STORED_PROMPT);
 
-    // Half one — the region this step adds really is editable.
+    // Half one — the region this step adds really is editable. UNCHANGED.
     expect(editor).toBeEnabled();
     expect(editor.readOnly).toBe(false);
     typeInto(editor, "Edited by the author.");
     await waitFor(() => expect(promptEditor().value).toBe("Edited by the author."));
 
-    // Half two — and it is the only editable control anywhere on the surface: exactly one
-    // region became editable, not two.
-    expect(editableControls()).toEqual([promptEditor()]);
+    // Half two — the CLOSED SET of editable controls. Re-bound by `016` (D8: this feature
+    // replaces the "State notes" stub with a real editor, so a second editable region on
+    // this page is now correct): the set is widened by exactly that one region and stays
+    // closed, so a third editable control anywhere on the surface still fails this case.
+    await waitFor(() => {
+      expect(queryStateNotesEditor()).not.toBeNull();
+    });
+    const editable = editableControls();
+    expect(editable).toHaveLength(2);
+    expect(editable).toContain(promptEditor());
+    expect(editable).toContain(stateNotesEditor());
 
     // The read-only content it sits among is untouched.
     await expectBookStateContentIntact();

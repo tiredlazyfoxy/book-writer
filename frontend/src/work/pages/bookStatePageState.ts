@@ -9,6 +9,12 @@ import type {
   BookState,
   UpdateBookAuthorPromptRequest,
 } from "../../types/books";
+import * as continuityApi from "../../api/continuity";
+import type {
+  BookContinuityResponse,
+  BookStateNotesResponse,
+  UpdateBookStateNotesRequest,
+} from "../../types/continuity";
 
 /** Author-facing labels for the `BookState` union (no exported map exists — see `003.context.md`). */
 const LIFECYCLE_STATE_LABELS: Record<BookState, string> = {
@@ -87,6 +93,60 @@ export class BookStatePageState {
   /** In-flight state of the save (the load has its own `systemPromptStatus`). */
   systemPromptSubmitStatus: "idle" | "loading" | "ready" | "error" = "idle";
 
+  // --- Continuity (016) ---
+  //
+  // TWO MORE INDEPENDENT TRIOS, filling the page's two stubs that already name
+  // `016.chapter-close-continuity` as their owner (decision D8 — no new route and no
+  // new navigator entry). They follow the two shipped trios field-for-field and
+  // interact with neither: a continuity failure must not blank the book-state view or
+  // the prompt editor, and neither of those may hide a continuity error.
+
+  /**
+   * THE PER-CHAPTER CONTINUITY ROLL-UP (`GET …/continuity`) — one entry per chapter
+   * with its summary, its changeset and its OPEN warnings (UC-089 / UC-091;
+   * US-104.AC-1, US-106.AC-2 / AC-3). `null` until the first successful load.
+   *
+   * READ-ONLY on this page: nothing here is edited, so there is no draft, no
+   * server-error holder and no submit status beside it.
+   */
+  continuity: BookContinuityResponse | null = null;
+  continuityStatus: "idle" | "loading" | "ready" | "error" = "idle";
+  continuityError: string | null = null;
+
+  /**
+   * THE BOOK'S LIVE STATE NOTES (`GET …/state-notes`) as the server last returned
+   * them — the value {@link BookStatePageState.stateNotesDraft} is compared against
+   * and re-seeded from (UC-049). `null` until the first successful load; an
+   * `active_notes` of `""` is a NORMAL loaded value, not an absence.
+   */
+  stateNotes: BookStateNotesResponse | null = null;
+  stateNotesStatus: "idle" | "loading" | "ready" | "error" = "idle";
+  stateNotesError: string | null = null;
+
+  /**
+   * The state-notes editor's draft, seeded from the server on load and re-seeded from
+   * the PUT response on save (UC-050's direct-edit path / US-053.AC-1). Every string
+   * is valid input, `""` included — there is no client-side validation layer and no
+   * `clientErrors` counterpart.
+   *
+   * Deliberately NOT mirrored into the working page's restore buffer: the notes are a
+   * short server round-trip through their own trio, not a large content-pane artifact
+   * with a version token (`016/context.md`).
+   */
+  stateNotesDraft = "";
+
+  /**
+   * Server refusals for the state-notes SAVE only, held separately from the load
+   * trio's `stateNotesError` so a refusal never blanks what the author typed. Keyed by
+   * field name (`active_notes`) plus the general `form` key — the shape
+   * `systemPromptServerErrors` uses. The proposal-mode `403` (which names FEAT-010 as
+   * unbuilt) and the archived-book `403` both land here.
+   */
+  stateNotesServerErrors: Record<string, string> = {};
+
+  /** In-flight state of the state-notes save (the load has its own `stateNotesStatus`). */
+  stateNotesSubmitStatus: "idle" | "loading" | "ready" | "error" = "idle";
+
   constructor() {
     makeAutoObservable(this);
   }
@@ -142,6 +202,33 @@ export class BookStatePageState {
       this.systemPromptStatus === "ready" &&
       this.systemPromptSubmitStatus !== "loading" &&
       this.systemPromptDirty
+    );
+  }
+
+  /**
+   * True when the state-notes draft differs from what the server last returned (016).
+   * A not-yet-loaded note set compares as `""`, so a book that has never had notes
+   * still counts as dirty once the author types. Pure — no side effects, no I/O.
+   */
+  get stateNotesDirty(): boolean {
+    return this.stateNotesDraft !== (this.stateNotes?.active_notes ?? "");
+  }
+
+  /**
+   * True when saving the state notes is currently allowed (016): the notes have
+   * loaded (nothing may be written over a value that was never read), no save is in
+   * flight, and the draft is dirty.
+   *
+   * Deliberately NO emptiness check — `""` is a legal save that clears the set — and
+   * deliberately NO role or mode gate: the page has no caller-role signal, the server
+   * refuses a co-author's proposal-mode edit `403`, and that refusal text is what the
+   * author reads (the `ChapterPageState` D14 precedent). Pure.
+   */
+  get canSaveStateNotes(): boolean {
+    return (
+      this.stateNotesStatus === "ready" &&
+      this.stateNotesSubmitStatus !== "loading" &&
+      this.stateNotesDirty
     );
   }
 }
@@ -271,6 +358,166 @@ export async function saveSystemPrompt(
             ? { system_prompt: err.message || "Could not save your system prompt." }
             : { form: err.message || "Could not save your system prompt." };
         state.systemPromptSubmitStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CONTINUITY (`016.chapter-close-continuity`) — three more external effects, in the
+// module's existing `(state, bookId, signal?)` shape. Each touches ONLY its own trio:
+// the four loadables on this page fail independently, in every direction.
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the book's per-chapter continuity roll-up (016; UC-089 / UC-091).
+ *
+ * The {@link loadBookState} shape verbatim: `continuityStatus = "loading"` and clear
+ * `continuityError`, await `continuityApi.getBookContinuity(bookId, signal)`, then
+ * `runInAction` `continuity` + `continuityStatus = "ready"`; return silently when
+ * `signal?.aborted`; map an `ApiError` into `continuityError` / `continuityStatus =
+ * "error"` leaving `continuity` null so nothing renders off data that never arrived,
+ * else rethrow.
+ *
+ * Also the retry path behind the continuity error branch. Touches nothing in the
+ * other three trios.
+ *
+ */
+export async function loadBookContinuity(
+  state: BookStatePageState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.continuityStatus = "loading";
+    state.continuityError = null;
+  });
+  try {
+    const continuity = await continuityApi.getBookContinuity(bookId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.continuity = continuity;
+      state.continuityStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.continuityError = err.message;
+        state.continuityStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Load the book's live state notes and SEED THE DRAFT from them (016; UC-049 /
+ * US-052.AC-1).
+ *
+ * The {@link loadSystemPrompt} shape one resource across: `stateNotesStatus =
+ * "loading"` and clear `stateNotesError`, await
+ * `continuityApi.getStateNotes(bookId, signal)`, then `runInAction` `stateNotes` +
+ * `stateNotesDraft = notes.active_notes` + `stateNotesStatus = "ready"`; abort-guarded;
+ * an `ApiError` becomes `stateNotesError` / `stateNotesStatus = "error"` leaving
+ * `stateNotes` null, else rethrow.
+ *
+ * An empty `active_notes` is a NORMAL loaded value, never an error — a book nobody has
+ * written notes for gets an empty, editable field.
+ *
+ */
+export async function loadStateNotes(
+  state: BookStatePageState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.stateNotesStatus = "loading";
+    state.stateNotesError = null;
+  });
+  try {
+    const notes = await continuityApi.getStateNotes(bookId, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.stateNotes = notes;
+      // `""` is a NORMAL loaded value — a book nobody has written notes for gets
+      // an empty, editable field, not an error.
+      state.stateNotesDraft = notes.active_notes;
+      state.stateNotesStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.stateNotesError = err.message;
+        state.stateNotesStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Save the draft as the book's live state notes (016; UC-050's direct-edit path /
+ * US-053.AC-1).
+ *
+ * The {@link saveSystemPrompt} shape verbatim: body `{ active_notes:
+ * state.stateNotesDraft }` read off the state — no trimming and no emptiness check,
+ * because `""` legitimately clears the set. Clear `stateNotesServerErrors`, set
+ * `stateNotesSubmitStatus = "loading"`, await
+ * `continuityApi.updateStateNotes(bookId, body, signal)`, then re-seed BOTH
+ * `stateNotes` and `stateNotesDraft` **from the response body directly** — the backend
+ * is the source of truth. Abort-guarded. On `ApiError` the message lands in
+ * `stateNotesServerErrors` (4xx → the `active_notes` key, 5xx → the general `form`
+ * key) with `stateNotesSubmitStatus = "error"` and **`stateNotesDraft` untouched**, so
+ * a refusal loses nothing the author typed; anything else rethrows.
+ *
+ * The proposal-mode `403` (a co-author in a proposal-mode book, whose message names
+ * FEAT-010 as unbuilt — US-053.AC-2 is NOT satisfied) and the archived-book `403`
+ * arrive through that same branch. There is **no `409` path**: the note set carries no
+ * version token and this write is last-write-wins.
+ *
+ */
+export async function saveStateNotes(
+  state: BookStatePageState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  // Read off the state verbatim — no trimming and no emptiness check, because `""`
+  // legitimately clears the set.
+  const body: UpdateBookStateNotesRequest = { active_notes: state.stateNotesDraft };
+
+  runInAction(() => {
+    state.stateNotesServerErrors = {};
+    state.stateNotesSubmitStatus = "loading";
+  });
+
+  try {
+    const saved = await continuityApi.updateStateNotes(bookId, body, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      // RE-SEEDED FROM THE RESPONSE, never from the optimistic draft: the backend
+      // is the source of truth.
+      state.stateNotes = saved;
+      state.stateNotesDraft = saved.active_notes;
+      state.stateNotesSubmitStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        // The proposal-mode `403` (whose message names FEAT-010 as unbuilt) and
+        // the archived-book `403` arrive through this same branch, and the draft
+        // is left exactly as the author typed it. There is no `409` path.
+        state.stateNotesServerErrors =
+          err.status >= 400 && err.status < 500
+            ? { active_notes: err.message || "Could not save the state notes." }
+            : { form: err.message || "Could not save the state notes." };
+        state.stateNotesSubmitStatus = "error";
       });
       return;
     }

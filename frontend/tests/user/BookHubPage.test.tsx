@@ -137,6 +137,8 @@ function makeChapter(
     version: 1,
     created_at: "2026-01-02T09:00:00Z",
     modified_at: "2026-01-03T09:00:00Z",
+    summary: null,
+    summary_status: null,
   };
 }
 

@@ -118,6 +118,8 @@ import type { SSEHandlers } from "../../src/api/sse";
 import * as sse from "../../src/api/sse";
 import * as client from "../../src/api/client";
 import * as chaptersApi from "../../src/api/chapters";
+import * as flagsApi from "../../src/api/flags";
+import * as continuityApi from "../../src/api/continuity";
 import {
   currentContentSelection,
   currentContentSubject,
@@ -151,6 +153,24 @@ vi.mock("../../src/api/chapters", () => ({
   updateOwnChapterSystemPrompt: vi.fn(),
   getChapterText: vi.fn(),
   updateChapterText: vi.fn(),
+}));
+
+// HARNESS ONLY, added by `016.chapter-close-continuity`: the chapter page's mount now
+// also reads the chapter's warnings and its note changeset (`plan.md` -> Interface for
+// `chapterPageState.ts`; DoD-12). Both modules are enumerated in factory form and armed
+// benignly in `beforeEach`, so the page can render without reaching the network. NOTHING
+// in this file asserts on either — no assertion here changed.
+vi.mock("../../src/api/flags", () => ({
+  listFlags: vi.fn(),
+  raiseFlag: vi.fn(),
+  resolveFlag: vi.fn(),
+}));
+
+vi.mock("../../src/api/continuity", () => ({
+  getStateNotes: vi.fn(),
+  updateStateNotes: vi.fn(),
+  getBookContinuity: vi.fn(),
+  getChapterChangeset: vi.fn(),
 }));
 
 /**
@@ -265,6 +285,8 @@ function makeChapter(overrides: Partial<ChapterResponse> = {}): ChapterResponse 
     version: CHAPTER_VERSION,
     created_at: "2026-01-02T08:00:00Z",
     modified_at: "2026-03-04T09:00:00Z",
+    summary: null,
+    summary_status: null,
     ...overrides,
   };
 }
@@ -474,12 +496,31 @@ function expectNoWriteCall(): void {
   expect(vi.mocked(chaptersApi.updateChapterText)).not.toHaveBeenCalled();
 }
 
+/**
+ * HARNESS ONLY (`016.chapter-close-continuity`): the page's two new mount reads answer
+ * benignly — no warnings, an empty changeset. Nothing here is asserted on; this only
+ * keeps the mount from reaching the network.
+ */
+function armContinuityReads(): void {
+  vi.mocked(flagsApi.listFlags).mockResolvedValue({ items: [] });
+  vi.mocked(continuityApi.getChapterChangeset).mockResolvedValue({
+    chapter_id: CHAPTER_ID,
+    added: "",
+    modified: "",
+    deleted: "",
+    status: null,
+    created_at: null,
+    modified_at: null,
+  });
+}
+
 beforeEach(() => {
   editorMounts().length = 0;
   posts.length = 0;
   localStorage.clear();
   clearChapterUndo(BOOK_ID, CHAPTER_ID);
   armLoads();
+  armContinuityReads();
 
   // `restoreMocks` / `clearMocks` wipe implementations between tests — re-arm the two the
   // send path touches.

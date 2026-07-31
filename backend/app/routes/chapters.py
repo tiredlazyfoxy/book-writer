@@ -365,6 +365,39 @@ async def close_chapter(
         raise _map_chapter_error(err)
 
 
+@router.post("/{book_id}/chapters/{chapter_id}/close/cancel")
+async def cancel_chapter_close(
+    chapter_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChapterResponse:
+    """Abandon a chapter's close run and return it to ``open``
+    (``POST /api/books/{book_id}/chapters/{chapter_id}/close/cancel`` → 200,
+    feature 016 decision D4 — the Stop path; US-074.AC-1).
+
+    Delegates to ``chapters_service.cancel_close(access, chapter_id)``. **No
+    request body** — a command, not a representation to replace.
+
+    Owner-only through the same ``Capability.set_chapter_state`` the ``/close``
+    endpoint requires, so no new capability gates the cancel; a co-author is
+    refused **403** through :func:`_map_authz_error`, an ``archived`` book
+    **403** through :func:`_map_chapter_error`.
+
+    A chapter that is **not** ``closing`` is a **200 no-op** returning the
+    unchanged chapter, not a 409: cancelling a close that is no longer running is
+    exactly what a client racing the turn's own completion does.
+
+    Declared as ``/{chapter_id}/close/cancel``, one segment deeper than
+    ``/{chapter_id}/close``, so neither can shadow the other regardless of
+    declaration order (the ``/order`` rule this module documents).
+    """
+    try:
+        return await chapters_service.cancel_close(access, chapter_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chapters_service.ChapterError as err:
+        raise _map_chapter_error(err)
+
+
 @router.post("/{book_id}/chapters/{chapter_id}/reopen")
 async def reopen_chapter(
     chapter_id: str,

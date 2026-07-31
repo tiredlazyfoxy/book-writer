@@ -76,6 +76,23 @@ class Capability(str, enum.Enum):
     # capability — both are service-level checks.
     set_chapter_state = "set_chapter_state"
     write_chapter_text = "write_chapter_text"
+    # 016 (decision D9) — the three continuity / flag rows, and **exactly**
+    # three. Closing a chapter keeps ``set_chapter_state`` unchanged, and every
+    # *view* on the continuity surface (state notes, a chapter's changeset, its
+    # summary, the flag list) is gated by plain membership in
+    # ``services/continuity.py`` / ``services/flags.py`` rather than by a
+    # capability, because the matrix already carries enough {owner, co_author}
+    # rows to say nothing new.
+    #
+    # ``edit_state_notes`` is *(mode)*-qualified in the same unexpressible way
+    # the codex and chapter-write rows are: a co-author's edit in a
+    # ``proposal``-mode book is refused by ``services/continuity.py``, not here,
+    # because this table maps capability → role set and has no vocabulary for
+    # the book's collaboration mode. The archived-book gate is layered the same
+    # way.
+    raise_flag = "raise_flag"
+    resolve_flag = "resolve_flag"
+    edit_state_notes = "edit_state_notes"
 
 
 @dataclass(frozen=True)
@@ -155,6 +172,18 @@ _CAPABILITY_MATRIX: dict[Capability, frozenset[AccessRole]] = {
     # mode-qualified — an owner is never held for review.
     Capability.set_chapter_state: frozenset({AccessRole.owner}),
     Capability.write_chapter_text: frozenset(
+        {AccessRole.owner, AccessRole.co_author}
+    ),
+    # Continuity and flags (016, FEAT-012 / FEAT-016; decision D9).
+    # ``raise_flag`` names both authoring actors because UC-067 does;
+    # ``resolve_flag`` is **owner-only** because UC-068 names the owner alone
+    # (US-076.AC-2 / US-077.AC-1) — the asymmetry is the product's, not an
+    # oversight. ``edit_state_notes`` is the direct-edit path of UC-050 and is
+    # the one *(mode)*-qualified row of the three; that qualifier lives in
+    # ``services/continuity.py``, as the enum comment records.
+    Capability.raise_flag: frozenset({AccessRole.owner, AccessRole.co_author}),
+    Capability.resolve_flag: frozenset({AccessRole.owner}),
+    Capability.edit_state_notes: frozenset(
         {AccessRole.owner, AccessRole.co_author}
     ),
 }

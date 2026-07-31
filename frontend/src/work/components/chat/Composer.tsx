@@ -28,9 +28,20 @@ export const Composer = observer(function Composer({
   onRetry,
 }: ComposerProps) {
   const streaming = state.turnStatus === "streaming";
+  // 016: read-only for the WHOLE `closing` window, driven by `work/closeTurn.ts`'s
+  // signal rather than by "a stream is running", so a page reload mid-close still
+  // renders it read-only with no stream at all (DoD-9). The reason is READABLE TEXT
+  // beside the input, never a visual state.
+  const closeReadOnly = state.isComposerReadOnly;
 
   return (
     <Stack gap="xs">
+      {closeReadOnly && state.composerReadOnlyReason !== null && (
+        <Alert color="yellow" title="The assistant is closing a chapter">
+          {state.composerReadOnlyReason}
+        </Alert>
+      )}
+
       {state.retryOffered && state.turnError !== null && (
         <Alert color="red" title="Turn failed">
           <Group justify="space-between" wrap="nowrap" gap="sm">
@@ -49,19 +60,23 @@ export const Composer = observer(function Composer({
         minRows={2}
         maxRows={6}
         value={state.pendingPrompt}
-        disabled={streaming}
+        disabled={streaming || closeReadOnly}
         onChange={(event) => {
           state.pendingPrompt = event.currentTarget.value;
         }}
       />
 
       <Group justify="flex-end">
-        {streaming ? (
+        {streaming && !closeReadOnly ? (
           <Button color="red" variant="light" onClick={onStop}>
             Stop
           </Button>
         ) : (
-          <Button onClick={onSend} disabled={!state.canSend}>
+          // While a close runs the pane offers NO stop of its own: aborting the
+          // stream alone would leave the chapter `closing` server-side, so the
+          // author's exit is the chapter page's Stop, which also posts
+          // `close/cancel` (decision D4).
+          <Button onClick={onSend} disabled={!state.canSend || closeReadOnly}>
             Send
           </Button>
         )}
