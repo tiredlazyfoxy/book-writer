@@ -54,7 +54,7 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-018 → FEAT-013 — same shared-canvas assistant surface.
 - FEAT-018 → FEAT-017 — generates and rewrites codex entries.
 - FEAT-012 → FEAT-016 — **new display edge, round 6:** Book state
-  (UC-091) displays a chapter's active warnings in context; distinct from
+  (UC-091) displays a chapter's active flags in context; distinct from
   the existing FEAT-016 → FEAT-012 check edge above (display, not
   inspection).
 - FEAT-012 → book-object — **new, round 6, `_TBD:` deferred:** Book state
@@ -72,7 +72,20 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-020 → FEAT-017 — **new, round 8:** mode taxonomy — edit-character
   / edit-location / edit-fact mirror the codex kinds.
 - FEAT-020 → FEAT-012 — **new, round 8:** mode taxonomy — close-chapter
-  mode aligns with the continuity gate.
+  mode aligns with the clean close run (reworded 2026-07-31 — "the
+  continuity gate" was stale approval-era phrasing; no behavioural
+  change).
+- FEAT-012 → FEAT-020 — **new, finalization 2026-07-31:** a real runtime
+  dependency, distinct from the taxonomy-alignment edge above — the close
+  procedure's five tools ship unreachable until an admin assigns them to
+  the `close-chapter` mode (FEAT-020). Build-order consequence for
+  `/roadmap`: FEAT-020 must land before FEAT-012's and FEAT-016's
+  assistant-driven use cases can be exercised, even though their code
+  already exists.
+- FEAT-012 → FEAT-010 — **new, finalization 2026-07-31:** a co-author's
+  proposal-mode state-note edit needs FEAT-010's proposal-holding
+  mechanism; plan 016 refuses it because that mechanism does not
+  exist. Mirrors the existing FEAT-013 → FEAT-010 edge.
 
 **Hosting (round 6, not a dependency edge):** the FEAT-013 navigator
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
@@ -109,7 +122,10 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-014 / FEAT-009 — reopening is FEAT-009; what reopening produces is
   FEAT-014.
 - FEAT-016 / FEAT-012 — FEAT-012 produces continuity data; FEAT-016
-  checks it.
+  checks it. **Finalization, 2026-07-31:** now realized in a single
+  mechanism — the `close-chapter` turn both drafts and checks in the same
+  run. Implementation fact, not a spec merge; the two features remain
+  distinct capabilities and should not be merged.
 - FEAT-013 / FEAT-016 — **accepted, round 5:** an ad-hoc, in-chat scoped
   check (FEAT-013 UC-088) vs. FEAT-016's mandatory, structured
   consistency check — conversational cousin, not a substitute; flag-bridge
@@ -124,7 +140,7 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
   round 6:** both list/show chapters, but distinct purpose — Chapters is
   read/write prose, Book state is the continuity picture; not a duplicate
   surface. The dropped flat Warnings page (round 6) is superseded by
-  Book state's per-chapter warnings-in-context.
+  Book state's per-chapter flags-in-context.
 - FEAT-012 (Book state) aggregates UC-049, UC-050, UC-089 — **round 6:**
   cross-reference within the same feature's existing continuity data, not
   duplicated capability.
@@ -146,16 +162,24 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
   prompts).
 
 **Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
-place to gate closing on approved continuity data (FEAT-012). C21 — only
-the owner may clone a private book (FEAT-015, FEAT-007). C22 — moderation
-does not reach clones, stated as a limitation (FEAT-011). R4-2 —
-members-only codex vs. cloning a public book: no conflict; UC-062's actor
-is ACT-005, a member; ACT-006 has no clone use case. **CF1 (round 7,
-resolved):** product's own round-5 finding — UC-037 reopen silently
-auto-closed past the FEAT-012 approval gate. Resolved by refusing the
-reopen while another chapter is open or closing: an auto-close either
-skips the approval gate or strands a chapter mid-close; refusing keeps
-both the one-open-chapter singleton and the approval gate (FEAT-009).
+place to gate closing on a clean close run (FEAT-012) (reworded
+2026-07-31 — the gate is the shipped clean run, not an approval; the
+conflict stays resolved). C21 — only the owner may clone a private book
+(FEAT-015, FEAT-007). C22 — moderation does not reach clones, stated as a
+limitation (FEAT-011). R4-2 — members-only codex vs. cloning a public
+book: no conflict; UC-062's actor is ACT-005, a member; ACT-006 has no
+clone use case. **CF1 (round 7, resolved):** product's own round-5
+finding — UC-037 reopen silently auto-closed past the FEAT-012 approval
+gate. Resolved by refusing the reopen while another chapter is open or
+closing: an auto-close either skips a clean close run or strands a
+chapter mid-close; refusing keeps both the one-open-chapter singleton and
+the requirement that closing goes through a clean close run (FEAT-009).
+(Reworded 2026-07-31 — "the continuity gate" was stale phrasing; no
+behavioural change, CF1 stays resolved.) **CF2 (finalization 2026-07-31,
+resolved):** UC-036's exception flow claimed an unapproved chapter stays
+in `closing`; design-note D4 shipped a return to `open` with every draft
+artifact discarded instead. Resolved in favour of what shipped — UC-036
+and US-038.AC-3 amended (finalization of plan 016, challenge C-f16-3).
 **C-r8-3 (round 8, resolved):** FEAT-011's "admin never participates in a
 book" vs. FEAT-020's admin configuring the assistant — no conflict:
 configuring global assistant behaviour is system config, the same class

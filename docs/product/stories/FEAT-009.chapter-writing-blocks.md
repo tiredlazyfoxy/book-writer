@@ -40,7 +40,8 @@ merge-fence filename-stability rule — the domain noun was renamed
 
 ### US-038 — Owner closes the open chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004 · **Realizes:** UC-036
-- **Status:** partially delivered
+- **Status:** delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
 - **Story:** As a book owner, I want to close the open chapter, so that it
   becomes final and no longer editable.
 - **Acceptance criteria:**
@@ -48,18 +49,22 @@ merge-fence filename-stability rule — the domain noun was renamed
     the chapter's state becomes closed and it is no longer editable.
   - **US-038.AC-2** — Given a co-author, when they attempt to close the
     open chapter, then the action is refused.
-  - **US-038.AC-3** — Given an open chapter whose summary or state-note
-    changeset is not approved, when the owner requests to close it, then
-    the chapter enters the **closing** state — not open, not closed — and
-    still refuses writes.
+  - **US-038.AC-3** — Given an open chapter, when the owner requests to
+    close it, then the chapter enters the **closing** state — not open,
+    not closed — and refuses writes for the duration of the close run.
   - **US-038.AC-4** — Given a chapter in the closing state, when the
     owner attempts to open or reopen a different chapter, then the
     attempt is refused — closing still counts as the book's one open
     chapter.
-- **Note (finalization, 2026-07-30):** AC-1, AC-2 and AC-4 delivered in
-  `docs/plans/015.chapter-writing-free-mode/`. **AC-3 deferred** to plan
-  `016.chapter-close-continuity` (challenge C6) — the requirement stands,
-  only its delivery slipped; it is not withdrawn.
+- **Note (finalization, 2026-07-31):** AC-1, AC-2 and AC-4 delivered in
+  `docs/plans/015.chapter-writing-free-mode/`. **AC-3** — formerly
+  recorded here as deferred (2026-07-30 note, challenge C6) — is now
+  **delivered**, amended above to the transient closing window that plan
+  `016.chapter-close-continuity` shipped (design-note D4: a stopped,
+  failed, or flagged close run returns the chapter to open with every
+  draft artifact discarded, rather than leaving it parked in closing
+  pending approval). AC-3 was US-038's only outstanding criterion; the
+  story is now fully delivered.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "closed (written, not editable)." AC-3 —
   `[confirmed: user]` interview 2026-07-20, "Augment round 2", "summaries &
@@ -67,8 +72,11 @@ merge-fence filename-stability rule — the domain noun was renamed
   AC-3 rewritten and AC-4 added: `[confirmed: user]` interview 2026-07-24,
   "augment round 7", divergence 6 (C-r7-4) — the closing state holds the
   one-open-chapter slot and refuses writes; a refused close no longer
-  leaves the chapter "open". Delivery record: `[confirmed: user]`
-  interview 2026-07-30, "finalization — 021 + 014 + 015", challenge C6.
+  leaves the chapter "open". Delivery record (2026-07-30): `[confirmed:
+  user]` interview 2026-07-30, "finalization — 021 + 014 + 015", challenge
+  C6. AC-3 amended to the clean-run wording and status cleared:
+  `[confirmed: user]` interview 2026-07-31, finalization of plan 016,
+  challenge C-f16-3.
 
 ### US-039 — Owner reopens a closed chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004 · **Realizes:** UC-037

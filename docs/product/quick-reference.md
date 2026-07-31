@@ -32,11 +32,11 @@ tables. This file is exempt from the line budget.
 | FEAT-009 | Chapter writing | must | partially delivered |
 | FEAT-010 | Proposal mode | should | proposed |
 | FEAT-011 | Content moderation | must | proposed |
-| FEAT-012 | Chapter summaries & state notes | must | proposed |
+| FEAT-012 | Chapter summaries & state notes | must | partially delivered |
 | FEAT-013 | AI authoring assistant | must | partially delivered |
 | FEAT-014 | Chapter variants & fixes | must | proposed |
 | FEAT-015 | Book cloning | must | proposed |
-| FEAT-016 | Consistency check & chapter flags | must | proposed |
+| FEAT-016 | Consistency check & chapter flags | must | partially delivered |
 | FEAT-017 | Codex | must | proposed |
 | FEAT-018 | Codex authoring from the composition chat | should | proposed |
 | FEAT-019 | Per-author system prompts | must | delivered |
@@ -92,12 +92,12 @@ tables. This file is exempt from the line budget.
 | UC-044 | Quarantine a book | FEAT-011 | ACT-001 | proposed |
 | UC-045 | Destroy a quarantined book | FEAT-011 | ACT-001 | proposed |
 | UC-046 | Owner sees a removal notice | FEAT-011 | ACT-004 | proposed |
-| UC-047 | System drafts a chapter's summary and state-note changes on close | FEAT-012 | ACT-004 | proposed |
-| UC-048 | Owner reviews and approves a chapter's continuity data | FEAT-012 | ACT-004 | proposed |
-| UC-049 | View the book's current state notes | FEAT-012 | ACT-004, ACT-005 | proposed |
-| UC-050 | Edit state notes | FEAT-012 | ACT-004, ACT-005 | proposed |
-| UC-051 | View a chapter's state-note changeset | FEAT-012 | ACT-004, ACT-005 | proposed |
-| UC-052 | Reopening a chapter flags its continuity data stale | FEAT-012 | ACT-004 | proposed |
+| UC-047 | System drafts a chapter's summary and state-note changes on close | FEAT-012 | ACT-004 | deferred |
+| UC-048 | Owner reviews and approves a chapter's continuity data | FEAT-012 | ACT-004 | deferred |
+| UC-049 | View the book's current state notes | FEAT-012 | ACT-004, ACT-005 | delivered |
+| UC-050 | Edit state notes | FEAT-012 | ACT-004, ACT-005 | partially delivered |
+| UC-051 | View a chapter's state-note changeset | FEAT-012 | ACT-004, ACT-005 | delivered |
+| UC-052 | Reopening a chapter flags its continuity data stale | FEAT-012 | ACT-004 | delivered |
 | UC-053 | Start a composition chat | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-054 | Iterate with the LLM on the next edit | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-055 | Produce an edit from a composition chat | FEAT-013 | ACT-004, ACT-005 | proposed |
@@ -109,11 +109,11 @@ tables. This file is exempt from the line budget.
 | UC-061 | Owner clones a book | FEAT-015 | ACT-004 | proposed |
 | UC-062 | Co-author clones a public book | FEAT-015 | ACT-005 | proposed |
 | UC-063 | Choose which members carry over to a clone | FEAT-015 | ACT-004, ACT-005 | proposed |
-| UC-064 | Run a consistency check on demand | FEAT-016 | ACT-004 | proposed |
-| UC-065 | Run the consistency check when closing a fixed chapter | FEAT-016 | ACT-004 | proposed |
-| UC-066 | Apply flags from consistency warnings | FEAT-016 | ACT-004 | proposed |
-| UC-067 | Member raises a flag on a chapter | FEAT-016 | ACT-004, ACT-005 | proposed |
-| UC-068 | Resolve a flag | FEAT-016 | ACT-004 | proposed |
+| UC-064 | Run a consistency check on demand | FEAT-016 | ACT-004 | deferred |
+| UC-065 | Run the consistency check when closing a fixed chapter | FEAT-016 | ACT-004 | deferred |
+| UC-066 | Apply flags from consistency findings | FEAT-016 | ACT-004 | deferred |
+| UC-067 | Member raises a flag on a chapter | FEAT-016 | ACT-004, ACT-005 | delivered |
+| UC-068 | Resolve a flag | FEAT-016 | ACT-004 | delivered |
 | UC-069 | Create a codex entry | FEAT-017 | ACT-004, ACT-005 | proposed |
 | UC-070 | Edit a codex entry | FEAT-017 | ACT-004, ACT-005 | proposed |
 | UC-071 | Browse and search the codex | FEAT-017 | ACT-004, ACT-005 | proposed |
@@ -125,7 +125,7 @@ tables. This file is exempt from the line budget.
 | UC-077 | Rewrite an existing codex entry from a composition chat | FEAT-018 | ACT-004, ACT-005 | proposed |
 | UC-078 | Composition chat draws on the codex | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-079 | State note references a named codex entry | FEAT-012 | ACT-004, ACT-005 | proposed |
-| UC-080 | Consistency check warns about content with no codex entry behind it | FEAT-016 | ACT-004 | proposed |
+| UC-080 | Consistency check warns about content with no codex entry behind it | FEAT-016 | ACT-004 | deferred |
 | UC-081 | Manage and continue stored chats | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-082 | Archive a chat | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-083 | Load a chapter or codex entry into the content pane (read-only unless it is the open chapter) | FEAT-013 | ACT-004, ACT-005 | proposed |
@@ -134,9 +134,9 @@ tables. This file is exempt from the line budget.
 | UC-086 | Assistant searches the book's material by meaning | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-087 | Assistant consults the web | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-088 | Assistant runs a scoped consistency check in chat | FEAT-013 | ACT-004, ACT-005 | proposed |
-| UC-089 | View a chapter's summary | FEAT-012 | ACT-004, ACT-005 | proposed |
+| UC-089 | View a chapter's summary | FEAT-012 | ACT-004, ACT-005 | delivered |
 | UC-090 | Browse the book's material from the working-page navigator | FEAT-013 | ACT-004, ACT-005 | proposed |
-| UC-091 | View Book state — the working-SPA landing view | FEAT-012 | ACT-004, ACT-005 | proposed |
+| UC-091 | View Book state — the working-SPA landing view | FEAT-012 | ACT-004, ACT-005 | partially delivered |
 | UC-092 | Resume unsaved content-pane edits after navigating away | FEAT-013 | ACT-004, ACT-005 | proposed |
 | UC-093 | Set the book's system prompt | FEAT-019 | ACT-004 | withdrawn (→ UC-098) |
 | UC-094 | Set a chapter's system prompt | FEAT-019 | ACT-004, ACT-005 | withdrawn (→ UC-099) |
@@ -187,7 +187,7 @@ tables. This file is exempt from the line budget.
 | US-035 | Member removes a planned chapter | FEAT-008 | delivered |
 | US-036 | Owner opens a chapter for writing | FEAT-009 | delivered |
 | US-037 | Only one chapter can be open at a time | FEAT-009 | delivered |
-| US-038 | Owner closes the open chapter | FEAT-009 | partially delivered |
+| US-038 | Owner closes the open chapter | FEAT-009 | delivered |
 | US-039 | Owner reopens a closed chapter | FEAT-009 | delivered |
 | US-040 | Co-author adds an edit in free mode | FEAT-009 | delivered |
 | US-041 | A save against a changed chapter body warns the author | FEAT-009 | delivered |
@@ -198,13 +198,13 @@ tables. This file is exempt from the line budget.
 | US-046 | Admin quarantines a book | FEAT-011 | proposed |
 | US-047 | Admin destroys a quarantined book | FEAT-011 | proposed |
 | US-048 | Owner is told their book was removed and why | FEAT-011 | proposed |
-| US-049 | Continuity data is drafted when a chapter closes | FEAT-012 | proposed |
-| US-050 | Owner approves a chapter's summary and state-note changes | FEAT-012 | proposed |
-| US-051 | A chapter cannot close without approved continuity data | FEAT-012 | proposed |
-| US-052 | Member views the book's current state notes | FEAT-012 | proposed |
-| US-053 | Member edits state notes according to the collaboration mode | FEAT-012 | proposed |
-| US-054 | Member views what a chapter changed in the state notes | FEAT-012 | proposed |
-| US-055 | Reopening a chapter marks its continuity data stale | FEAT-012 | proposed |
+| US-049 | Continuity data is drafted when a chapter closes | FEAT-012 | deferred |
+| US-050 | Owner approves a chapter's summary and state-note changes | FEAT-012 | deferred |
+| US-051 | A chapter cannot close without approved continuity data | FEAT-012 | deferred |
+| US-052 | Member views the book's current state notes | FEAT-012 | delivered |
+| US-053 | Member edits state notes according to the collaboration mode | FEAT-012 | partially delivered |
+| US-054 | Member views what a chapter changed in the state notes | FEAT-012 | delivered |
+| US-055 | Reopening a chapter marks its continuity data stale | FEAT-012 | partially delivered |
 | US-056 | Author starts chats freely; chats persist until archived | FEAT-013 | proposed |
 | US-057 | The mode-dependent baseline is available to a composition chat | FEAT-013 | proposed |
 | US-058 | Author iterates with the LLM to refine the next edit | FEAT-013 | proposed |
@@ -221,12 +221,12 @@ tables. This file is exempt from the line budget.
 | US-069 | Only the owner may clone a private book | FEAT-015 | proposed |
 | US-070 | The cloner chooses which members carry over | FEAT-015 | proposed |
 | US-071 | A clone carries content, continuity, mode and visibility | FEAT-015 | proposed |
-| US-072 | Owner runs a consistency check on demand | FEAT-016 | proposed |
-| US-073 | Closing a fixed chapter runs the consistency check | FEAT-016 | proposed |
-| US-074 | Owner responds to warnings by re-fixing or applying flags | FEAT-016 | proposed |
-| US-075 | Member raises a flag with a comment | FEAT-016 | proposed |
-| US-076 | A flag records whether it came from a check or a person | FEAT-016 | proposed |
-| US-077 | Owner resolves a flag | FEAT-016 | proposed |
+| US-072 | Owner runs a consistency check on demand | FEAT-016 | deferred |
+| US-073 | Closing a fixed chapter runs the consistency check | FEAT-016 | deferred |
+| US-074 | Owner responds to consistency findings by re-fixing or applying flags | FEAT-016 | partially delivered |
+| US-075 | Member raises a flag with a comment | FEAT-016 | delivered |
+| US-076 | A flag records whether it came from a check or a person | FEAT-016 | delivered |
+| US-077 | Owner resolves a flag | FEAT-016 | delivered |
 | US-078 | Member creates a codex entry of a given kind | FEAT-017 | proposed |
 | US-079 | Codex entries follow the book's collaboration mode | FEAT-017 | proposed |
 | US-080 | Member browses and searches the codex | FEAT-017 | proposed |
@@ -240,8 +240,8 @@ tables. This file is exempt from the line budget.
 | US-088 | A chat-authored entry is saved only on explicit request | FEAT-018 | proposed |
 | US-089 | A composition chat can draw on the book's codex | FEAT-013 | proposed |
 | US-090 | A state note names the codex entry it is about | FEAT-012 | proposed |
-| US-091 | The check warns when a chapter references something absent from the codex | FEAT-016 | proposed |
-| US-092 | An archived codex entry does not silently break existing state notes | FEAT-016 | proposed |
+| US-091 | The check warns when a chapter references something absent from the codex | FEAT-016 | deferred |
+| US-092 | An archived codex entry does not silently break existing state notes | FEAT-016 | deferred |
 | US-093 | The moderation view includes the codex | FEAT-011 | proposed |
 | US-094 | A clone carries the source book's codex | FEAT-015 | proposed |
 | US-095 | Chats persist and are managed (list, pick, continue) | FEAT-013 | proposed |
@@ -253,9 +253,9 @@ tables. This file is exempt from the line budget.
 | US-101 | The assistant may consult the web | FEAT-013 | proposed |
 | US-102 | The assistant runs a scoped consistency check in chat and returns a focused result | FEAT-013 | proposed |
 | US-103 | The assistant writes into the open artifact; nothing persists until saved | FEAT-013 | delivered |
-| US-104 | A member views a chapter's summary | FEAT-012 | proposed |
+| US-104 | A member views a chapter's summary | FEAT-012 | delivered |
 | US-105 | Author browses the book's material by kind from the working page | FEAT-013 | proposed |
-| US-106 | Book state is the working-SPA landing view and shows the book at a glance | FEAT-012 | proposed |
+| US-106 | Book state is the working-SPA landing view and shows the book at a glance | FEAT-012 | partially delivered |
 | US-107 | Unsaved content-pane edits are retained and restored | FEAT-013 | delivered |
 | US-108 | Owner sets the book's system prompt, applied to every chat in the book | FEAT-019 | withdrawn (→ US-115) |
 | US-109 | Member sets a chapter's system prompt, narrowing the book's | FEAT-019 | withdrawn (→ US-116) |

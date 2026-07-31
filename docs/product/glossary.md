@@ -47,10 +47,14 @@
 - **Chapter** — a member of a book's ordered skeleton; states below.
 - **Chapter states (planned / open / closing / closed)** — *planned*:
   sketch only, not yet written. *open*: being written; at most one open
-  or closing per book. *closing*: close requested, continuity awaiting
-  the owner's approval; still holds the book's single open slot; refuses
-  writes. *closed*: written, not editable, reopenable by the owner. Fourth
-  state added round 7, reconciling the architecture pass.
+  or closing per book. *closing*: close requested; the system is drafting
+  and checking the chapter's continuity. Still holds the book's single
+  open slot, and lasts only for the duration of the run — a clean run
+  closes the chapter, and a stop, failure or blocking flag returns it to
+  open with the drafts discarded. *closed*: written, not editable,
+  reopenable by the owner. Fourth state added round 7, reconciling the
+  architecture pass; closing's clean-run behaviour amended finalization of
+  plan 016 (2026-07-31).
 - **Sketch** — the idea/outline for a planned (not-yet-written) chapter;
   editable by any member, in parallel, distinct from the chapter's written
   content.
@@ -93,10 +97,10 @@
 - **State-note changeset** — the set of state notes a chapter added,
   modified or deleted; preserved per chapter even as the live set moves on.
 - **Continuity data** — a chapter's summary and its state-note changeset,
-  together; must be approved before the chapter can close.
+  together; a clean close run is what produces and approves them.
 - **Stale continuity** — the flag applied to a chapter's summary and
-  state-note changeset when the chapter is reopened; the chapter must be
-  re-approved before it can close again.
+  state-note changeset when the chapter is reopened; re-closing re-runs
+  the close procedure, producing a fresh summary and changeset.
 - **Composition chat** — a free-form chat with the LLM used to create,
   recreate and polish the next edit before producing it; private to its
   author.
@@ -119,8 +123,11 @@
 - **Consistency check** — an LLM inspection of a book's chapters,
   summaries and state notes for contradictions; reports to the owner,
   never rewrites anything.
-- **Flag** — a chapter annotation carrying a comment; raised by the
-  consistency check or by a member, and resolved once dealt with.
+- **Flag** — a recorded concern on a chapter, carrying a comment and an
+  origin (consistency check, or a person); resolved once dealt with. One
+  term throughout — for the record and for what an author reads.
+  Supersedes the round-6 "warning" synonym (reversed 2026-07-31,
+  `[confirmed: user]`, finalization of plan 016, challenge C-f16-4).
 - **Flag origin** — whether a flag came from the consistency check or a
   person; the two carry different weight.
 - **Resolve (a flag)** — marking a flag dealt with; does not undo whatever

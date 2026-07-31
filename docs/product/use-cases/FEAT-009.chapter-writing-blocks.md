@@ -32,21 +32,30 @@ merge-fence filename-stability rule — the domain noun was renamed
   1. Owner selects the open chapter.
   2. Owner requests it closed.
   3. System transitions the chapter open → **closing**.
-  4. System drafts the chapter's continuity data (UC-047).
-  5. On the owner's approval (UC-048), system transitions the chapter
-     closing → closed.
-- **Exception flow:** Non-owner attempts to close → refused. Continuity is
-  not approved → the chapter **stays in closing** — not open, not closed —
-  and continues to refuse writes and hold the book's one-open-chapter slot
-  until the owner approves or the close is abandoned.
+  4. System drafts and checks the chapter's continuity (UC-047) during the
+     closing window.
+  5. On a **clean run** (a drafted summary, a drafted state-note
+     changeset, a proposed resulting note set, and no blocking check flag),
+     system transitions the chapter closing → closed and marks both
+     artifacts approved in the same step.
+- **Exception flow:** Non-owner attempts to close → refused. The run is
+  stopped by the owner, fails, or produces a blocking check flag → the
+  chapter returns to **open** and every draft artifact is discarded.
+  `closing` exists only for the duration of the run; a chapter is never
+  left parked in it. A `closing` chapter holds the book's one-open-chapter
+  slot for the duration (US-038.AC-4, delivered).
 - **Postconditions:** Chapter is closed (not editable); no chapter open or
   closing until another is opened.
-- **Note (finalization, 2026-07-30):** Steps 1–2 and the postcondition
-  above (an ungated `open → closed`) shipped in
-  `docs/plans/015.chapter-writing-free-mode/`. Steps 3–5 — the **closing**
-  state, the continuity draft, and the owner's approval — are **deferred**
-  to plan `016.chapter-close-continuity`. The full flow above remains the
-  requirement; only part of it has been built.
+- **Note (finalization, 2026-07-30; updated 2026-07-31):** Steps 1–2 and
+  the postcondition above (an ungated `open → closed`) shipped in
+  `docs/plans/015.chapter-writing-free-mode/`. Step 3 (the **closing**
+  state) and step 5 (the clean-run close, design-note D4) shipped in
+  `docs/plans/016.chapter-close-continuity/`. Step 4 — drafting the
+  chapter's continuity data (UC-047) — remains **deferred**: the
+  mechanism is built, but its tools ship unreachable until an admin
+  assigns them to the `close-chapter` mode (FEAT-020), and the plan's
+  live-run criterion was never exercised (see UC-047's note). This is why
+  UC-036 stays `partially delivered`.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "book structure —
   chapters, states, sketches": "closed (written, not editable)."
   Continuity precondition — `[confirmed: user]` interview 2026-07-20,
@@ -56,7 +65,10 @@ merge-fence filename-stability rule — the domain noun was renamed
   "augment round 7", divergence 6 (C-r7-4) — a fourth chapter state that
   holds the one-open-chapter slot and refuses writes while continuity
   awaits approval. **Delivery record:** `[confirmed: user]` interview
-  2026-07-30, "finalization — 021 + 014 + 015".
+  2026-07-30, "finalization — 021 + 014 + 015". **Step 5 + exception flow
+  amended to the shipped clean-run close (design-note D4), resolving
+  CF2:** `[confirmed: user]` interview 2026-07-31, finalization of plan
+  016, challenge C-f16-3.
 
 ### UC-037 — Reopen a closed chapter
 - **Feature:** FEAT-009 · **Actor:** ACT-004

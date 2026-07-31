@@ -202,7 +202,8 @@ conflicts) live in `relationships.md`.
   state notes so later chapters and generation see prior continuity
   without full chapter text.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
 - **Realized by:** UC-047, UC-048, UC-049, UC-050, UC-051, UC-052, UC-079,
   UC-089, UC-091, US-049, US-050, US-051, US-052, US-053, US-054, US-055,
   US-090, US-104, US-106
@@ -228,7 +229,7 @@ conflicts) live in `relationships.md`.
   read-only, members-only. **Round 6:** Book state (UC-091) is the
   working-SPA landing view — the first thing shown on opening the book to
   work — aggregating this feature's continuity data (summary UC-089,
-  state-note changeset UC-049/UC-051) with FEAT-016's warnings-in-context
+  state-note changeset UC-049/UC-051) with FEAT-016's flags-in-context
   and the book's own fields (`_TBD: field list — deferred to /architect,
   book object; do not invent._`); state notes are edited here too
   (UC-050). Distinct from Chapters (FEAT-008/FEAT-009, read/write prose) —
@@ -236,13 +237,25 @@ conflicts) live in `relationships.md`.
   duplicate surface. **Round 7:** the chapter's summary and state-note
   changes are drafted (UC-047) once the chapter enters FEAT-009's fourth
   state, **closing**; owner approval (UC-048) transitions it closing →
-  closed.
+  closed. **Finalization, 2026-07-31 (plan `016.chapter-close-continuity`):**
+  delivered the manual continuity surfaces (state notes UC-049/UC-050
+  free mode, changeset UC-051, summary view UC-089, Book state UC-091)
+  and the close procedure's clean-run mechanics (UC-052, US-038.AC-3).
+  Assistant-driven drafting (UC-047) is deferred, not withdrawn — its
+  mechanism ships but its tools await a FEAT-020 mode/tool assignment
+  plus one live run. Four divergences from the pre-016 spec: no
+  owner-approval gate (UC-048/US-050/US-051 deferred); the closing state
+  is transient for one close run, not a resting state; proposal-mode
+  state-note edits are refused, not held as proposals (FEAT-010
+  dependency, `relationships.md`); each close run deletes `origin=check`
+  flags before running rather than resolving them (UC-068).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "summaries & state notes"; codex round 4;
   interview 2026-07-23, "Augment round 5", "SPA pages" / "RULE (per author
   only = members-only)"; interview 2026-07-23, "Augment round 6", "Book
   state — the landing view"; interview 2026-07-24, "augment round 7",
-  divergence 6
+  divergence 6; interview 2026-07-31, "finalization — plan
+  016.chapter-close-continuity"
 
 ### FEAT-013 — AI authoring assistant
 - **Purpose:** Let an author write with an AI assistant that works
@@ -379,7 +392,8 @@ conflicts) live in `relationships.md`.
   notes for contradictions; surfaces findings as flags rather than
   rewriting anything.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
 - **Realized by:** UC-064, UC-065, UC-066, UC-067, UC-068, UC-080, US-072,
   US-073, US-074, US-075, US-076, US-077, US-091, US-092
 - **Note:** Runs on demand and as part of closing a fixed chapter
@@ -407,15 +421,31 @@ conflicts) live in `relationships.md`.
   working-page surfaces, e.g. FEAT-012's Book state shows a chapter's
   active warnings in context. This feature's own wording is reconciled
   later, alongside its already-parked rewrite (the flag-bridge `_TBD:`
-  above) — not half-renamed this round. **Round 7:** the check does not
+  above) — not half-renamed this round. **Reversed 2026-07-31**
+  (finalization of plan 016, `[confirmed: user]`): "flag" is the single
+  term, author-facing and record alike; the round-6 rename is withdrawn
+  and the parked reconciliation is resolved by not renaming at all.
+  **Round 7:** the check does not
   inspect the book's or a chapter's system prompt (FEAT-019) — a prompt
-  is an authoring instruction, not narrative content.
+  is an authoring instruction, not narrative content. **Finalization,
+  2026-07-31 (plan `016.chapter-close-continuity`):** delivered flag
+  raise/resolve (UC-067/UC-068) as part of the close procedure. The
+  consistency check itself (UC-064/UC-065/UC-080) is deferred — its
+  mechanism ships but its tools await a FEAT-020 mode/tool assignment
+  plus one live run. Same four divergences as FEAT-012's finalization
+  note: no owner-approval review stage (UC-066/US-074.AC-2 deferred); the
+  closing window is transient; the FEAT-010 proposal-mode dependency
+  stays unbuilt; each close run deletes `origin=check` flags before
+  running rather than resolving them (UC-068's `_TBD:` records the chosen
+  behaviour, kept open).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 3 —
   variants, cloning & consistency", "consistency check & chapter flags";
   challenge C12; codex round 4; interview 2026-07-23, "Augment round 5",
   "boundaries recorded" / "SPA pages" / "RULE (per author only =
   members-only)"; interview 2026-07-23, "Augment round 6", "vocabulary —
-  flag → warning"; interview 2026-07-24, "augment round 7", divergence 3
+  flag → warning"; interview 2026-07-24, "augment round 7", divergence 3;
+  interview 2026-07-31, "finalization — plan 016.chapter-close-continuity",
+  challenges C-f16-1..C-f16-6
 
 ### FEAT-017 — Codex
 - **Purpose:** The book's reference volume — entries for characters,
