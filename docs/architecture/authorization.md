@@ -102,6 +102,8 @@ Recorded because `014`'s brief asked how a chapter resolves to its `book_id`, an
 | **Apply proposals (UC-041)** | ✓ | — | — | — |
 | Read chapter text | ✓ | ✓ | ✓ *(public only)* | via moderation view |
 
+**The "Approve continuity" row never got code, and will not.** Feature `016.chapter-close-continuity` built the close procedure with **no approval gate**, so there is nothing to gate: a clean close run marks both continuity artifacts `approved` in the same step it closes the chapter (`domain-continuity.md`). The whole procedure — request, cancel, and the post-turn finalize step — is owner-only through **`set_chapter_state`**, feature `015`'s member. Read the row as the *design* `docs/product/` still carries (UC-048 is `deferred`, not withdrawn), the same way the codex archive row below predates its split.
+
 #### The chapter skeleton capabilities, as built
 
 Feature `014.chapter-skeleton` added the **four `Capability` members** that back the first four rows above. Until then those rows were a matrix on paper with no enum behind them:
@@ -140,6 +142,8 @@ Chapter rules that are **state-machine constraints, not authorization** apply ev
 - a **stale `expected_version`** on a body write (feature `015`);
 - **opening a non-`planned` chapter**, **reopening a chapter that is not `closed`**, and **closing a chapter that is not `open`** (feature `015`);
 - **opening or reopening while any chapter is `open` or `closing`** (feature `015`) — CF1's rule applied to **both** transitions, by the symmetry the product's UC-035 exception flow states.
+
+**One transition deliberately refuses nothing: `POST …/close/cancel` from a state other than `closing` is a 200 no-op** (feature `016`), returning the chapter unchanged. Cancel is idempotent by design — a client that cancels twice, or cancels a run that has already finished, is asking for a state the chapter is already in, and answering `409` would report a conflict where there is none. This is the one place a chapter transition does not follow the `409` rule above, and it is an exception on purpose.
 
 Being the owner does not bypass any of them. See `domain-chapter.md`.
 
@@ -195,6 +199,42 @@ Status codes the four codex routes produce:
 | Kind/name violation, or an edit to an archived entry | **400** |
 
 **Archive (UC-072) is not part of this** — feature `013.codex` added no archive capability and no archive route; it is `017.codex-archive-restore`'s. The matrix row above that pairs archive with create/edit predates the split and should be read as the *design*, not as shipped code.
+
+#### The continuity and flag capabilities, as built (feature `016.chapter-close-continuity`)
+
+Feature `016` added **three `Capability` members**, so three more rows of the table above have code behind them:
+
+| Capability | Owner | Co-author | Reader | None |
+|---|---|---|---|---|
+| **Raise a flag (UC-067)** | ✓ | ✓ | — | — |
+| **Resolve a flag (UC-068)** | ✓ | — | — | — |
+| **Edit state notes (UC-050)** | ✓ | ✓ *(mode)* | — | — |
+
+The role sets come straight from product: **UC-067 names both actors; UC-068 names the owner alone.** The `(mode)` qualifier on the edit row is layered in `services/continuity.py`, not in the matrix — the **fourth** feature to layer a non-role rule on top of it, which makes the pattern this document called "the house shape" simply the shape.
+
+**Viewing continuity data is gated by plain membership, not by a capability** (design-note D9). Reading the book's state notes, a chapter's changeset, its summary or its flag list requires only that the caller be a member; the services refuse a non-member with their own typed reason (`ContinuityErrorReason.not_a_member` / `FlagErrorReason.not_a_member` → **403**) rather than through `authz.require`.
+
+Two reasons, and the second generalizes. The matrix already carries several `{owner, co_author}` rows that mean precisely "is a member", so a fourth would add a lookup that can never answer anything else. And this document's established habit is to **layer non-role rules outside the matrix** rather than widen it — mode, book state and row ownership all live one layer up — so keeping a bare membership read there too is the consistent choice, not an exception to be explained later.
+
+**Close itself added no capability.** `POST …/close`, `POST …/close/cancel` and the post-turn finalize step all reuse **`set_chapter_state`**: the close procedure is a chapter state transition, and a second capability meaning the same thing would be two rules to keep in step. The assistant's close tools carry the same check in the other vocabulary — a tool string, not a status (`assistant-runtime.md` → "A per-subject mode is not a claim of ownership").
+
+**No `run_check` capability was added**, so the matrix's "Run a consistency check (UC-064)" row is still design rather than shipped code: the check is not a route at all, it is the `close-chapter` turn's own work, gated by the close tools' refusal chain.
+
+Status codes the eight new routes produce:
+
+| Situation | Status |
+|---|---|
+| No token | **401** |
+| Private book with no relationship | **404** — from `book_access`, never re-derived |
+| A chapter that does not exist, or belongs to another book | **404** |
+| A non-member of a book they can see; a capability failure; any reader | **403** |
+| A **co-author editing state notes in a `proposal`-mode book** | **403** — typed reason naming FEAT-010 as unbuilt |
+| An **archived** book, on any write | **403** |
+| Resolving an already-resolved flag | **409** |
+| Closing or cancelling from the wrong chapter state | **409** — `ChapterErrorReason.chapter_not_open`, reused unchanged; no new member was needed |
+| A malformed body | **422** |
+
+**The proposal-mode refusal is the same interim position the codex took**, and naming it as such is the point: FEAT-010's proposal-holding mechanism does not exist, so a co-author's state-note edit in a proposal-mode book is **refused, not held**. US-053.AC-2 is therefore not satisfied — recorded in `domain-model.md` → "Product divergences", item 6. The "Not settled by this pass" entry below is unchanged by it: this is a decision about the *gap*, not a design of the review surface.
 
 ### Cloning
 

@@ -20,6 +20,7 @@ Index and cross-cutting conventions: `domain-model.md`. Related: `assistant-conf
 | `services/subagent_delegation.py` | synthetic delegation tools and the nested loop |
 | `services/codex_tools.py` | the first mode-gated tools, including the shared-canvas write |
 | `services/chapter_tools.py` | the chapter read path and the three chapter canvas writes (feature `015`) |
+| `services/close_tools.py` | the five close-chapter tools, including the consistency check (feature `016`) |
 | `services/prompt_composition.py` | the pure prompt-composition function |
 | `services/chat_turn.py` | **the single call site** that composes them all |
 
@@ -37,7 +38,7 @@ The runtime "current mode" is **not stored on a chat** (a chat is not bound to a
 | Chapter in state `open` | chapter mode | `write-chapter` |
 | Chapter in state `closing` | chapter mode | `close-chapter` |
 
-`close-chapter` mode is the assistant's behaviour while the owner approves continuity for a chapter in `closing`; that the chapter body is **read-only** in that state (`frontend-workspace.md`) is orthogonal — the mode selects prompt and tools, not write permission. Subjects outside these five (Book state, any list, the chats view) fall **outside FEAT-020's mode set**; what the assistant may do there is answered under "Tool gating" below, not left open.
+`close-chapter` mode is the assistant's behaviour **while a close run is streaming** for a chapter in `closing` (feature `016`; the procedure is `domain-continuity.md`'s). That the chapter body is **read-only** in that state (`frontend-workspace.md`) is orthogonal — the mode selects prompt and tools, not write permission. Subjects outside these five (Book state, any list, the chats view) fall **outside FEAT-020's mode set**; what the assistant may do there is answered under "Tool gating" below, not left open.
 
 #### The chapter rows were design only until feature `015.chapter-writing-free-mode`
 
@@ -248,6 +249,54 @@ The frontend half — the module-level canvas target registry, and the restore b
 **Accepted limitation, stated plainly: the assistant reads the *saved* body, not the author's draft.** The draft is device-local and never leaves the browser until the author saves (US-107.AC-4), so after unsaved edits the model's view of the chapter is stale. This is a consequence of draft-until-saved, not a gap in the protocol.
 
 **The tools ship unreachable, by design.** **No `mode_tool` rows were seeded**, so a registered chapter tool is invisible to every turn until an admin selects it for the `write-chapter` mode in the FEAT-020 editor. On a fresh install the chapter editor works and the assistant cannot write into it until then. This is the same stance `013.codex` took for the codex tools; changing it would be a **FEAT-020 default-policy decision**, and it would point the default in the unsafe direction the empty-allowlist rule exists to avoid.
+
+## The close-chapter procedure, as built
+
+**Realizes:** feature `016.chapter-close-continuity` (2026-07-31). The domain half — what the artifacts are, and what a clean run means — is `domain-continuity.md` → "The close procedure, as built". This section is the runtime half only.
+
+### Five more tools, in `services/close_tools.py`
+
+`draft_chapter_summary`, `draft_chapter_notes`, `propose_active_notes`, `raise_check_flag` and `read_continuity_context`. Same shape as feature `015`'s chapter tools — **context-bearing, mode-gated, registered in `TOOL_REGISTRY`**, with the args schemas colocated beside the tools rather than in `models/schemas/` — and the same refusal discipline: **a refusal is a string the model reads, never an exception**, because a raising tool aborts the turn.
+
+The refusal chain runs in a fixed order: a **non-chapter subject**, a chapter **not in `closing`**, an **archived book**, and **a caller who does not hold `Capability.set_chapter_state`**. The first three mirror `chapter_tools.py`'s chain link for link; the fourth is new, and the section below is why it exists.
+
+### `ToolContext` gained a sixth field
+
+`active_notes_proposal: str | None`, **mutated in place** by `propose_active_notes` and read once by `finalize_close_turn`. It is the mechanism behind the domain rule that the proposed note set is **held in memory and written only if the run ends clean**: a tool that persisted it would have to be undone on every discard path, and `db/` has no transaction to undo it with (`domain-chapter.md`).
+
+**`None` and `""` are different values here, and the distinction is load-bearing.** `""` is a legitimate proposal — the live note set becomes empty; `None` means the tool was never called. Only `None` routes the run to the wipe branch.
+
+### The post-turn finalize hook
+
+`services/chat_turn.py` calls `chapters.finalize_close_turn` **once**, when a close-chapter turn's generator reaches **natural completion** — a `done` **or** an `error` frame — and **not on cancellation**. **`run_turn`'s signature is unchanged**; this is a new interior call, **not a second turn runner**.
+
+**The turn is no longer "stream, persist, done".** The finalize step runs after the tool loop and **before the terminal frame is yielded**, which is exactly what makes the three endings differ:
+
+| Ending | Finalize runs? | Why |
+|---|---|---|
+| `done` | yes | natural completion |
+| `error` | yes | the run ended; a failed run must still return the chapter to `open` rather than strand it in `closing` |
+| client disconnect / abort | **no** | the generator never reaches the step — the explicit `POST …/close/cancel` is that path's exit |
+
+**The five-frame vocabulary is unchanged** — no frame was added, none changed shape. What changed is what happens *between* the loop and the last frame, which is precisely the thing a reader will infer wrongly from the frame list alone.
+
+### A per-subject mode is not a claim of ownership
+
+Stated once, generally, because the next mode-scoped post-turn hook will meet it:
+
+> **Mode determination is per *subject*, not per *caller*.** A mode says what a turn is about; it says nothing about whether this caller owns the activity.
+
+Concretely: while an owner's chapter sits in `closing`, a **co-author's own chat** with that chapter as its subject also resolves to `close-chapter`. Without a further check, their ordinary turn would run the finalize step and therefore **discard the owner's in-flight close run** — a turn nobody asked to be part of the procedure silently ending it.
+
+The finalize call site is consequently gated on the caller holding **`Capability.set_chapter_state`** — the same capability that gated the close request itself — and the close *tools* carry the identical gate as the fourth link of their refusal chain. **Two layers, one rule**, with no new state and no run-ownership token to keep in step. Feature `016`'s own risk list named this hazard for the tools only; the same hazard exists one layer up, which is why it is written here as a rule rather than there as a fix.
+
+### The tools ship registered but unreachable — and the feature is inert without them
+
+**No `mode_tool` rows were seeded**, matching the precedent `013.codex` set and `015` followed.
+
+**The consequence is sharper here than it was there.** For the chapter canvas tools, an unassigned tool meant the assistant could not write into the editor; everything else still worked. For these five, an unassigned tool means the **close procedure cannot execute at all** — a turn with no tools drafts nothing, so `finalize_close_turn` finds no artifacts and returns the chapter to `open` every single time.
+
+**So feature `016` is delivered but inert until an administrator assigns the five tools to the `close-chapter` mode** in the FEAT-020 editor (`assistant-config.md`). That is a configuration act, not code, and the stance is deliberate: seeding rows would be a FEAT-020 **default-policy** decision, and it would point the default in the unsafe direction the empty-allowlist rule exists to avoid. Product recorded the matching build-order edge; this is the architectural reason behind it.
 
 ## Out of scope — still deferred
 

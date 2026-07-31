@@ -59,9 +59,9 @@ This is a **sanctioned exception** to `frontend.md`'s "URL query params are the 
 
 **Feature 010 shipped it as a pure module with no writer.** Nothing imported it but `subject.ts`'s types until feature 013's codex entry page became its first caller. That gap was intentional — the buffer's shape had to be frozen before an editable subject existed, so the first subject would adopt it rather than negotiate it.
 
-## The module tier — four members
+## The module tier — five members
 
-`src/work/` now holds **four** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
+`src/work/` now holds **five** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
 
 | Module | Holds | Persisted? |
 |---|---|---|
@@ -69,8 +69,9 @@ This is a **sanctioned exception** to `frontend.md`'s "URL query params are the 
 | `activeChat.ts` | which chat is open, per book | `localStorage` |
 | `contentSubject.ts` | the current content-pane subject + its apply-draft callback | in memory only |
 | `chapterUndo.ts` | assistant-write undo snapshots per `(book, chapter)`, capped at 20 | **in memory only** |
+| `closeTurn.ts` | the registered close-turn controller + the active close turn's `(book, chapter)` | **in memory only** |
 
-Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a fifth is added on purpose rather than by precedent.
+Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a sixth is added on purpose rather than by precedent.
 
 ### The fourth member, sanctioned on purpose (feature `015.chapter-writing-free-mode`)
 
@@ -78,6 +79,18 @@ This section previously said a fourth member should be added "on purpose rather 
 
 - **Not `localStorage`, deliberately.** Twenty chapter bodies against a few-megabyte origin quota would compete with the restore buffer — which **already evicts**, and already reports eviction to the author as data loss on some other item. An undo stack that evicts someone's unsaved draft is **strictly worse** than one that does not survive a reload. In memory is the right trade.
 - **Assistant writes only, deliberately.** ProseMirror ships a real history plugin (`frontend.md` → the editor), so the author's own typing already has undo *inside* the editor. A second stack over the same keystrokes would give the author **two undo affordances that disagree** about what "one step back" means. A snapshot is pushed **before each assistant-originated write is applied**, and nowhere else.
+
+### The fifth member, sanctioned on the same terms (feature `016.chapter-close-continuity`)
+
+`closeTurn.ts` is the fifth, and it is the first member of this tier that carries **no draft data at all**. What it holds is a **registration** — a controller, plus the currently-active close turn's `(bookId, chapterId)`.
+
+**It is `contentSubject.ts`'s idiom applied to a different verb.** The canvas registry lets the chat pane reach the open content page to *apply a draft*; `closeTurn.ts` lets a content page reach the chat pane to *post a turn* and to *stop one*. The rules are copied deliberately rather than re-derived: **newest registration wins**, and **unregistration is a no-op unless the caller is still the registered owner**, so a late unmount from a superseded page cannot clear a live registration. A start or stop request with **no controller registered is a logged no-op**, not an error — the pane may legitimately not be mounted yet.
+
+It exists for the same three reasons the canvas registry does: React context, a cross-page callback and a custom `useX` hook are all banned by `frontend.md`, and the chapter page and the chat pane are siblings under the shell with no shared state to route through.
+
+**One addition beyond the registry's shape, and it is the load-bearing part.** The module keeps its own stored active value, readable at any time through `activeCloseTurn()` **independently of mount order**, *and* pushes it into the registered controller synchronously so the pane's own observable changes in the same tick — the paired-observable-bump idiom `contentSubject.ts` and `chapterUndo.ts` already use, expressed as a controller callback rather than a second counter. That stored value is what keeps the chat composer read-only across a **reload mid-close**, where nothing is streaming and there is no in-flight request to infer the state from: the chapter page's load path marks the turn active when the loaded chapter is `closing` and clears it otherwise.
+
+**In memory only, deliberately**, on `chapterUndo.ts`'s reasoning: it is not draft content, it is worthless after a reload (the page's own load re-derives it from the chapter's state), and every `localStorage` writer competes with the restore buffer's quota.
 
 ### The active-chat pointer (feature 011)
 
@@ -178,6 +191,10 @@ The buffer's exclusions need sanctioning the same way its inclusions do, or the 
 Its consequences follow from the exclusion and are all intended: **no `baseVersion`, no stale-buffer detection, no divergence view, and no 409 path.** The row has exactly one writer — its owner, who is also the only reader — so there is no second author to diverge from.
 
 **The chapter sketch and the per-chapter prompt are outside it too (feature `014.chapter-skeleton`).** Both are editable regions on a `planned` chapter (`frontend-workspace.md` → "Content pane — subject and editability") and neither is buffered. The sketch is excluded because it has **no version token at all** — sketch edits are last-write-wins, carry no `expected_version`, and do not bump `Chapter.version`, which tracks the body only — and a buffer whose `baseVersion` can never be compared cannot detect staleness, so it would restore silently over someone else's edit. The per-chapter prompt is excluded on the book prompt's reasoning above: one writer, who is also the only reader. Same consequences for both: **no `baseVersion`, no stale-buffer detection, no divergence view, no 409 path.**
+
+**None of feature `016.chapter-close-continuity`'s surfaces enter the buffer either.** State notes, a chapter's summary, its changeset and its flags are all short round-trips, and **none of them carries a version token comparable to a chapter body's** — no `expected_version`, no `409` path, nothing to compare a `baseVersion` against. A buffer whose staleness can never be detected can only restore silently over someone else's edit, which is the sketch's exclusion reasoning applied unchanged. Same consequences: **no `baseVersion`, no stale-buffer detection, no divergence view, no `409` path.**
+
+The summary and the changeset go one step further: they are **read-only on every surface that shows them** — the only writer either has is the close run that produced it (`domain-continuity.md`) — so there is no draft to lose in the first place.
 
 None of this touches the **chapter body**, which is the artifact the buffer was designed for and is buffered — see "The chapter realization" above.
 

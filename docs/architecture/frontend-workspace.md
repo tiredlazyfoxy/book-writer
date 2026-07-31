@@ -154,7 +154,7 @@ An in-code comment on `AdminShell` asserts a repo-wide "no `<Outlet/>` anywhere"
 
 **Book state · Characters · Locations · Facts · Chapters · Variants · Chats.**
 
-- **Book state** is the **landing view** (UC-091, US-106.AC-1) — the first thing shown on opening the book to work. It aggregates the book's own fields, and per chapter: title, summary (UC-089), after-chapter note changeset (UC-049/UC-051), and any active **warnings** in context (FEAT-016).
+- **Book state** is the **landing view** (UC-091, US-106.AC-1) — the first thing shown on opening the book to work. It aggregates the book's own fields, and per chapter: title, summary (UC-089), after-chapter note changeset (UC-049/UC-051), and any active **flags** in context (FEAT-016).
 - **Characters / Locations / Facts** are the one `CodexEntry` table filtered by `kind` — a fixed taxonomy, not three entities.
 - **Chapters** is read/write prose; Book state is the continuity picture. Product records the overlap as accepted and deliberate, not duplication.
 - **Variants** is an addition to the product-final list — see "Divergence" below.
@@ -166,17 +166,17 @@ The navigator was built whole at feature 010 with **one** section carrying data 
 
 | Section | State |
 |---|---|
-| Book state | **has data** — the book's own fields and members (feature 010), plus the caller's own system prompt (feature 021) |
+| Book state | **has data** — the book's own fields and members (feature 010), the caller's own system prompt (feature 021), and the live state notes plus per-chapter continuity (feature `016`) |
 | Characters / Locations / Facts | **has data** (feature 013) |
 | Chats | **has data** (feature 011), in the chat pane |
-| Chapters | **has data** (features `014`, `015`) — the ordered skeleton with add / remove / reorder, the sketch editor, the caller's own chapter prompt, and the `open` chapter's body editor with its state transitions |
+| Chapters | **has data** (features `014`, `015`, `016`) — the ordered skeleton with add / remove / reorder, the sketch editor, the caller's own chapter prompt, the `open` chapter's body editor with its state transitions, and the close procedure's surfaces |
 | Variants | labelled empty state — owner `018.chapter-history-variants` |
 
-Within Book state, one deferral survives and is deliberate: **US-106.AC-2/AC-3** — per chapter, its title, summary, after-chapter note changeset and active warnings — is deferred to **`016.chapter-close-continuity`** and ships as a labelled empty state, because no chapter, summary or flag endpoint exists to aggregate. Feature 010's record that the landing view aggregated the **book's own fields only** is retained here as history; it was true of that feature and is no longer true of the page.
+**Book state's deferral is closed (feature `016.chapter-close-continuity`).** **US-106.AC-2/AC-3** — per chapter, its title, summary, after-chapter note changeset and active flags — shipped, and the two labelled empty states this document recorded as blocked ("no chapter, summary or flag endpoint exists to aggregate") now have endpoints behind them. The view carries two things: the book's **state notes**, viewable by any member and editable per collaboration mode (UC-049/UC-050), and a **per-chapter continuity list** (UC-051, UC-089, UC-091). Feature 010's record that the landing view aggregated the **book's own fields only** is retained above as history; it was true of that feature and is no longer true of the page.
 
 A labelled empty state naming its owning feature is the convention, not a placeholder oversight: the navigator's shape is fixed by UC-090 and building it whole once is cheaper than growing it seven times, but an unlabelled blank pane reads as a bug.
 
-**"Warning" is the author-facing word for a flag.** The entity, table, DTOs and API stay `flag` (`domain-continuity.md`); every string the author reads says *warning*. FEAT-016's own product wording is recorded as pending reconciliation, so the UI adopts the new term without half-renaming the code.
+**"Flag" is the word, on screen and in the code.** The entity, table, DTOs and API say `flag` (`domain-continuity.md`) and so does every string the author reads. Round 6 had made **"warning"** the author-facing term and this document recorded that mapping from the UI side; **product reversed it on 2026-07-31** (`docs/product/features.md` → FEAT-016, *"Reversed 2026-07-31"*, `[confirmed: user]`), so the split is gone and FEAT-016's parked reconciliation is resolved by not renaming at all. The reversal is recorded rather than quietly applied, because the split was a deliberate decision and dropping it is another one. The **verb** survives untouched: the consistency check *warns* and never blocks.
 
 ### Content pane — subject and editability
 
@@ -185,7 +185,7 @@ The pane holds **either a list or a single item** (UC-090, UC-083). A loaded sub
 | Subject | Editable? |
 |---|---|
 | The book's **`open`** chapter | **partly editable** — its **body text** (US-097.AC-3) and the caller's own chapter system prompt; its **`sketch` is read-only** (UC-033 confines sketch edits to `planned`) |
-| A chapter in **`closing`** | **read-only** — the owner is approving continuity for this exact body (`domain-chapter.md`) |
+| A chapter in **`closing`** | **read-only** — a close run is streaming continuity drafts against this exact body (`domain-chapter.md`) |
 | A **`planned`** chapter | **partly editable** — its `sketch` (UC-033) and the caller's own chapter system prompt; its `text` is **read-only** (US-097.AC-1) |
 | A **`closed`** chapter | **read-only** (US-097.AC-1) |
 | A codex entry, not archived | editable, per collaboration mode (US-079) |
@@ -250,6 +250,20 @@ The chapter **item** page is the pane's **second editable subject** and the **fi
 - **The remount-by-key idiom for external draft writes.** The third-party editor reads its initial content once, so the page keys it on a counter bumped by every *external* write (assistant apply, undo, buffer restore, reconciliation) and never by a keystroke. The rule and its cost are in `frontend.md` → "React hook rules".
 - **It registers itself as a *writable* canvas target**, where `014` registered the chapter as a subject only. The registry is `frontend-work-drafts.md`'s.
 
+#### The close procedure's surfaces (feature `016.chapter-close-continuity`)
+
+Three additions to the same chapter item page, all reusing surfaces that already existed rather than adding a route or a navigator entry (design-note D8):
+
+- **A Flags section** — the chapter's flags, with raise and resolve. Raise is `{owner, co_author}`, resolve is owner-only (`authorization.md`); the client mirrors that to show or hide the control and the server re-checks, per the `can_reorder` precedent.
+- **The `close` transition control became the close-procedure trigger**, behind a **confirmation dialog**. The confirmation is not decoration: close now posts an assistant turn that writes continuity and may end with the chapter closed, and this is the last point at which the author can decline without cancelling something already running.
+- **The verbatim `closing` placeholder became an in-progress view** with a cancel control. `offeredTransition` for a `closing` chapter is now `"cancel"` where it used to be `null` — **Stop is the cancel**, and there is no other exit from `closing` (`domain-chapter.md`).
+
+**A closed chapter also gained a read-only summary and changeset**, which puts the close run's output where it was produced rather than only on Book state.
+
+**The chat composer is read-only for the whole `closing` window**, driven by `closeTurn.ts`'s stored active value rather than by "a stream is running" — so a reload mid-close still renders it read-only with no stream running. The module and its sanction are `frontend-work-drafts.md`'s.
+
+**The settings-side mirror was deliberately not built.** The Shell's `/books/:bookId/continuity` route stays unbuilt: the working-page surfaces satisfy UC-051 and UC-089 on their own, and this document's one-editing-surface rule already makes the Shell copy a **read-only convenience** rather than a requirement. Building it would have doubled the feature's surface area for a view nobody is blocked on. It remains designed — see the Shell route map above — and unbuilt.
+
 ### Chat pane (feature 011)
 
 The slot is no longer empty. Feature 010's `ChatPaneSlot` placeholder is gone — the slot is now a one-line adapter onto the real pane, and the pane's parts live in `src/work/components/chat/`:
@@ -267,6 +281,8 @@ The slot is no longer empty. Feature 010's `ChatPaneSlot` placeholder is gone �
 **One state instance, owned by the shell.** `WorkspaceShell` owns the `ChatPaneState`, starts its load in its existing mount effect, and passes the instance down; the navigator gets a zero-arg handler, not the state. The full pattern and its reasoning are in `frontend.md` → Components, because it is a general rule with a worked example here rather than a workspace-specific arrangement.
 
 **The pane is a client of the assistant, not its design.** Prompt composition, the tool loop, mode gating and the five-frame SSE vocabulary (`thinking` / `delta` / `done` / `error` / `canvas`) are in `assistant-runtime.md`. What this document fixes is that the pane exists, that chats open in it, and that a chat is independent of the content-pane subject.
+
+**`ChatPaneState` holds no book id, and pane-level predicates must be written accordingly (feature `016`).** The shell remounts the pane per book (`key={bookId}`), so the pane **is** book-scoped — by remount, not by a stored value. A predicate phrased as *"does X's book match the pane's"* therefore has nothing to compare against and cannot be implemented; the correct phrasing for anything the pane must react to is **"is X active at all"**. Feature `016`'s composer read-only rule is written that way for exactly this reason, and the next cross-pane signal should be too. This is the same shape as `ChatPaneState` holding no subject field and no selection field (`frontend-work-drafts.md`): the pane reads module state at the moment it needs it, and mirrors nothing.
 
 ## Draft-until-saved and the restore buffer — moved
 

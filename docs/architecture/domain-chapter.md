@@ -1,6 +1,8 @@
 # Domain — Chapter, the write path, and concurrency
 
-**Realizes:** FEAT-008 (UC-031..034), FEAT-009 (UC-035..039), FEAT-010 (UC-040, UC-041), FEAT-012 (UC-047, UC-048, UC-052 — the close gate's states), FEAT-013 (UC-055 — the save path only), FEAT-014 (UC-058..060); US-037, US-040, US-041, US-049..051, US-055, US-059, US-062..065, US-103
+**Realizes:** FEAT-008 (UC-031..034), FEAT-009 (UC-035..039), FEAT-010 (UC-040, UC-041), FEAT-012 (UC-047, UC-052 — the close procedure's states), FEAT-013 (UC-055 — the save path only), FEAT-014 (UC-058..060); US-037, US-040, US-041, US-049, US-055, US-059, US-062..065, US-103
+
+**UC-048, US-050 and US-051 left this header at feature `016.chapter-close-continuity`'s finalization (2026-07-31)**, for the reason `domain-continuity.md`'s header states in full: they describe an owner-approval gate this design does not build, and citing them would claim satisfaction of criteria it contradicts. Product deferred rather than withdrew them, so the ids still exist as future work.
 
 Part of the book-domain model. **Index and cross-cutting conventions: `domain-model.md`.** Related: `domain-book.md` (the book a chapter belongs to), `domain-continuity.md` (a chapter's note changeset and its flags), `domain-codex.md`, `frontend-workspace.md` (the editor these writes come from).
 
@@ -12,10 +14,10 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 | `book_id` | FK → `Book.id` |
 | `ordinal` | position in the skeleton; the owner sets it (UC-032) |
 | `title` | chapter title |
-| `state` | `planned` \| `open` \| `closing` \| `closed` (UC-035/036/037, UC-047/048) |
+| `state` | `planned` \| `open` \| `closing` \| `closed` (UC-035/036/037, UC-047) |
 | `sketch` | the forward-looking outline (FEAT-008) |
 | `text` | **the single main body** |
-| `summary` | the backward-looking summary (FEAT-012, drafted on close request, owner-approved) |
+| `summary` | the backward-looking summary (FEAT-012 — drafted by the close run, marked `approved` by its deterministic finalize step) |
 | `summary_status` | `draft` \| `approved` \| `stale` — the summary's own continuity status |
 | `system_prompt` | **superseded and read by nothing** — retained rather than dropped; the per-chapter prompt is `ChapterAuthorPrompt`, below |
 | `version` | int, bumped on every applied change |
@@ -60,44 +62,59 @@ Who may read and write a row is a **row-ownership rule, not a capability** — s
 ## State machine
 
 ```
-                                       close requested (owner, UC-036)
-planned ──open (owner)──► open ──────────────────────────────► closing
-   │                        ▲                                     │
-   └── removed (UC-034)     │                    owner approves   │
-                            │                    continuity       │
-                            │                    (UC-048)         ▼
-                            └────── reopen (owner, UC-037) ───► closed
-                                    marks continuity stale
+                                     close requested (owner, UC-036)
+planned ──open (owner)──► open ────────────────────────────────► closing
+   │                       ▲ ▲                                       │
+   │                       │ └─ stop / failure / blocking flag ──────┤
+   └── removed (UC-034)    │    artifacts discarded (D4)             │
+                           │                                         │
+                           │                       clean close run   ▼
+                           └───── reopen (owner, UC-037) ───────► closed
+                                  marks continuity stale
 ```
 
-- At most **one** `open` chapter per book (US-037). **`closing` still holds that slot** — the chapter has not been released, it is waiting on the owner.
+- At most **one** `open` chapter per book (US-037). **`closing` still holds that slot** — the chapter has not been released, it is waiting on **the turn**. (The slot-holding claim is unchanged by feature `016`; what the chapter waits on is a streaming close run, not an owner's approval.)
+- **`closing` has exactly two exits**, and the diagram's second edge is the one feature `016` added: a **clean close run** → `closed`, and a **stop, a failure or a blocking check flag** → back to `open` with every drafted artifact discarded. The full procedure is `domain-continuity.md` → "The close procedure, as built".
 - Only `planned` chapters may have their sketch edited (UC-033) or be removed (UC-034).
 - **`closing` and `closed` both refuse all writes to `text`** — from a member and from the assistant alike (US-097.AC-2, US-059.AC-3).
 - Editing after a **reopen** is a *fix*, and produces variant history — see `ChapterTextRevision` below.
 
 ### Why `closing` is a named state
 
-`closing` means *close requested, continuity awaiting owner approval* (UC-047 drafts it, UC-048 approves it, US-051 refuses the close until then). The window has its own rules — it holds the open slot, and it refuses writes — and a window with distinct rules is better named than inferred. The alternative was to leave the chapter `open` and derive "we are mid-close" from the existence of a draft summary; that makes the rule "an open chapter is writable **unless** a draft summary exists", which every write path would have to remember, and which breaks the moment a summary exists for any other reason.
+`closing` means *a close run is in flight*: `POST …/close` moves the chapter into it, the close-chapter turn drafts continuity into it (UC-047), and a deterministic post-turn step takes it out again — to `closed` on a clean run, back to `open` otherwise. The window has its own rules — it holds the open slot, and it refuses writes — and a window with distinct rules is better named than inferred. The alternative was to leave the chapter `open` and derive "we are mid-close" from the existence of a draft summary; that makes the rule "an open chapter is writable **unless** a draft summary exists", which every write path would have to remember, and which breaks the moment a summary exists for any other reason.
 
-**Writes are refused in `closing` for a specific reason:** the owner is approving continuity data that describes a particular body. Letting anyone edit that body while it is being approved would produce an approved summary of text that no longer exists — exactly the failure FEAT-016's check is meant to catch, manufactured by the workflow itself.
+**Writes are refused in `closing` for a specific reason:** the drafts being written describe a particular body. Letting anyone edit that body mid-run would produce an approved summary of text that no longer exists — exactly the failure FEAT-016's check is meant to catch, manufactured by the workflow itself.
+
+**Feature `016` changed the reasoning, not the conclusion.** The earlier wording said the owner was *approving* continuity for that body; no approval step ships. The refusal survives untouched because it never depended on who was reading the drafts — only on the drafts and the body having to describe each other.
 
 The close gate is a **Stage-4 behaviour** (Stage 2 ships an ungated close, per the roadmap's explicit close-gate seam), but the `closing` value and the status columns below **land at Stage 2**. See "Landing the continuity columns early".
 
-### The close seam, as built (feature `015.chapter-writing-free-mode`)
+### The close seam, closed out (features `015` and `016`)
 
-The seam is now concrete rather than a roadmap note. As shipped, `POST …/close` requires `state == open` and writes **`closed` directly**: nothing reads or writes `closing`, no continuity is drafted, and no approval is required.
+Feature `015` shipped `POST …/close` as an **ungated** `open → closed`: nothing read or wrote `closing`, no continuity was drafted, no approval was required. It predicted that feature `016` would change exactly two things — *"the destination becomes `closing`, and a second endpoint moves `closing → closed` after the owner approves."*
 
-**`016.chapter-close-continuity` changes exactly two things** — the destination becomes `closing`, and a second endpoint moves `closing → closed` after the owner approves. Everything else `016` might expect to build **already exists**, and `015` built it that way deliberately so `016` does not retrofit it:
+**The first half held. The second was wrong in shape, and the correction is recorded rather than quietly applied**, because a prediction left standing reads as a contract.
 
-- every **one-open-chapter guard already tests `state in {open, closing}`**, on **both** the open and the reopen path;
-- the **body-write refusal already refuses a `closing` chapter**;
-- **`determine_mode` already maps a `closing` chapter to the seeded `close-chapter` mode** (`assistant-runtime.md`).
+As shipped by `016`:
 
-**US-038.AC-3 is cited by nothing in `015`.** Its steps belong to the gated close, which is `016`'s. This is staging, not divergence.
+- `POST …/close` lands on **`closing`**, and additionally deletes the chapter's `origin = check` flags before the run (`domain-continuity.md`);
+- **no endpoint moves `closing → closed`.** A **deterministic post-turn step** does — `services/chapters.py::finalize_close_turn`, called once by the turn runner (`assistant-runtime.md`);
+- the second endpoint that shipped is a **cancel**: `POST …/close/cancel`, `closing → open`, discarding the run's artifacts, and a **200 no-op** from any other state;
+- **there is no owner approval anywhere in the path.**
+
+The three "already exists" claims all held, and `015` built them that way deliberately so `016` would not retrofit them:
+
+- every **one-open-chapter guard already tested `state in {open, closing}`**, on **both** the open and the reopen path;
+- the **body-write refusal already refused a `closing` chapter**;
+- **`determine_mode` already mapped a `closing` chapter to the seeded `close-chapter` mode** (`assistant-runtime.md`).
+
+**US-038.AC-3 is now cited.** Its steps belong to the gated close, which `016` built. `015`'s note that nothing cited it was staging, and the staging is finished.
 
 ### CF1 — reopen is refused while another chapter is open
 
-**A reopen (UC-037) is refused if any chapter in the book is `open` or `closing`.** The owner must close the currently-open chapter properly, through the continuity gate, first.
+**A reopen (UC-037) is refused if any chapter in the book is `open` or `closing`.** The owner must close the currently-open chapter properly — **through a clean close run** — first.
+
+**CF1 stays resolved; only the phrase changed** (feature `016`). This sentence used to say "through the continuity gate", and no gate ships. What the owner must complete is a close run that ends cleanly, which is the same obligation with an accurate name.
 
 Product's UC-037 says reopening *auto-closes* whichever chapter is open. Taken together with FEAT-012's gate that is incoherent: an auto-close either skips the approval the gate exists to require, or silently strands a chapter mid-`closing`. Product round 5 recorded this as coherence finding **CF1** and left it unresolved. Refusing is the resolution that keeps both invariants — the one-open-chapter singleton **and** the approval gate — with no silent data loss, and it turns an invisible side effect into an explainable error the owner can act on. Recorded as a divergence from product's current wording in `domain-model.md` → "Product divergences", item 4.
 
@@ -106,6 +123,10 @@ Product's UC-037 says reopening *auto-closes* whichever chapter is open. Taken t
 `state = closing`, `Chapter.summary_status`, and `ChapterNoteChangeset.status` (`domain-continuity.md`) are **created at Stage 2, nullable and unused**, even though nothing reads them before Stage 4.
 
 This is the same reasoning that justifies drawing the entity map whole (`domain-model.md`): additive nullable columns are the cheap migration case, and adding them now costs a wider `CREATE TABLE` that nothing queries. Doing it now buys something specific — **Stage 4 becomes pure behaviour with no DDL at all**. That matters more here than elsewhere because `backend/features.md` records the constraint: SQLite cannot `ADD COLUMN … NOT NULL` to a populated table without a default, so a column added later against live book data arrives nullable regardless of what the model declares. Landing it early keeps the schema honest instead of accumulating retroactively-nullable columns.
+
+**The bet paid off, and the columns now have real readers and writers (feature `016`).** `state = closing` is written by `POST …/close` and `POST …/close/cancel` and read by the one-open-chapter guard, the body-write refusal and `determine_mode`. `Chapter.summary_status` and `ChapterNoteChangeset.status` are written by the close tools (`draft`), by `finalize_close_turn` (`approved`), and by **reopen** (`stale`). Feature `016` shipped **no migration and no new table**.
+
+**Reopen now performs its stated effect.** `closed → open` sets `Chapter.summary_status = stale` and, where a changeset row exists, `ChapterNoteChangeset.status = stale` (US-055.AC-1) — the state diagram's "marks continuity stale" label stopped being a promise. The stale-marking is a **no-op when no changeset row exists**, a case reachable only for a chapter closed under `015`'s ungated path; that is defensive, not a second rule.
 
 ## ChapterChange — the unified write record
 

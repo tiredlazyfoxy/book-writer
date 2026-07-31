@@ -66,8 +66,8 @@ LlmServer ◄──(nullable model assignment)── SubAgent
 | `ChapterChange` | every write into a chapter body | `domain-chapter.md` | Stage 2 | no |
 | `ChapterTextRevision` | pre-apply body snapshots | `domain-chapter.md` | Stage 3 | no |
 | `ChapterAuthorPrompt` | one author's per-chapter assistant instruction | `domain-chapter.md` | delivered — feature `014` | no |
-| `ChapterNoteChangeset` | a chapter's note delta | `domain-continuity.md` | Stage 4 *(table at Stage 2)* | later (UC-086) |
-| `Flag` | chapter annotation ("warning") | `domain-continuity.md` | Stage 4 | no |
+| `ChapterNoteChangeset` | a chapter's note delta | `domain-continuity.md` | delivered — feature `016` *(table at Stage 2)* | later (UC-086) |
+| `Flag` | chapter annotation | `domain-continuity.md` | delivered — feature `016` | no |
 | `CodexEntry` | character / location / fact | `domain-codex.md` | Stage 2 | **yes — first** |
 | `CodexEntryVersion` | entry edit history | `domain-codex.md` | Stage 5 | no |
 | `Chat` / `ChatMessage` | assistant conversations | `domain-chat.md` | Stage 5 | no |
@@ -92,7 +92,7 @@ A few relationships cross file boundaries and are cross-linked at both ends:
 |---|---|
 | **`domain-book.md`** | `Book`, `BookMember`, `BookAuthorPrompt`, the book lifecycle state machine (archive vs. quarantine→destroy), visibility, the moderation fields, the system-prompt fields, `active_notes`, and cloning |
 | **`domain-chapter.md`** | `Chapter` and its four-state machine (`planned` → `open` → `closing` → `closed`), **CF1**, `ChapterChange` (the unified write record and the one write path), placement, stale-changes-are-refused, **variants-as-apply**, `ChapterTextRevision`, and the `version` / 409 / CF-r6 concurrency rules |
-| **`domain-continuity.md`** | `ChapterNoteChangeset`, the active note set, the summary lifecycle and the `draft` / `approved` / `stale` continuity status, and `Flag` (author-facing: "warning") |
+| **`domain-continuity.md`** | `ChapterNoteChangeset`, the active note set, the summary lifecycle and the `draft` / `approved` / `stale` continuity status, and `Flag` |
 | **`domain-codex.md`** | `CodexEntry` and `CodexEntryVersion` — kinds, naming, archival, history, cross-book copy |
 | **`domain-chat.md`** | `Chat` / `ChatMessage` — **entities only**, with the deferred-subsystem boundary stated in full |
 | **`assistant-config.md`** | FEAT-020 — the assistant **config model** only: `AssistantMode`, `SubAgent`, the `TOOL_REGISTRY`, the selection tables, and the admin editor over them |
@@ -115,12 +115,15 @@ Both are non-optional and both are due **in the same change as the model**, not 
 
 ## Product divergences this design assumes
 
-There are **five** recorded divergences, and they are not all in the same state — **read the state before the item**:
+There are **six** recorded divergences, and **all six are now closed** — they are **decision history** (why the design diverged), not an action list:
 
-- **Items 1–4 are closed.** They were reconciled by `/product-spec` round 7 (2026-07-24, commit `987a75a`); `docs/product/` carries the enforced wording, so they are retained as **decision history** (why the design diverged), not as an action list. Item 4 is the one that *resolved* something product left open rather than merely differing from it — its reconciliation closed product's own coherence finding CF1, not just a wording mismatch.
-- **Item 5 is open** — it is **awaiting `/product-spec`**. `docs/product/` does **not** yet carry its wording. Do not read it as settled product.
+- **Items 1–4** were reconciled by `/product-spec` round 7 (2026-07-24, commit `987a75a`). Item 4 is the one that *resolved* something product left open rather than merely differing from it — its reconciliation closed product's own coherence finding CF1, not just a wording mismatch.
+- **Item 5** was reconciled by the `/product-spec` finalization of 2026-07-30 — see the item for the verification.
+- **Item 6** was reconciled **on arrival**, by the `/product-spec` finalization of 2026-07-31, in the same round that recorded feature `016.chapter-close-continuity`'s delivery. It is the first divergence that never spent a day open.
 
 Item 5 also **partly reverses item 3**; item 3 is annotated accordingly.
+
+**Closed does not mean "product agreed with the design in full."** For items 5 and 6 product chose **deferral or withdrawal deliberately, per id**, and which one it chose changes what a later reader may cite. That is stated inside each item rather than summarized here.
 
 **1. FEAT-014 — the operation is *apply*, not *select*.** UC-060 ("Select the active variant") and US-064 ("Owner selects which variant *is* the chapter") describe variants as parallel readable texts with a pointer selecting which one is live. This design has **one main `Chapter.text`** plus stored change-suggestions beside it (`domain-chapter.md`). A variant is an **un-applied `ChapterChange`**; it is not selectable as the chapter's text, and making it the text **is applying it** — through the same write path every other change takes. There is no pointer and no switch. UC-059's "view and compare" is served unchanged (revisions are full bodies, so any two diff cleanly), and US-065 holds necessarily rather than by special rule: an apply *is* a change, so it runs the consistency-check path a fix runs. **Merge mechanics are explicitly post-MVP** — a variant whose base version has gone stale is refused, and the author redoes it by hand.
 
@@ -144,7 +147,7 @@ Item 5 also **partly reverses item 3**; item 3 is annotated accordingly.
 
 Product round 7 **additionally** reconciled two design decisions this pass had *not* flagged as divergences, so items 1–4 should not be read as the full set of places product trailed the design. First, the **block-as-`ChapterChange`** model: product's UC-039 had described addressable, separately-versioned blocks, whereas this design treats a block edit as an ordinary change through the one write path (product recorded the correction as C-r7-2). Second, the **`closing` chapter state**: product had carried only three chapter states, and round 7 adopted the fourth (product C-r7-4). Both were the design all along; product caught up rather than the design changing.
 
-**5. FEAT-019's system prompts go per-author — both halves, book and chapter.** ⚠ **OPEN — awaiting `/product-spec`.** By explicit user decision during triage of `fast/003.book-system-prompt` (2026-07-27..29) and delivered by feature `021.per-author-system-prompt`, the book-wide prompt is gone: every member of a book owns **exactly one `BookAuthorPrompt`** for it, and may read and write **only their own**. `Book.system_prompt` survives as a dormant column (there is no supported DROP COLUMN path — see `backend.md` → decision history) and is read by nothing.
+**5. FEAT-019's system prompts go per-author — both halves, book and chapter.** ✓ **Closed — reconciled by `/product-spec`'s finalization round of 2026-07-30.** By explicit user decision during triage of `fast/003.book-system-prompt` (2026-07-27..29) and delivered by feature `021.per-author-system-prompt`, the book-wide prompt is gone: every member of a book owns **exactly one `BookAuthorPrompt`** for it, and may read and write **only their own**. `Book.system_prompt` survives as a dormant column (there is no supported DROP COLUMN path — see `backend.md` → decision history) and is read by nothing.
 
 What this contradicts in `docs/product/`:
 
@@ -155,7 +158,30 @@ What this contradicts in `docs/product/`:
 
 **No `[test]` DoD item in feature `014` cites UC-094 or any US-109 criterion as met** — the same convention `021` used for the book half, and for the same reason: citing an id would claim satisfaction of a criterion this design contradicts.
 
-**State it plainly: unlike items 1–4, this divergence is not reconciled — and it now covers both halves of FEAT-019.** `docs/product/` still carries the pre-021 wording for the book half and the pre-014 wording for the chapter half. The entry stays **awaiting `/product-spec`** until FEAT-019 is rewritten **whole**; a partial rewrite would leave the same half-open state that made this extension necessary. Rewriting it is `/product-spec`'s alone; neither this document nor any plan may edit `docs/product/` to close it. A reader must not assume the product layer describes what was built.
+✓ **Reconciled — `/product-spec` finalization, 2026-07-30.** FEAT-019 was rewritten **whole**, which is what this entry required. Verified against `docs/product/quick-reference.md` and the FEAT-019 block on 2026-07-31, at feature `016`'s finalization:
+
+- **All four contradicted ids are tombstoned `withdrawn`, not amended**: UC-093 → UC-098, UC-094 → UC-099, US-108 → US-115, US-109 → US-116. Amending them in place would have silently changed what a stable id means, which is precisely why this entry insisted on a whole rewrite.
+- **Both halves are covered by the replacements**: UC-098 / US-115 the book prompt, UC-099 / US-116 the chapter prompt. All four are `delivered`; FEAT-019 itself is `delivered`.
+- The rewritten feature carries the per-author model at both levels, the no-state-gating rule, the no-collaboration-mode rule, and — going **beyond** what this entry asked — a reversal of the clone answer: prompts do **not** carry over on a clone, because they are personal authoring instructions rather than book-shaping state.
+
+**A later feature may now cite UC-098 / UC-099 / US-115 / US-116**, and must not cite the four withdrawn ids.
+
+**One consequence is recorded here and deliberately not acted on.** `domain-book.md` and `domain-chapter.md` each still say "no product id is cited for this entity, deliberately" for `BookAuthorPrompt` / `ChapterAuthorPrompt`. That reasoning was correct while item 5 was open — the only available ids described a model the design contradicted — and it is now stale: the entities have ids behind them. Re-citing those two entities is a **follow-up for a briefed pass**, not something to fold into an unrelated one; noted so the next reader sees a known gap rather than an oversight.
+
+**6. The chapter close has no approval gate — four divergences from one design.** ✓ **Closed — reconciled on arrival by `/product-spec`'s finalization of 2026-07-31**, the same round that recorded feature `016.chapter-close-continuity`'s delivery. Recorded here as decision history, not as an action list.
+
+Feature `016` built the close as a **streaming assistant procedure whose outcome the server decides deterministically** (`domain-continuity.md` → "The close procedure, as built"). Four things follow, and each contradicts product's pre-016 wording:
+
+- **No approval gate** (design-note D3). A clean run marks both continuity artifacts `approved` in the same step it closes the chapter; there is no review surface. **UC-048**, **US-050.AC-1/AC-2** and **US-051.AC-1** describe one. The user's rule was explicit — *"the close only succeeds on a clean run"* — and the author's review is watching the procedure run with Stop available, not filling in a form afterwards.
+- **`closing` is transient, not a resting state** (D4). A stop, a failure or a blocking check flag all return the chapter to `open` with every artifact discarded, so **UC-047**'s postcondition "pending owner approval" holds only for the duration of the turn.
+- **A co-author's state-note edit in a proposal-mode book is refused, not held** (D9). **US-053.AC-2** requires it to be held as a proposal; FEAT-010's proposal-holding mechanism does not exist, and a `403` naming FEAT-010 is the honest stand-in — the same interim position `013.codex` took (`authorization.md`).
+- **`origin=check` flags are deleted before each run, not resolved** (D6). **UC-066**'s separate "apply flags" act is gone with the review stage it belonged to, so **US-074.AC-2** is not satisfied; only AC-1's "return to open" survives, as the Stop/cancel path.
+
+✓ **Reconciled — `/product-spec` finalization, 2026-07-31.** FEAT-012 and FEAT-016 both carry the enforced wording, including the four divergences named as such in their own notes.
+
+**Product chose deferral over withdrawal, and the distinction matters.** **UC-048, US-050, US-051 and UC-066 are `deferred`, not `withdrawn`** — they still exist and are future work, not tombstones. So is the drafting half nobody has run yet: **UC-047, US-049, UC-064, UC-065, UC-080, US-072, US-073, US-091 and US-092 are `deferred` because the mechanism ships inert** — the five close tools are registered but unreachable until an administrator assigns them to the `close-chapter` mode, so no live close run has happened (`assistant-runtime.md`). Two different reasons for one status: *the design refuses to build it* versus *the design built it and nothing has exercised it*. A later reader should not collapse them.
+
+The one consequence for citation is already applied: **`domain-continuity.md` and `domain-chapter.md` dropped UC-048 / US-050 / US-051 / UC-066 from their `Realizes:` headers**, on the convention item 5 established — citing an id claims satisfaction of its criteria, and these are contradicted rather than merely unbuilt.
 
 ## Recorded gaps
 
@@ -180,4 +206,5 @@ One genuinely open item remains:
 - **2026-07-25..29 — Stage-2/3 delivery (features `008`–`013` and `021`).** The map above stopped being paper. Shipped: the **data floor whole** (`008.data-domain` — sixteen tables, their codecs and the FEAT-020 config block); the **books and authorization spine** (`009.books` — the `BookAccess` resolver and the capability matrix every later book-scoped family binds to); the **working page and its module-state tier** (`010.working-page`); the **first assistant runtime slice** (`011.chat-panel` — per-chat model and sampling, the tool registry with web search, prompt composition, and the repo's first SSE endpoint); the **FEAT-020 admin config editor** (`012.assistant-config-editor`); the **codex subsystem with the retrieval pipeline and the first shared-canvas write** (`013.codex`); and the **per-author system-prompt replacement** (`021.per-author-system-prompt`).
 
   What it changed on paper: both registry obligations above are now **discharged** rather than owed; `BookAuthorPrompt` joins the entity map; divergence 3's book half is reversed and a fifth, **open**, divergence is recorded; and the FEAT-019 authorization follow-up is closed. Most consequentially, this batch **narrowed the deferred FEAT-013 boundary substantially** — per-chat model selection, web search, the tool loop, sub-agent delegation, mode-gated tools and the codex shared-canvas SSE protocol are now designed and shipped (`assistant-config.md` for the config model, `assistant-runtime.md` for the runtime). Context/content assembly, the chapter shared-canvas protocol (UC-055), token-level streaming and token budgeting remain deferred. See "Scope of this pass".
+- **2026-07-31 — The Stage-4 continuity behaviour landed (`016.chapter-close-continuity`).** The two continuity structures whose *columns* were landed early at Stage 2 got their first readers and writers, with **no DDL at all** — which is the bet "Landing the continuity columns early" made, paid off in full (`domain-chapter.md`). The close became a **streaming assistant procedure with a deterministic server-side outcome** rather than a drafted-then-approved gate; that shape and its four contradictions of product's pre-016 wording are divergence item 6, **reconciled on arrival**. Item 5 closed the day before, at product's 2026-07-30 finalization. `Book.active_notes` acquired its first two writers, which is the invariant this index has asserted since the first pass. **Delivered but inert:** the five close tools ship unreachable until an admin assigns them to the `close-chapter` mode (`assistant-runtime.md`).
 - **2026-07-24 — Split into `domain-*.md`.** The pass was first written as a single `domain-model.md`; it was split the same day into this index plus `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`, following the folder's `frontend-*.md` split convention and the ~400-line file rule. **Organisational only** — no design decision changed.
