@@ -1,6 +1,6 @@
 # Authorization — the book-scoped permission model
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017, FEAT-020; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075, UC-095..097
+**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017, FEAT-020; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075, UC-095..097, UC-100
 
 Every book-domain capability is gated on the caller's relationship to **one specific book**. This document defines the roles, the enforcement point, and the capability × role matrix. It assumes the book-domain entities — start at `domain-model.md` (the index), with `domain-book.md` for `Book` / `BookMember` and `domain-chapter.md` for the write path.
 
@@ -235,6 +235,24 @@ Status codes the eight new routes produce:
 | A malformed body | **422** |
 
 **The proposal-mode refusal is the same interim position the codex took**, and naming it as such is the point: FEAT-010's proposal-holding mechanism does not exist, so a co-author's state-note edit in a proposal-mode book is **refused, not held**. US-053.AC-2 is therefore not satisfied — recorded in `domain-model.md` → "Product divergences", item 6. The "Not settled by this pass" entry below is unchanged by it: this is a decision about the *gap*, not a design of the review surface.
+
+### The reader surface (feature `022.reader-mode`)
+
+The other half of "what ACT-006 can see", recorded beside the exclusion list above: the two reader routes (table of contents, one chapter's text) and the discovery list that makes a public book findable at all.
+
+**The reader-visible chapter set is written chapters only** — a chapter that is `open` or `closed`. A chapter that has **not been written** is never listed and never resolves; neither is one mid-close. Reason (design-note D2): a sketch is the author's working material and must never reach a reader through any route or DTO.
+
+**Accepted cost, recorded deliberately.** Because the set excludes the mid-close state, a chapter **disappears from the table of contents and its link refuses for the duration of every close run**, then reappears. This was raised with the user and accepted in favour of the stated set; no reader-facing information leaks in the gap. **It is now a product requirement too** — UC-029 carries it as an exception flow — so a later feature must read that before "fixing" it.
+
+**The filter lives in the service, over the full row list — not in a scoped DB query** (D6). `db/chapters.py`'s `list_by_book` takes no state filter, every state filter in the codebase today is service-side over the full list, and book-sized chapter counts do not justify a filtered query. A `list_by_book_and_states` db function would only be warranted if row count made the full read expensive.
+
+**A chapter that is not reader-visible answers `404`, not `403`**, and the refusal is **indistinguishable across all five sources**: a not-yet-written chapter, a chapter mid-close, an unknown id, a non-numeric id, and a chapter belonging to another book. This is the same existence-hiding family as the private-book `404` under "Failure modes" and the codex's unknown/foreign-entry row — a `403` would confirm a chapter exists at that id, letting a reader walk the id space and reconstruct the author's unwritten skeleton (D5). As built, all five collapse into **one** `ReaderError(chapter_not_found)` raised inside a single module-private resolver that mirrors `services/chapters.py::_resolve_chapter` and folds the visible-state gate into it: **one refusal site, so the five cannot drift apart.**
+
+**`GET /api/books/public` is gated by authentication alone.** No `book_access` dependency, no `Capability`, no `_CAPABILITY_MATRIX` row — there is no `book_id` to resolve a role against, so there is nothing for the resolver to resolve (D14). Stated explicitly so that the absence of a `BookAccess` dependency on this route reads as a **deliberate match to the FEAT-020 admin-config precedent above**, not as an oversight. Its four exclusions — public, active, not owned by the caller, not co-authored by the caller — are enforced **in the query** (`quick-reference.md` → `list_public_for_reader`), not in this layer.
+
+**Flipping a book public → private invalidates nothing** (D10). There is no polling, no push channel and no invalidation of an already-rendered view: a reader keeps the page they have, and their **next** request re-resolves through `resolve_book_access` and is refused. This falls out of the resolver being request-scoped and stateless — worth one sentence because "does flipping visibility cut off an open reader?" is a question every reader of this document will have. Product records it as **US-029.AC-3**.
+
+**This feature changed no authorization.** No new `Capability`, no new matrix row, no resolver change. `authz.require(access, Capability.read_book)` is called on both reader paths although it is **unreachable today** — `resolve_book_access` already refuses `AccessRole.none`, and `admin` role resolution is deferred to FEAT-011 — and is kept for spine consistency and as the guard if the resolver ever admits another role (D7).
 
 ### Cloning
 

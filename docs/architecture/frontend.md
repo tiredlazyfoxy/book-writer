@@ -131,12 +131,17 @@ frontend/
       pages/              # flat: page component + adjacent state file
       components/shell/   # navigator, workspace shell, chat-pane slot
       components/chat/    # the chat pane (feature 011)
-    read/                 # Reader entry — main.tsx, App.tsx (STUB, see below)
+    read/                 # Reader SPA (ACT-006)
+      main.tsx, App.tsx, routes.tsx
+      readGate.ts         # auth-only entry gate, run before createRoot
+      pages/              # table of contents, chapter, not-found — each with its state file
 ```
 
 **`src/work/` is real** as of feature 010, and its four root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts`, `chapterUndo.ts` — added by features 010, 011, 013 and 015) form a state tier of their own, documented in `frontend-work-drafts.md`.
 
-**`src/read/` is real but the `read` entry is a stub.** What shipped with feature 010 is a table-of-contents placeholder: a Mantine-themed component with **no router and no gate**, mounted by a `main.tsx` that mirrors `login/`'s. The reader's real build is still out (`frontend-workspace.md` → Reader). The stub's shallowness is scaffolding for a designed surface, not the designed surface.
+**`src/read/` is a built SPA** as of feature `022.reader-mode`: an **auth-only gate** run before `createRoot` (a structural mirror of `workGate.ts`), a `<BrowserRouter basename="/read">` in `App.tsx`, and a three-route table — table of contents, one chapter read-only, and a terminal not-found catch-all — over three pages in `pages/`. It replaced the feature-010 stub, which was a table-of-contents placeholder with no router and no gate. Routes, the gate's reasoning and the no-editor property are in `frontend-workspace.md` → Reader.
+
+**`vite.config.ts` was not touched by feature 022** — the `read` Rollup input and the `spaFallback` `/read` branch already existed from feature 010, so building the reader needed no build-config change. Worth a clause, because the natural assumption is that a new SPA needs a new input.
 
 **Scaffold scope (feature 002).** The layout above is the target. What the scaffold actually ships today: the **Login entry is a bare placeholder** ("Login (coming soon)" — real login is feature 004); the cross-SPA **`AppLayout` / `AppHeader` / `AppSidebar` shells are not yet built** — `src/components/` is a seeded-empty folder (`.gitkeep`); routing beyond the User **health page** and an **Admin placeholder** is deferred. The seams (empty `components/`, placeholder entries) are intentional, not missing work.
 

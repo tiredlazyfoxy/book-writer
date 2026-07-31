@@ -1,6 +1,6 @@
 # Frontend Workspace — entries, routes, and the working page
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017, FEAT-018, FEAT-019; UC-021..037, UC-042, UC-051, UC-069, UC-070, UC-071, UC-076, UC-077, UC-081, UC-083, UC-089, UC-090, UC-091
+**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017, FEAT-018, FEAT-019; UC-021..037, UC-042, UC-051, UC-069, UC-070, UC-071, UC-076, UC-077, UC-081, UC-083, UC-089, UC-090, UC-091, UC-100
 
 The book domain's frontend topology: which Vite entries exist, what each serves, and how the working page is built. This is a deep-dive off `frontend.md`, which keeps the MobX/Mantine/API rules that everything here obeys.
 
@@ -12,9 +12,9 @@ The book domain took the build from three entries to five; `frontend.md` → `vi
 
 | Entry | Serves | Contents |
 |---|---|---|
-| `index.html` | **Shell SPA** | bookshelf (UC-021/022/030), book hub (**read-only** chapter list — no state transitions; see the route map), book settings (archive UC-023, transfer UC-024, co-authors UC-026/027, visibility UC-028, mode UC-042), read-only codex browse (UC-071), read-only continuity view (UC-051, UC-089) |
+| `index.html` | **Shell SPA** | bookshelf (UC-021/022/030, **and public-book discovery UC-100**), book hub (**read-only** chapter list — no state transitions; see the route map), book settings (archive UC-023, transfer UC-024, co-authors UC-026/027, visibility UC-028, mode UC-042), read-only codex browse (UC-071), read-only continuity view (UC-051, UC-089) |
 | `work/index.html` | **Working page SPA** | the two-pane working page — its own bundle |
-| `read/index.html` | **Reader SPA** (ACT-006) | chapter text + table of contents **only** |
+| `read/index.html` | **Reader SPA** (ACT-006) | chapter text + table of contents **only** — built by feature `022.reader-mode` |
 | `admin/index.html` | Admin SPA | unchanged |
 | `login/index.html` | Login | unchanged |
 
@@ -43,13 +43,15 @@ Stated plainly, because both are real:
 
 | Route | Surface | Built? |
 |---|---|---|
-| `/` | Bookshelf — books owned (UC-022) and shared (UC-030); create a book (UC-021) | **yes** (feature 009) |
+| `/` | Bookshelf — books owned (UC-022), shared (UC-030) and **public books the caller is not a member of (UC-100, US-118)**; create a book (UC-021) | **yes** (features 009, `022`) |
 | `/books/:bookId` | Book hub — a **read-only** ordered chapter list with state badges, linking into the working page. **No chapter editing and no state transitions** | no |
 | `/books/:bookId/settings` | Archive (UC-023), transfer (UC-024), co-authors (UC-026/027), visibility (UC-028), collaboration mode (UC-042), **the caller's own system prompt** (feature 021) | **yes** (feature 009) |
 | `/books/:bookId/codex` | Read-only codex browse (UC-071), members-only | no |
 | `/books/:bookId/continuity` | Read-only chapter summaries + note changesets (UC-089, UC-051), members-only | no |
 
-Feature 009 delivered the bookshelf and the settings page on the **existing `index.html` Shell entry** — no new entry was needed. The book hub and the two read-only mirrors are still unbuilt, as is the whole `read/` reader entry (its `main.tsx` and a table-of-contents placeholder exist; see `frontend.md` → Folder layout).
+Feature 009 delivered the bookshelf and the settings page on the **existing `index.html` Shell entry** — no new entry was needed. The book hub and the two read-only mirrors are still unbuilt. **The `read/` reader entry is built** as of feature `022.reader-mode` (see Reader below and `frontend.md` → Folder layout).
+
+**The bookshelf gained a third section (feature `022`, design-notes D13/D16): "Public books", below "My books" and "Shared with me".** It is fed by a **third async-resource trio** in the delivered bookshelf page state, loaded by the **same existing mount effect** as the other two — one page, one load, three trios, per `frontend.md`'s no-aggregation-type rule. Each row links via a **plain `<a href="/read/<id>">`, not a router `<Link>`**: crossing Vite entries is a full page load, matching the delivered `<a href="/work/<id>">` idiom. Empty means a **labelled** empty state, not a blank table. The three sections are **disjoint by construction** — the discovery query excludes both books the caller owns and books they co-author (`authorization.md` → "The reader surface") — which is the same disjointness the product layer records as a testable invariant.
 
 **Why the system-prompt editor exists on two surfaces (feature 021).** The same per-author prompt is editable here on `BookSettingsPage` **and** on the working page's Book-state view, deliberately. The settings page aggregates **owner-only** capabilities, but **every author now owns a prompt**, so the editor must also live where **every member** lands — UC-091's Book-state landing view. The two surfaces share the DTOs and the `api/` functions at `src/` root but **not a state class and not a component**: crossing from the `work` entry into the `user` entry would break the folder layout, and each page owns its own state per the page-is-a-route rule. Two editors for one value is duplication only if the reason is unwritten.
 
@@ -104,12 +106,26 @@ Query params keep their existing job inside this page: **filter, sort and mode w
 
 | Route | Surface |
 |---|---|
-| `/read/:bookId` | Table of contents — chapter names with links (UC-029) |
-| `/read/:bookId/:chapterId` | Chapter text, read-only |
+| `/read/:bookId` | Table of contents — the book's **written** chapters as links (UC-029); keyed on `bookId` |
+| `/read/:bookId/:chapterId` | Chapter text, read-only; keyed on `chapterId` |
+| `*` | Not-found page — static copy that discloses nothing about the attempted address |
 
-Two routes, and there must never be a third that shows anything else. The exclusion list in UC-029 is the spec: no codex, notes, flags, book state, settings or chat.
+**Both routes are built (feature `022.reader-mode`).** The pre-022 `read` entry — a table-of-contents placeholder with no router and no gate, landed with feature 010 so the fifth Rollup input and the `spaFallback` branch had something to serve — is gone.
 
-**Neither route is built.** The `read` entry exists as a **stub** — a table-of-contents placeholder with no router and no gate (`frontend.md` → Folder layout). It was landed with feature 010 only so the fifth Rollup input and the `spaFallback` branch had something to serve. Do not read the stub's shallowness as the designed reader; the two routes above are still the design.
+**There must never be a third *content surface*.** UC-029's exclusion list is the spec: no codex, notes, flags, book state, settings or chat, ever. The rule is about what a reader can **see**, not about how many `<Route>` elements the table has — the **terminal `*` catch-all is required**, not an exception carved out of the rule, because it renders a page that shows nothing about the book and reveals nothing about the address that missed. This document previously stated the constraint as *"two routes, and there must never be a third"*; as built there are three `<Route>`s and the constraint is unbroken, so the wording is corrected here rather than left to read as drift.
+
+**Which chapters appear** is `authorization.md` → "The reader surface": written chapters only, with a chapter vanishing from the table of contents for the duration of a close run as an accepted, product-recorded cost.
+
+#### `src/read/`, as built
+
+`readGate.ts`, `main.tsx`, `App.tsx`, `routes.tsx`, and `pages/` holding the table-of-contents page, the chapter page and the not-found page — each page component with its adjacent state file, per the house shape (`frontend.md`).
+
+- **The gate is auth-only** and a verbatim structural mirror of `work/workGate.ts`, redirecting to `/login/`. **There is no book-level pre-check on the client** (design-note D8): the backend already refuses a book the caller may not read with a `404`, and a client pre-check would duplicate a rule that has exactly one implementation. Membership is not in the JWT either, so the pre-check would cost a probe request on top.
+- **The gate runs outside React, before `createRoot`**, matching `work/`'s bootstrap.
+- **`App.tsx` uses `<BrowserRouter basename="/read">`**, never `createBrowserRouter`.
+- **A member navigating to `/read/:bookId` gets the reader view** (D1) — no redirect into the workspace. `Capability.read_book` already admits owner, co-author and reader, so it works for free and doubles as an author's "preview as a reader" path.
+- **The chapter body renders through `react-markdown`, with no plugins and no `components` prop** — inherited from the content pane's existing call below, not re-decided (D11). **`@mantine/tiptap` and every save/edit control are absent from `src/read/` entirely**, which is what makes "does a reader have an edit affordance?" answerable at build time without running the app. Stated honestly: that property has **no automated enforcement** beyond inspection and `npm run build` — a future shared component that transitively imported the editor would slip past the test suite.
+- **Refusal copy is chosen in the load functions, not the components** (D9), per `frontend.md`'s state/component split. The not-found copy deliberately does **not** speculate about which of the five collapsed refusal sources fired.
 
 ## The working page
 

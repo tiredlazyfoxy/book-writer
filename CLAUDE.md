@@ -4,7 +4,7 @@ LLM-assisted authoring of long-form texts (books and other large documents) — 
 
 > This file is the primary guidance for agents and contributors. It covers the tech stack, how to build and test, project layout, and the enforced conventions. Full detail lives in `docs/architecture/`.
 
-The book/document domain is **specified** in `docs/product/` — 18 features and 198 requirement ids as of 2026-07-20. **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
+The book/document domain is **specified** in `docs/product/` — **20 features, 100 use-case ids and 118 story ids as of 2026-07-31** (four of those ids are tombstoned `withdrawn`; ids are never renumbered or reused). **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
 
 The domain's *architecture* is **designed as of 2026-07-24** — read it before touching book entities. `docs/architecture/domain-model.md` is the index over `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`; alongside it sit `authorization.md` (book-scoped permissions), `retrieval.md` (the embedding pipeline) and `frontend-workspace.md` (the working page). Entities are drawn for `FEAT-006..018` whole, even though only the Stage-2 tables get built first.
 
@@ -70,8 +70,9 @@ BookWriter/
                       + admin/index.html + login/index.html;
                       src/{api,types,utils,components,user,work,read,admin,login}/,
                       theme.ts, global.css
-                      (src/work/ is real — the working page; src/read/ is a STUB:
-                       a table-of-contents placeholder, no router, no gate.
+                      (src/work/ is real — the working page; src/read/ is the built
+                       reader SPA — auth gate, router, three pages: table of contents,
+                       one chapter read-only, not-found.
                        See docs/architecture/frontend-workspace.md)
   nginx/              PLANNED — NOT YET CREATED. dev.conf + prod.conf
   docs/               product/ + architecture/ + plans/
