@@ -22,8 +22,8 @@ instance to author on. `[confirmed: user]` interview 2026-07-20, "vision"
   controls its skeleton, membership, mode and visibility.
 - **Co-author** (`ACT-005`) — an author granted access to someone else's
   book; writes within the rules the owner sets.
-- **Reader** (`ACT-006`) — a logged-in user reading a public book they are
-  not a member of.
+- **Reader** (`ACT-006`) — a logged-in user browsing and reading public
+  books they aren't a member of.
 
 `[confirmed: user]` interview 2026-07-20, "vision" / augment round,
 2026-07-20

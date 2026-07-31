@@ -3,7 +3,7 @@
 
 ### US-027 — Owner adds a co-author
 - **Feature:** FEAT-007 · **Actor:** ACT-004 · **Realizes:** UC-026
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to add a co-author, so that they can
   contribute to the book.
 - **Acceptance criteria:**
@@ -15,7 +15,7 @@
 
 ### US-028 — Owner removes a co-author, content and attribution survive
 - **Feature:** FEAT-007 · **Actor:** ACT-004 · **Realizes:** UC-027
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to remove a co-author, so that they
   lose access while their contribution stays intact.
 - **Acceptance criteria:**
@@ -32,7 +32,7 @@
 
 ### US-029 — Owner switches a book between private and public
 - **Feature:** FEAT-007 · **Actor:** ACT-004 · **Realizes:** UC-028
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a book owner, I want to set my book's visibility, so that I
   control who can read it.
 - **Acceptance criteria:**
@@ -40,12 +40,16 @@
     public, then any logged-in user can open it read-only.
   - **US-029.AC-2** — Given a public book, when the owner sets it to
     private, then only the owner and co-authors can open it.
+  - **US-029.AC-3** — Given a reader with a public book open, when the
+    owner sets that book private, then the reader's next request for the
+    book is refused.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility"; challenge C4.
+  membership & visibility"; challenge C4; interview 2026-07-31,
+  "finalization — 022".
 
 ### US-030 — Logged-in reader opens a public book read-only
 - **Feature:** FEAT-007 · **Actor:** ACT-006 · **Realizes:** UC-029
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a logged-in reader, I want to open a public book, so that I
   can read it without being a member.
 - **Acceptance criteria:**
@@ -59,11 +63,12 @@
     attempts to open it, then access is refused.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
   membership & visibility"; challenge C4: "public = read-only to any
-  logged-in user... not anonymous."
+  logged-in user... not anonymous."; interview 2026-07-31, "finalization —
+  022".
 
 ### US-031 — Co-author sees books shared with them
 - **Feature:** FEAT-007 · **Actor:** ACT-005 · **Realizes:** UC-030
-- **Status:** proposed
+- **Status:** delivered
 - **Story:** As a co-author, I want to see the books shared with me, so
   that I can find the ones I contribute to but don't own.
 - **Acceptance criteria:**
@@ -72,4 +77,32 @@
     (not owner) is shown.
 - **Source:** `[inferred]` interview 2026-07-20, "ownership, membership &
   visibility" — basic access capability, not itself asked.
+
+### US-118 — Reader browses public books they are not a member of
+- **Feature:** FEAT-007 · **Actor:** ACT-006 · **Realizes:** UC-100
+- **Status:** delivered
+- **Story:** As a logged-in reader, I want to see which public books
+  exist, so that I can find one to read without being sent a link.
+- **Acceptance criteria:**
+  - **US-118.AC-1** — Given a public, non-archived book owned by another
+    author, when the reader views the public list, then that book is
+    shown with its title and description.
+  - **US-118.AC-2** — Given a book the reader owns, when they view the
+    public list, then that book is absent from it.
+  - **US-118.AC-3** — Given a book the reader co-authors, when they view
+    the public list, then that book is absent from it.
+  - **US-118.AC-4** — Given a private book, when the reader views the
+    public list, then that book is absent from it.
+  - **US-118.AC-5** — Given an archived public book, when the reader
+    views the public list, then that book is absent from it.
+  - **US-118.AC-6** — Given an archived public book, when the reader opens
+    it by direct link, then it opens read-only.
+  - **US-118.AC-7** — Given a book shown in the public list, when the
+    reader follows it, then that book's reader view opens.
+  - **US-118.AC-8** — Given no public book the reader may browse, when
+    they view the public list, then the list states that it is empty.
+- **Source:** `[confirmed: user]` interview 2026-07-31, "finalization —
+  022"; challenge C-f22-1. AC-2..AC-5 are the four exclusions the
+  delivered list enforces; AC-6 records the archive asymmetry resolved as
+  a requirement (challenge C-f22-4).
 <!-- product-spec:end -->

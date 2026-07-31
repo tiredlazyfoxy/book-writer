@@ -6,13 +6,28 @@ registry lives in `quick-reference.md` — the sole canonical registry.
 Feature relationships (actor×feature, depends-on, overlaps, build order,
 conflicts) live in `relationships.md`.
 
+**Delivery reconciliation, 2026-07-31.** Statuses here and in
+`quick-reference.md` had only ever been finalized for the features touched by
+the 2026-07-30/31 passes (FEAT-008, 009, 012, 013, 016, 019), leaving
+everything delivered by plans `003`–`013` still reading `proposed`. This pass
+reconciled the whole registry against delivered plan folders — a status was
+advanced only where a plan's step files carry the `US-###.AC-#` citations for
+it and every step is `done` + PASS. Ids a plan named but explicitly excluded
+(UC-025/US-026, UC-075/US-084, US-057, US-099, US-100, US-102) were left
+`proposed`. **Delivered means the code shipped and was verified, not that the
+behaviour is reachable:** the five assistant modes seed with no prompts and no
+tool assignments, so every assistant-facing feature below needs an
+administrator to configure it in `012.assistant-config-editor` before it does
+anything — see `docs/plans/roadmap.md`.
+
 ## Feature blocks
 
 ### FEAT-001 — First-run bootstrap
 - **Purpose:** Bring an unconfigured instance to a usable state: create a new
   database with a first admin, or import an existing database export.
 - **Actors:** ACT-003 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/003.first-run-bootstrap/ (2026-07-22)
 - **Realized by:** UC-001, UC-002, US-001, US-002
 - **Source:** `[confirmed: user]` interview 2026-07-20, "FEAT-001 first-run
   bootstrap"
@@ -21,7 +36,8 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Let a created user log in, hold a session, and log out; expired
   or invalidated sessions require re-authentication.
 - **Actors:** ACT-001, ACT-002 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/004.authentication-session/ (2026-07-22)
 - **Realized by:** UC-003, UC-004, US-003, US-004
 - **Source:** `[inferred]` interview 2026-07-20, "FEAT-002 authentication &
   session" — carried from reference project, not explicitly confirmed by the
@@ -31,7 +47,10 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Admin-gated account lifecycle: list, create, reset password,
   change role, disable. No hard delete.
 - **Actors:** ACT-001 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/005.user-management/ (2026-07-23);
+  admin-SPA nav/logout polish in docs/plans/fast/002.admin-ui-retune/
+  (2026-07-25)
 - **Realized by:** UC-005, UC-006, UC-007, UC-008, UC-009, US-005, US-006,
   US-007, US-008, US-009
 - **Source:** `[confirmed: user]` interview 2026-07-20, "FEAT-003 user
@@ -41,7 +60,8 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Register, test, and manage LLM server connections; enable
   specific models; designate one embedding server + model.
 - **Actors:** ACT-001 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/006.llm-server-connections/ (2026-07-23)
 - **Realized by:** UC-010, UC-011, UC-012, UC-013, UC-014, US-010, US-011,
   US-012, US-013, US-014, US-021
 - **Source:** `[confirmed: user]` interview 2026-07-20, "features"
@@ -51,7 +71,8 @@ conflicts) live in `relationships.md`.
   (create missing tables, sync schema, export/import the database, rebuild
   the vector index).
 - **Actors:** ACT-001 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/007.database-consistency/ (2026-07-23)
 - **Realized by:** UC-015, UC-016, UC-017, UC-018, UC-019, UC-020, US-015,
   US-016, US-017, US-018, US-019, US-020
 - **Source:** `[confirmed: user]` interview 2026-07-20, "FEAT-005 DB
@@ -61,7 +82,8 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Create, list, archive and transfer a book; admin reassigns
   ownership when the owner's account is disabled.
 - **Actors:** ACT-002, ACT-004, ACT-001 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/009.books/ (2026-07-25)
 - **Realized by:** UC-021, UC-022, UC-023, UC-024, UC-025, US-022, US-023,
   US-024, US-025, US-026
 - **Note:** Archive is the owner's reversible action; a book is never
@@ -73,6 +95,11 @@ conflicts) live in `relationships.md`.
   that chapter frozen in place rather than force-closing it — unarchiving
   resumes it as the book's one open chapter (force-closing would skip the
   FEAT-012 continuity gate, the incoherence CF1 avoids).
+  **Reconciliation, 2026-07-31:** UC-021..024 and US-022..025 shipped in
+  `009.books`. **UC-025/US-026 (admin reassigns a disabled owner's book) did
+  not** — `009` excluded it explicitly as an admin/moderation capability over
+  the ownership record rather than an authoring one, and no plan owns it yet;
+  it stays `proposed`, not `deferred`.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
   membership & visibility"; interview 2026-07-24, "augment round 7 —
   archive+open-chapter follow-up"
@@ -81,16 +108,31 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Owner manages co-author membership and book visibility;
   readers get read-only access to public books.
 - **Actors:** ACT-004, ACT-005, ACT-006 · **Priority:** must
-- **Status:** proposed
-- **Realized by:** UC-026, UC-027, UC-028, UC-029, UC-030, US-027, US-028,
-  US-029, US-030, US-031
+- **Status:** delivered
+- **Delivered:** docs/plans/009.books/ (2026-07-25);
+  docs/plans/022.reader-mode/ (2026-07-31)
+- **Realized by:** UC-026, UC-027, UC-028, UC-029, UC-030, UC-100,
+  US-027, US-028, US-029, US-030, US-031, US-118
 - **Note:** Private = owner + co-authors only; public = read-only to any
-  logged-in user, never anonymous. `_TBD: whether public books are
-  discoverable (browsable) or reachable only by direct link._` Codex
-  entries (FEAT-017) are members-only — ACT-006 never sees them, even on
-  a public book.
+  logged-in user, never anonymous. Codex entries (FEAT-017) are
+  members-only — ACT-006 never sees them, even on a public book.
+  **Reconciliation, 2026-07-31:** membership (UC-026/027) and visibility
+  (UC-028), plus the shared-with-me list (UC-030), shipped in `009.books`.
+  **Finalization, 2026-07-31 (plan `022`):** the reader half is complete.
+  `009` delivered the access-controlled backend projection; `022` built
+  the reader surface ACT-006 consumes it through — a table of contents of
+  the book's written chapters and each chapter's text, read-only — and
+  closed UC-029's two `_TBD:`s. Public books are now **discoverable**
+  (UC-100/US-118), which `022` built ahead of its specification; the
+  requirement is recorded retroactively and the divergence is kept on
+  record, not erased (challenge C-f22-1). The reader-visible set is
+  written chapters only — no sketch reaches a reader through any surface.
+  One `_TBD:` survives in this feature and does not block `delivered`:
+  UC-027's fate of a removed co-author's pending proposals, which needs
+  FEAT-010 (`proposed`).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility"; challenge C4; codex round 4
+  membership & visibility"; challenge C4; codex round 4; interview
+  2026-07-31, "finalization — 022"
 
 ### FEAT-008 — Chapter skeleton & sketches
 - **Purpose:** Build a book's ordered chapter skeleton with sketches ahead
@@ -264,10 +306,23 @@ conflicts) live in `relationships.md`.
   chapter or codex entry.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
 - **Status:** partially delivered
-- **Delivered:** docs/plans/015.chapter-writing-free-mode/ (2026-07-30) —
-  the 015 slice only (US-059, US-097, US-098, US-103, US-107, and the new
-  US-117). Plans `010`, `011` and `013` also contributed to this feature
-  but are outside this pass's scope — their stories are not marked.
+- **Delivered:** docs/plans/010.working-page/ (2026-07-25) — the workspace
+  shell (UC-083, UC-090, UC-092; US-097, US-105, US-107);
+  docs/plans/011.chat-panel/ (2026-07-26) — chats and the assistant loop
+  (UC-053, UC-054, UC-056, UC-057, UC-081, UC-082, UC-087; US-056, US-058,
+  US-060, US-061, US-095, US-096, US-101);
+  docs/plans/013.codex/ (2026-07-27) — the codex reach (UC-078/US-089) and
+  the mode runtime;
+  docs/plans/015.chapter-writing-free-mode/ (2026-07-30) — the chapter
+  canvas write path (UC-055; US-059, US-098, US-103, US-117).
+- **Still open (2026-07-31):** US-057 (the mode-dependent baseline as
+  specified — context assembly beyond the focused subject), UC-085/US-099
+  (pull a named chapter into context), UC-086/US-100 (search the book's
+  material by meaning — **partial**: the vector corpus is codex-only, so
+  chapters, summaries and state notes are unreachable this way),
+  UC-088/US-102 (scoped in-chat consistency check), and UC-090/US-105's
+  Variants navigator entry (awaits `018.chapter-history-variants`). Main-chat
+  model selection and token budgeting remain undesigned.
 - **Realized by:** UC-053, UC-054, UC-055, UC-056, UC-057, UC-078, UC-081,
   UC-082, UC-083, UC-084, UC-085, UC-086, UC-087, UC-088, UC-090, UC-092,
   US-056, US-057, US-058, US-059, US-060, US-061, US-089, US-095, US-096,
@@ -452,7 +507,14 @@ conflicts) live in `relationships.md`.
   locations and lore facts, with authoring, archival, history and copying
   across books.
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
-- **Status:** proposed
+- **Status:** partially delivered
+- **Delivered:** docs/plans/013.codex/ (2026-07-27) — authoring, browse and
+  search (UC-069, UC-070, UC-071; US-078, US-079, US-080, US-085), plus the
+  incremental embedding that makes the codex the first vector corpus.
+- **Still open (2026-07-31):** archive/restore (UC-072/US-081) is `deferred`
+  to `017.codex-archive-restore`; edit history and version restore
+  (UC-073/UC-074, US-082/US-083) are `deferred` to `019.codex-history`;
+  cross-book copy (UC-075/US-084) is unmapped and stays `proposed`.
 - **Realized by:** UC-069, UC-070, UC-071, UC-072, UC-073, UC-074, UC-075,
   US-078, US-079, US-080, US-081, US-082, US-083, US-084, US-085
 - **Note:** Three kinds: character, location, fact. Character and location
@@ -479,7 +541,8 @@ conflicts) live in `relationships.md`.
 - **Purpose:** Generate a new codex entry or rewrite an existing one from
   the same composition chat that composes edits.
 - **Actors:** ACT-004, ACT-005 · **Priority:** should
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/013.codex/ (2026-07-27)
 - **Realized by:** UC-076, UC-077, US-086, US-087, US-088
 - **Note:** Sourced from live chapter/entry text via the shared canvas: the
   assistant fills the open codex entry directly in the content pane, as a
@@ -542,7 +605,20 @@ conflicts) live in `relationships.md`.
   to; and admin-created sub-agents (delegated workers) each with a name,
   prompt, tools and the modes that may invoke them.
 - **Actors:** ACT-001 · **Priority:** must
-- **Status:** proposed
+- **Status:** delivered
+- **Delivered:** docs/plans/008.data-domain/ (2026-07-25) — the five config
+  tables and the seeded fixed mode set; docs/plans/012.assistant-config-editor/
+  (2026-07-26) — the admin editor (UC-095, UC-096, UC-097; US-110..US-114);
+  docs/plans/013.codex/ (2026-07-27) — the mode runtime (mode determination,
+  tool gating, sub-agent delegation), extended to the chapter modes by
+  docs/plans/015 and docs/plans/016.
+- **Reachability, 2026-07-31:** the five modes seed with **empty prompts and
+  no tool or sub-agent selections**, which is the specified default (an empty
+  prompt adds nothing) but means every tool in the code-defined registry —
+  codex, chapter-write, and the close-chapter tools — is unreachable until an
+  administrator configures each mode here. This is the operating step the
+  FEAT-012 UC-047 deferral is waiting on; it is configuration, not
+  unfinished delivery.
 - **Realized by:** UC-095, UC-096, UC-097, US-110, US-111, US-112, US-113,
   US-114
 - **Note:** Modes are a **fixed system set of five** — edit-character,

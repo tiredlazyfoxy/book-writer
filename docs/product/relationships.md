@@ -160,6 +160,16 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
   author-set and per-author (**finalization, 2026-07-30:** corrected
   from "per-book" — every member owns their own book and chapter
   prompts).
+- FEAT-006 (my books) / FEAT-007 (shared with me, public books) —
+  **finalization 2026-07-31:** three list surfaces on one bookshelf,
+  **disjoint by construction** — the public list excludes both books the
+  caller owns and books they co-author. Ownership vs. membership vs.
+  neither; not a duplicate surface.
+- FEAT-006 / FEAT-007 — **finalization 2026-07-31:** archiving hides a
+  book from public discovery (UC-100) without revoking read access
+  (UC-029) — an archived public book is readable by direct link but
+  unlisted. Deliberate, and consistent with UC-023's archive being
+  preserved and reversible.
 
 **Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
 place to gate closing on a clean close run (FEAT-012) (reworded
@@ -184,4 +194,10 @@ and US-038.AC-3 amended (finalization of plan 016, challenge C-f16-3).
 book" vs. FEAT-020's admin configuring the assistant — no conflict:
 configuring global assistant behaviour is system config, the same class
 as managing LLM servers (FEAT-004), not participating in a specific book.
+**CF3 (finalization 2026-07-31, resolved):** UC-023's never-archive-gated
+reads vs. the delivered discovery list's exclusion of non-active books —
+an archived public book is readable but not discoverable. Resolved as a
+**requirement, not a defect**: archiving withdraws a book from the feed
+without revoking access; unarchiving restores it with no data change
+(challenge C-f22-4).
 <!-- product-spec:end -->

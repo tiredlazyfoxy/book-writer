@@ -68,13 +68,14 @@
   membership & visibility"
 
 ### ACT-006 — Reader
-- **One-line:** A logged-in user reading a public book they are not a
-  member of.
+- **One-line:** A logged-in user browsing and reading public books they
+  aren't a member of.
 - **Goal:** Read a public book's content.
 - **Context:** Reaches a book through its visibility setting, not
   membership.
 - **Constraints:** Read-only, no authoring access; cannot see a private
   book; must be logged in — no anonymous access.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "ownership,
-  membership & visibility"; challenge C4
+  membership & visibility"; challenge C4; interview 2026-07-31,
+  "finalization — 022".
 <!-- product-spec:end -->
