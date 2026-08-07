@@ -1,0 +1,128 @@
+# BookWriter — line endings, diff behaviour and binary classification.
+#
+# Why this file exists: this repo is developed on Windows (core.autocrlf=true)
+# but deploys to Linux containers. Without explicit rules, a fresh Windows
+# checkout renders update.sh with CRLF, turning its shebang into "#!/bin/bash\r"
+# and breaking it the moment it reaches the server. Everything below that a
+# container or a Linux host reads is pinned to LF regardless of the developer's
+# local git config; everything Windows-only is pinned to CRLF. Nothing is left
+# to autocrlf.
+#
+# Changing a rule here changes what lands in working trees on the next checkout,
+# not what is stored in git. After editing, run:
+#     git add --renormalize .
+# and inspect `git status` before committing.
+
+# ---------------------------------------------------------------------------
+# Default: normalize every text file to LF in the repository. Git detects
+# text vs binary; the sections below override the detection where it matters.
+# ---------------------------------------------------------------------------
+*                       text=auto
+
+# ---------------------------------------------------------------------------
+# LF required — consumed by Linux, Docker or nginx. CRLF here is a live defect,
+# not a cosmetic one.
+# ---------------------------------------------------------------------------
+
+# Shell scripts. update.sh is the concrete case: CRLF breaks the shebang.
+*.sh                    text eol=lf
+*.bash                  text eol=lf
+
+# Docker. Older non-BuildKit builders mis-parse a "\" line continuation
+# followed by CR; the ignore file is read line-wise the same way.
+Dockerfile              text eol=lf
+Dockerfile.*            text eol=lf
+*.dockerfile            text eol=lf
+.dockerignore           text eol=lf
+
+# Compose and any other YAML — read inside containers and by compose itself.
+*.yml                   text eol=lf
+*.yaml                  text eol=lf
+
+# nginx and supervisord configs, baked into the image.
+*.conf                  text eol=lf
+
+# Env templates. The server's .env is sourced by compose and by shell.
+.env.example            text eol=lf
+*.env                   text eol=lf
+
+# Python — the backend runs on Linux in the container.
+*.py                    text eol=lf
+*.pyi                   text eol=lf
+*.toml                  text eol=lf
+*.cfg                   text eol=lf
+requirements*.txt       text eol=lf
+
+# Frontend sources and assets served by nginx.
+*.ts                    text eol=lf
+*.tsx                   text eol=lf
+*.js                    text eol=lf
+*.jsx                   text eol=lf
+*.mjs                   text eol=lf
+*.cjs                   text eol=lf
+*.css                   text eol=lf
+*.scss                  text eol=lf
+*.html                  text eol=lf
+*.json                  text eol=lf
+
+# Docs and dotfiles.
+*.md                    text eol=lf diff=markdown
+*.txt                   text eol=lf
+.gitignore              text eol=lf
+.gitattributes          text eol=lf
+.gitkeep                text eol=lf
+LICENSE                 text eol=lf
+
+# ---------------------------------------------------------------------------
+# CRLF required — Windows-only tooling. start.ps1 and build.ps1 never run
+# anywhere else, and .bat/.cmd genuinely misbehave with LF.
+# ---------------------------------------------------------------------------
+*.ps1                   text eol=crlf
+*.psm1                  text eol=crlf
+*.psd1                  text eol=crlf
+*.bat                   text eol=crlf
+*.cmd                   text eol=crlf
+
+# ---------------------------------------------------------------------------
+# Diff drivers — better hunk headers when reviewing.
+# ---------------------------------------------------------------------------
+*.py                    diff=python
+*.html                  diff=html
+*.css                   diff=css
+
+# ---------------------------------------------------------------------------
+# Generated / vendored — keep them out of diffs and out of language stats,
+# but still merge-resolvable. package-lock.json is ~197 KB of noise in a review.
+# ---------------------------------------------------------------------------
+package-lock.json       text eol=lf -diff linguist-generated
+frontend/dist/**        linguist-generated
+
+# ---------------------------------------------------------------------------
+# Binary — never diffed, never line-ending-converted. The JSONL export/import
+# artifacts and the SQLite + LanceDB data files matter most here: a CRLF
+# rewrite would corrupt them.
+# ---------------------------------------------------------------------------
+*.gz                    binary
+*.jsonl.gz              binary
+*.zip                   binary
+*.7z                    binary
+*.tar                   binary
+*.db                    binary
+*.sqlite                binary
+*.sqlite3               binary
+*.lance                 binary
+*.png                   binary
+*.jpg                   binary
+*.jpeg                  binary
+*.gif                   binary
+*.ico                   binary
+*.webp                  binary
+*.pdf                   binary
+*.woff                  binary
+*.woff2                 binary
+*.ttf                   binary
+*.otf                   binary
+*.eot                   binary
+
+# SVG is text — keep it diffable, just pin the ending.
+*.svg                   text eol=lf
