@@ -48,3 +48,7 @@ docs/.cache/
 .claude/settings.local.json
 
 .handoffs
+
+# Deploy artifacts
+/data/
+*.7z

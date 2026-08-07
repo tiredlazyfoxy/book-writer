@@ -1,0 +1,54 @@
+# BookWriter — development stack: stock images with source bind-mounts and no
+# build step. Everything is installed inside the containers at start-up.
+#
+#   docker compose -f docker-compose.dev.yml up
+#
+# WARNING: this stack publishes host port 8194, which COLLIDES with
+# `start.ps1 -ui` (the host-side Vite dev server on the same port).
+# Run one or the other, never both.
+
+services:
+  backend:
+    image: python:3.13
+    working_dir: /app
+    command: bash -c "pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port 8185 --reload"
+    volumes:
+      - ./backend:/app
+      - backend-pip-cache:/root/.cache/pip
+    expose:
+      - "8185"
+    environment:
+      - BOOKWRITER_DB_PATH=/app/data/bookwriter.db
+      - LANCEDB_DIR=/app/data/vector
+      # Host passthrough for the values the DB's "$ENV_VAR" api_key pointers
+      # resolve against, plus web search credentials.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLAMA_SWAP_URL=${LLAMA_SWAP_URL:-}
+      - BOOKWRITER_GOOGLE_SEARCH_API_KEY=${BOOKWRITER_GOOGLE_SEARCH_API_KEY:-}
+      - BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID=${BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID:-}
+
+  frontend:
+    image: node:22-slim
+    working_dir: /app
+    command: bash -c "npm install && npx vite --port 8194 --host 0.0.0.0"
+    volumes:
+      - ./frontend:/app
+      # Shields the host's Windows node_modules from the container's Linux
+      # install. Omitting it breaks native modules on both sides.
+      - frontend-node-modules:/app/node_modules
+    expose:
+      - "8194"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8194:80"
+    volumes:
+      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  backend-pip-cache:
+  frontend-node-modules:

@@ -1,0 +1,31 @@
+# BookWriter — production stack. One all-in-one container (nginx + uvicorn).
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# On the deploy server this file is installed as docker-compose.yml by
+# update.sh, next to ./data and ./.env.
+
+services:
+  bookwriter:
+    image: iezious/bookwriter:latest
+    ports:
+      - "8194:80"
+    env_file:
+      - .env
+    # Repeated here on purpose: this compose file is the operator-visible
+    # contract and must not depend on the image's own ENV. LANCEDB_DIR is bare
+    # (no BOOKWRITER_ prefix) and setting only BOOKWRITER_DB_PATH would leave
+    # the vector index outside the mount, to be lost on every replace.
+    environment:
+      - BOOKWRITER_DB_PATH=/app/data/bookwriter.db
+      - LANCEDB_DIR=/app/data/vector
+    # The external database folder: holds bookwriter.db and vector/.
+    volumes:
+      - ./data:/app/data
+    # Goes through nginx on :80, so healthy proves both processes are alive.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
