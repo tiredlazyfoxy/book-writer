@@ -33,3 +33,16 @@ body {
 .md-body pre { margin: 0.4em 0; background: var(--mantine-color-default-border); padding: 8px; border-radius: 4px; overflow-x: auto; }
 .md-body pre code { background: none; padding: 0; }
 .md-body blockquote { margin: 0.4em 0 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--mantine-color-default-border); color: var(--mantine-color-dimmed); }
+
+/* Work navigator icon-only rail (fast/005). The label hiding is CSS and not
+   JavaScript for two independent reasons: Mantine's NavLink always renders the
+   body span, so dropping the `label` prop leaves an empty flex spacer that
+   left-shifts the icon; and a JS boolean cannot be breakpoint-aware without
+   `useMediaQuery` (banned repo-wide), so it would also blank the full-width
+   mobile drawer, where the labels must stay. 48em is Mantine's default `sm`
+   breakpoint (theme.ts sets no custom `breakpoints`). */
+@media (min-width: 48em) {
+  .work-nav-rail-body { display: none; }
+  .work-nav-rail-section { margin-inline-end: 0; }
+  .work-nav-rail-root { justify-content: center; padding-inline: 0; }
+}

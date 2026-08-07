@@ -1,15 +1,24 @@
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react-lite";
+import { autorun } from "mobx";
 import { Outlet, useParams } from "react-router-dom";
-import { Alert, AppShell, Burger, Group, Loader, Title } from "@mantine/core";
+import { ActionIcon, Alert, AppShell, Burger, Group, Loader, Title, Tooltip } from "@mantine/core";
+import { IconPinned, IconPinnedOff } from "@tabler/icons-react";
 import { WorkNavigator } from "./WorkNavigator";
 import { ChatPaneSlot } from "./ChatPaneSlot";
-import { WorkspaceShellState, loadWorkspaceBook } from "./workspaceShellState";
+import { ChatResizeHandle } from "./ChatResizeHandle";
+import {
+  WorkspaceShellState,
+  endChatResize,
+  loadWorkspaceBook,
+  toggleNavCollapsed,
+} from "./workspaceShellState";
 import { ChatPaneState, loadChatPane, stopChatTurn } from "../chat/chatPaneState";
 import {
   registerCloseTurnController,
   unregisterCloseTurnController,
 } from "../../closeTurn";
+import { CHAT_WIDTH_CSS_VAR } from "../../workspaceLayout";
 
 /**
  * The three-region working page for `/work/:bookId`. Reads `:bookId` from the
@@ -24,6 +33,13 @@ import {
  * The book load runs once per mount (empty-deps effect); because `routes.tsx`
  * keys this element on `:bookId`, a subject-route change under the same book does
  * NOT remount, so `loadWorkspaceBook` fires exactly once across such navigation.
+ *
+ * fast/005: this component MUST NEVER read `state.chatWidthFraction` in its JSX —
+ * only `ChatResizeHandle` may observe the live fraction. The aside's width prop is
+ * a CONSTANT string and the drag travels through the `--work-chat-width` custom
+ * property, set imperatively by the single `autorun` inside the existing mount
+ * effect. Observing the fraction here would re-render the whole content pane on
+ * every pointer move, which is the one thing this design exists to avoid.
  */
 export const WorkspaceShell = observer(function WorkspaceShell() {
   const { bookId } = useParams();
@@ -39,7 +55,18 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
     registerCloseTurnController(chatPaneState);
     void loadWorkspaceBook(state, bookId ?? "", ctrl.signal);
     void loadChatPane(chatPaneState, bookId ?? "", ctrl.signal);
+    // `frontend.md`'s sanctioned "a single `autorun` started in the mount
+    // `useEffect` and disposed on cleanup" — here it pushes the live width onto a
+    // CSS custom property so a pointer drag bypasses React entirely. NO second
+    // effect, deps unchanged, and re-creation under StrictMode is idempotent.
+    const disposeChatWidthVar = autorun(() => {
+      document.documentElement.style.setProperty(CHAT_WIDTH_CSS_VAR, state.chatWidthCssValue);
+    });
     return () => {
+      disposeChatWidthVar();
+      document.documentElement.style.removeProperty(CHAT_WIDTH_CSS_VAR);
+      // Unconditional and idempotent — detaches a drag still in flight at unmount.
+      endChatResize(state);
       // Identity-guarded inside the registry, so a late unmount whose registration
       // has already been superseded clears nothing.
       unregisterCloseTurnController(chatPaneState);
@@ -56,13 +83,24 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
   return (
     <AppShell
       header={{ height: 56 }}
+      // `AppShell.Main` animates `transition-property: padding`, which would
+      // rubber-band 200ms behind the pointer during a drag.
+      transitionDuration={state.resizing ? 0 : 200}
       navbar={{
-        width: 220,
+        width: state.navbarWidth,
         breakpoint: "sm",
         // `collapsed.mobile` is "is collapsed" — the NEGATION of "is open".
         collapsed: { mobile: !state.navbarOpened },
       }}
-      aside={{ width: 320, breakpoint: "md", collapsed: { desktop: false, mobile: true } }}
+      aside={{
+        // A CONSTANT string frozen at construction from the STORED width — never
+        // the live fraction. Keep the `calc(...)` wrapper: Mantine's `rem()` passes
+        // a string through verbatim only when it starts with `calc(`, `clamp(` or
+        // `rgba(`, and splits every other comma-bearing string on its commas.
+        width: state.asideWidthCss,
+        breakpoint: "md",
+        collapsed: { desktop: false, mobile: true },
+      }}
     >
       <AppShell.Header>
         <Group h="100%" px="md" gap="sm" wrap="nowrap">
@@ -76,6 +114,25 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
             aria-label="Toggle navigation"
             aria-expanded={state.navbarOpened}
           />
+          <Tooltip
+            label={state.navCollapsed ? "Pin navigator open" : "Collapse navigator"}
+            position="bottom"
+            withArrow
+          >
+            <ActionIcon
+              variant="subtle"
+              visibleFrom="sm"
+              aria-label={state.navCollapsed ? "Pin navigator open" : "Collapse navigator"}
+              aria-pressed={!state.navCollapsed}
+              onClick={() => toggleNavCollapsed(state)}
+            >
+              {state.navCollapsed ? (
+                <IconPinnedOff size={18} stroke={1.5} />
+              ) : (
+                <IconPinned size={18} stroke={1.5} />
+              )}
+            </ActionIcon>
+          </Tooltip>
           {loading ? <Loader size="sm" /> : <Title order={4}>{state.bookDetail?.title}</Title>}
         </Group>
       </AppShell.Header>
@@ -89,10 +146,14 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
             // mounted). Mirrors the direct-mutation pattern used for `navbarOpened`.
             chatPaneState.showArchived = false;
           }}
+          collapsed={state.navCollapsed}
         />
       </AppShell.Navbar>
 
       <AppShell.Aside p="xs">
+        {/* Shell chrome on the aside's left edge, NOT pane content —
+            `ChatPaneSlot`'s props stay untouched (011.chat-panel owns the pane). */}
+        <ChatResizeHandle state={state} />
         <ChatPaneSlot bookId={id} state={chatPaneState} />
       </AppShell.Aside>
 
