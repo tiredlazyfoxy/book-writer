@@ -188,3 +188,23 @@ Landed in `assistant-config.md`, `backend/features.md`, `backend/persistence.md`
   `admin/pages/AssistantModesPage.tsx` + `assistantModesPageState.ts` (the repo's first **three-trio**
   page state) and `admin/components/assistant-config/`, alongside the planner's
   `system-overview.md` route-map item.
+- Feedback round 1 (F1): the database-consistency report's `status` vocabulary is now
+  **four** values, not three — `ok` / `drift` / `missing` / `seed-missing` — so one field
+  answers both "is the schema right?" and "are the required rows there?", with an absolute
+  precedence rule (schema outranks rows) keeping them mutually exclusive. `TableReportEntry`
+  also gained `missing_seed_keys: list[str]`, and `/api/admin/db` gained a seventh operation,
+  `POST /tables/{name}/seed` (204, admin-gated, `unknown_table` → 404 / `not_seedable` → 400).
+  Row health is driven by a one-entry registry in `services/db_admin.py`
+  (`_SEEDABLE_TABLES` / `SeedSpec`) that later features extend rather than redesign.
+  Possible impact: update the `/api/admin/db` endpoint + DTO tables in
+  `docs/architecture/quick-reference.md`, and the report description in
+  `docs/architecture/backend/features.md` (feature 007 / US-015), to carry the fourth status,
+  the new field and the seed route.
+- Feedback round 1 (F2): seeding the fixed five assistant modes is now a rule of **every**
+  import path, not just first-run bootstrap — `services/db_admin.import_database` seeds after
+  `import_all`, mirroring `services/setup.import_database`. Deliberately still not seeded at
+  application startup (`main.py`'s `lifespan()` is untouched; round decision D-a), so the
+  admin `Seed` action remains the only recovery for an instance bootstrapped before the seed
+  call landed. Possible impact: state "any path that populates a database seeds the default
+  modes; startup does not" wherever `docs/architecture/domain-chat.md` / `backend.md` describe
+  assistant-mode seeding.

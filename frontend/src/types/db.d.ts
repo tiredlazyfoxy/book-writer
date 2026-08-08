@@ -3,8 +3,12 @@
 // 1:1. No methods, no classes, no runtime validation.
 // See docs/plans/007.database-consistency (FEAT-005).
 
-/** Per-table consistency status — mirrors backend `TableReportEntry.status`. */
-export type TableStatus = "ok" | "drift" | "missing";
+/**
+ * Per-table consistency status — mirrors backend `TableReportEntry.status`.
+ * Schema outranks rows: `seed-missing` is only ever reported for a table that is
+ * present *and* schema-clean but is missing required seed rows.
+ */
+export type TableStatus = "ok" | "drift" | "missing" | "seed-missing";
 
 /** One table's drift report — mirrors backend `TableReportEntry`. */
 export interface TableReportEntry {
@@ -12,6 +16,8 @@ export interface TableReportEntry {
   status: TableStatus;
   missing_columns: string[];
   extra_columns: string[];
+  /** Required seed-row keys with no row; empty unless `status === "seed-missing"`. */
+  missing_seed_keys: string[];
 }
 
 /** `GET /api/admin/db/report` response — mirrors backend `ConsistencyReport`. */

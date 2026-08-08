@@ -6,7 +6,9 @@ row types never leak past this module (see ``docs/architecture/backend.md`` —
 layer separation). Public functions accept and return ``SubAgent`` or plain
 types.
 
-Skeleton (008 step 001): signatures are frozen; bodies are UNIMPLEMENTED.
+Covers the sub-agent row CRUD: ``create``, ``get_by_id``, ``get_by_name``,
+``list_all`` (name-ascending, unfiltered — disabled rows included) and ``update``.
+There is no delete: removal is the ``disabled`` flag.
 """
 
 from sqlmodel import select

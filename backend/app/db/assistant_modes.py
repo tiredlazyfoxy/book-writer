@@ -8,8 +8,9 @@ plain types.
 
 Lookups are by the natural ``key`` primary key (not a snowflake id).
 
-Skeleton (008 step 001): signatures are frozen; bodies are UNIMPLEMENTED.
-(Step 003 adds ``seed_default_modes`` to this same module.)
+Covers the mode row CRUD (``create`` / ``get_by_id`` / ``list_all`` / ``update``)
+plus ``seed_default_modes``, the idempotent check-then-create seeder for the
+fixed five ``DEFAULT_MODE_KEYS``.
 """
 
 from sqlmodel import select

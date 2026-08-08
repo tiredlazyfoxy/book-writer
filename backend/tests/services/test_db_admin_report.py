@@ -20,6 +20,13 @@ from implementation internals:
       `extra_columns = actual - expected`; `ok`/`missing` tables carry empty
       lists.
 
+Reconciled after feedback round 1 (012.assistant-config-editor -> F1): the
+status vocabulary gained a fourth value, `seed-missing`, for a present and
+schema-clean table whose required seed rows are absent. Schema always outranks
+rows (F1 point 2), so `missing` and `drift` are untouched by that change; the
+one seed-registry table (`assistant_modes`, F1 point 4) is only `ok` once its
+`DEFAULT_MODE_KEYS` rows exist, which the all-match test below now arranges.
+
 Tests read the expected structure the SAME way the service does — from
 `SQLModel.metadata` — so they stay valid as the registered table set grows
 (today `users`, `llm_servers`; more later). Drift/missing scenarios are built in
@@ -35,6 +42,7 @@ created.
 from sqlmodel import SQLModel
 
 import app.db.engine as engine_module
+from app.db import assistant_modes
 from app.db.engine import DbConfig
 from app.services import db_admin
 
@@ -73,6 +81,12 @@ def _by_name(report) -> dict[str, object]:
 # with status 'ok' (and, per spec, empty missing/extra column lists).
 async def test_all_match__DoD1_US015_AC1(db: DbConfig):
     expected = _expected_tables()
+
+    # "All match" now means schema AND required rows: post-F1, the sole
+    # seed-registry table (`assistant_modes`) is `seed-missing` while its
+    # DEFAULT_MODE_KEYS rows are absent, so a fully consistent DB is arranged
+    # by seeding it. Every per-table assertion below is unchanged.
+    await assistant_modes.seed_default_modes()
 
     report = await db_admin.build_consistency_report()
     entries = _by_name(report)

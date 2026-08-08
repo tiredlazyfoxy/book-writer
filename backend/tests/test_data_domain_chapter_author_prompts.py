@@ -56,6 +56,7 @@ from datetime import datetime
 
 from sqlmodel import SQLModel
 
+from app.db import assistant_modes
 from app.db.engine import DbConfig
 from app.models.chapter import Chapter, ChapterState
 from app.models.chapter_author_prompt import ChapterAuthorPrompt
@@ -108,6 +109,14 @@ async def test_table_exists_and_is_queryable_on_fresh_db__DoD6(db: DbConfig):
 # report reports `chapter_author_prompts` as clean, and no other table drifts.
 # A migration statement was neither needed nor added.
 async def test_schema_drift_clean_after_registration__DoD6(db: DbConfig):
+    # Feedback round 1, F1: `assistant_modes` is the seed registry's single
+    # entry, so a present, schema-clean but rowless table now reports
+    # `seed-missing` — init_db() alone leaves the DB schema-clean but not
+    # row-complete. This test's subject is a fully consistent database, so the
+    # required rows are arranged first; every per-table assertion below is
+    # unchanged.
+    await assistant_modes.seed_default_modes()
+
     report = await db_admin.build_consistency_report()
     by_name = {entry.name: entry for entry in report.tables}
 

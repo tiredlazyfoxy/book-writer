@@ -66,7 +66,22 @@ export const AssistantModesPage = observer(function AssistantModesPage() {
         </Group>
       )}
 
-      {!loading && !error && (
+      {/*
+        Empty state (feedback round 1, F3). The five modes are seeded, never
+        admin-created, so an empty list means the rows are absent — not that
+        there is nothing to show. Nothing self-heals on restart (round decision
+        D-a), so this text is the operator's only pointer at the remediation and
+        must name where it lives.
+      */}
+      {!loading && !error && state.modes.length === 0 && (
+        <Text size="sm" c="dimmed" py="sm">
+          No assistant modes are configured. Open the Database page and use the
+          Seed action on the assistant_modes row of the consistency report to
+          create them.
+        </Text>
+      )}
+
+      {!loading && !error && state.modes.length > 0 && (
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>

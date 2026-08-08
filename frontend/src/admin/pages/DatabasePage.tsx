@@ -19,6 +19,7 @@ import {
   importAction,
   loadReport,
   rebuildAction,
+  seedTableAction,
   syncTableAction,
 } from "./databasePageState";
 
@@ -27,7 +28,11 @@ import {
  * `DatabasePageState` via `useState`, loads the consistency report on mount /
  * aborts on unmount via a single page-level `useEffect` (deps `[state]`), and
  * renders the per-table drift report (status badge + drift column lists) with
- * per-row Create/Sync actions plus Export / Import / Rebuild controls.
+ * per-row Create/Sync/Seed actions plus Export / Import / Rebuild controls.
+ *
+ * Each row action is offered for exactly one status — `Create` for `missing`,
+ * `Sync` for `drift`, `Seed` for `seed-missing` — and confirms itself by the
+ * reloaded report showing the row as `ok`.
  */
 export const DatabasePage = observer(function DatabasePage() {
   const [state] = useState(() => new DatabasePageState());
@@ -49,6 +54,11 @@ export const DatabasePage = observer(function DatabasePage() {
   const handleSync = (name: string) => {
     const ctrl = new AbortController();
     void syncTableAction(state, name, ctrl.signal);
+  };
+
+  const handleSeed = (name: string) => {
+    const ctrl = new AbortController();
+    void seedTableAction(state, name, ctrl.signal);
   };
 
   const handleRebuild = () => {
@@ -127,6 +137,7 @@ export const DatabasePage = observer(function DatabasePage() {
                 ok: "green",
                 drift: "yellow",
                 missing: "red",
+                "seed-missing": "orange",
               }[entry.status];
               return (
                 <Table.Tr key={entry.name}>
@@ -159,6 +170,11 @@ export const DatabasePage = observer(function DatabasePage() {
                     {entry.status === "drift" && (
                       <Button size="xs" onClick={() => handleSync(entry.name)}>
                         Sync
+                      </Button>
+                    )}
+                    {entry.status === "seed-missing" && (
+                      <Button size="xs" onClick={() => handleSeed(entry.name)}>
+                        Seed
                       </Button>
                     )}
                   </Table.Td>

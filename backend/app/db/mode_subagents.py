@@ -6,7 +6,10 @@ row types never leak past this module (see ``docs/architecture/backend.md`` —
 layer separation). Public functions accept and return ``ModeSubagent`` or plain
 types.
 
-Skeleton (008 step 002): signatures are frozen; bodies are UNIMPLEMENTED.
+Covers the mode-to-sub-agent link rows: ``create``, ``get_by_id``, both lookup
+directions (``list_by_mode`` / ``list_by_sub_agent``) and the two
+count-returning bulk deletes (``delete_by_mode`` / ``delete_by_sub_agent``;
+``0`` is a normal result).
 """
 
 from sqlmodel import select

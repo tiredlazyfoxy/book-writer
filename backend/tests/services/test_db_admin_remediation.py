@@ -23,6 +23,16 @@ implementation internals:
     - `sync_table_schema(name)` recomputes the drift and ADDs `missing_columns` +
       DROPs `extra_columns` so the table then reports ok.
 
+Reconciled after feedback round 1 (012.assistant-config-editor -> F1, decision
+D-c): `status` gained a fourth value, `seed-missing`, for a present and
+schema-clean table whose required seed rows are absent, and schema remediation
+deliberately does NOT seed — seeding is a separate action. Both remediation
+tests below therefore target a table OUTSIDE the one-entry seed registry
+(`assistant_modes`, F1 point 4), so `ok` after `create` / `sync` stays a pure
+schema verdict. The identity of the table is incidental to what they assert;
+what they assert — that `create` makes a missing table exist with the right
+columns and that `sync` drops extra columns — is unchanged.
+
 Tests read the EXPECTED structure the same way the service does — from
 `SQLModel.metadata` — so they stay valid as the registered table set grows (today
 `users`, `llm_servers`; more later). Drift/missing scenarios are seeded in the
@@ -56,6 +66,24 @@ def _pick_table() -> str:
     hardcoding the table list (it may grow as features are added)."""
     names = sorted(_expected_tables())
     assert names, "expected at least one registered table in SQLModel.metadata"
+    return names[0]
+
+
+# The seed registry holds exactly ONE entry today — `assistant_modes`
+# (feedback round 1 -> F1 point 4). A schema-clean but rowless table there
+# reports `seed-missing`, not `ok`, so tests whose subject is *schema*
+# remediation must not target it.
+SEED_REGISTRY_TABLES = {"assistant_modes"}
+
+
+def _pick_table_outside_seed_registry() -> str:
+    """Deterministically pick one registered (metadata) table that is NOT in the
+    seed registry, so its post-remediation status is a pure schema verdict."""
+    names = [
+        name for name in sorted(_expected_tables())
+        if name not in SEED_REGISTRY_TABLES
+    ]
+    assert names, "expected at least one registered table outside the seed registry"
     return names[0]
 
 
@@ -100,7 +128,10 @@ def _snapshot(report) -> dict[str, tuple]:
 # DoD-1 (US-016.AC-1): given a table reported `missing`, `create_missing_table(name)`
 # creates it and a fresh consistency report then shows that table as `ok`.
 async def test_create_missing__DoD1_US016_AC1(db: DbConfig):
-    target = _pick_table()
+    # A non-registry table: post-F1, creating a *seedable* table leaves it
+    # schema-clean but rowless (`seed-missing`) because seeding is a separate
+    # action, and this test is about the schema verdict alone.
+    target = _pick_table_outside_seed_registry()
 
     # Seed the "missing" scenario: drop the live table so it is absent from the
     # actual structure while still present in metadata.
@@ -180,7 +211,10 @@ async def test_sync_adds_missing_columns__DoD3_US017_AC1(db: DbConfig):
 # DoD-4 (US-017.AC-2): given a table in `drift` with EXTRA columns,
 # `sync_table_schema(name)` drops them and a fresh report shows the table `ok`.
 async def test_sync_drops_extra_columns__DoD4_US017_AC2(db: DbConfig):
-    target = _pick_table()
+    # A non-registry table: post-F1, syncing a *seedable* table leaves it
+    # schema-clean but rowless (`seed-missing`) because seeding is a separate
+    # action, and this test is about the schema verdict alone.
+    target = _pick_table_outside_seed_registry()
 
     # Seed "drift with extra columns": add a column that is NOT part of the
     # table's metadata, so the live column-NAME set has one column too many.

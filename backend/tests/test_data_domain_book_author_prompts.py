@@ -50,7 +50,7 @@ from datetime import datetime
 
 from sqlmodel import SQLModel
 
-from app.db import book_author_prompts
+from app.db import assistant_modes, book_author_prompts
 from app.db.engine import DbConfig
 from app.models.book import Book, BookState, CollaborationMode, Visibility
 from app.models.book_author_prompt import BookAuthorPrompt
@@ -102,6 +102,14 @@ async def test_table_exists_and_is_queryable_on_fresh_db__DoD6(db: DbConfig):
 # DoD-6: the created table matches SQLModel.metadata — the FEAT-005 consistency
 # report reports `book_author_prompts` as clean, and no other table drifts.
 async def test_schema_drift_clean_after_registration__DoD6(db: DbConfig):
+    # Feedback round 1, F1: `assistant_modes` is the seed registry's single
+    # entry, so a present, schema-clean but rowless table now reports
+    # `seed-missing` — init_db() alone leaves the DB schema-clean but not
+    # row-complete. This test's subject is a fully consistent database, so the
+    # required rows are arranged first; every per-table assertion below is
+    # unchanged.
+    await assistant_modes.seed_default_modes()
+
     report = await db_admin.build_consistency_report()
     by_name = {entry.name: entry for entry in report.tables}
 

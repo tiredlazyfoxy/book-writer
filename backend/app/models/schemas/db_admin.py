@@ -17,18 +17,29 @@ class TableReportEntry(BaseModel):
     """The consistency status of one metadata-expected table.
 
     - ``name`` — the expected table name.
-    - ``status`` — ``ok`` (column-name sets match), ``drift`` (present but sets
-      differ), or ``missing`` (absent from the live DB).
+    - ``status`` — ``ok`` (present, column-name sets match, and — where the table
+      is seedable — fully seeded), ``drift`` (present but sets differ),
+      ``missing`` (absent from the live DB), or ``seed-missing`` (present and
+      schema-clean, but one or more required seed rows are absent).
     - ``missing_columns`` — columns in metadata but absent from the live table
       (expected − actual); empty unless ``drift``.
     - ``extra_columns`` — columns in the live table but absent from metadata
       (actual − expected); empty unless ``drift``.
+    - ``missing_seed_keys`` — the required seed-row keys with no row in the live
+      table; empty unless ``seed-missing``, and empty for every table without a
+      seed-registry entry in :mod:`app.services.db_admin`.
+
+    Precedence is absolute: schema outranks rows. A table absent from the DB is
+    ``missing``; a present table with column drift is ``drift``; only a table
+    that is present *and* schema-clean can ever be ``seed-missing``. The four
+    values stay mutually exclusive (feedback round 1, F1).
     """
 
     name: str
-    status: Literal["ok", "drift", "missing"]
+    status: Literal["ok", "drift", "missing", "seed-missing"]
     missing_columns: list[str]
     extra_columns: list[str]
+    missing_seed_keys: list[str] = []
 
 
 class ConsistencyReport(BaseModel):

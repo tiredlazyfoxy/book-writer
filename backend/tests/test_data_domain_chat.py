@@ -56,7 +56,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import SQLModel
 
-from app.db import chat_messages, chats
+from app.db import assistant_modes, chat_messages, chats
 from app.db.engine import DbConfig
 from app.models.chat import Chat, ChatMessage
 from app.models.schemas.chats import ChatSamplingParams
@@ -408,6 +408,14 @@ async def test_schema_present_and_drift_clean__DoD5(db: DbConfig):
     tables = SQLModel.metadata.tables
     assert "chats" in tables
     assert "chat_messages" in tables
+
+    # Feedback round 1, F1: `assistant_modes` is the seed registry's single
+    # entry, so a present, schema-clean but rowless table now reports
+    # `seed-missing` — init_db() alone leaves the DB schema-clean but not
+    # row-complete. This test's subject is a fully consistent database, so the
+    # required rows are arranged first; every per-table assertion below is
+    # unchanged.
+    await assistant_modes.seed_default_modes()
 
     report = await db_admin.build_consistency_report()
     by_name = {entry.name: entry for entry in report.tables}

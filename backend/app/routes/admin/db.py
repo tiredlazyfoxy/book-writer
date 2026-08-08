@@ -17,8 +17,8 @@ segment could be captured as a ``{name}``.
 
 Typed-error → status map the handlers implement (D5): ``not-in-metadata`` → 400,
 ``table-not-missing`` → 400, ``invalid-archive`` → 400, ``no-embedding-provider``
-→ 400, ``unknown-table`` → 404. (Non-admin → 403 is produced by ``require_role``
-itself.)
+→ 400, ``not-seedable`` → 400, ``unknown-table`` → 404. (Non-admin → 403 is
+produced by ``require_role`` itself.)
 
 Skeleton (feature 007, step 005): the router object, route registration, and
 handler signatures (incl. ``response_model`` via return annotations, the
@@ -49,6 +49,7 @@ _DB_ADMIN_ERROR_STATUS: dict[db_admin.DbAdminErrorCase, int] = {
     db_admin.DbAdminErrorCase.table_not_missing: status.HTTP_400_BAD_REQUEST,
     db_admin.DbAdminErrorCase.invalid_archive: status.HTTP_400_BAD_REQUEST,
     db_admin.DbAdminErrorCase.no_embedding_provider: status.HTTP_400_BAD_REQUEST,
+    db_admin.DbAdminErrorCase.not_seedable: status.HTTP_400_BAD_REQUEST,
     db_admin.DbAdminErrorCase.unknown_table: status.HTTP_404_NOT_FOUND,
 }
 
@@ -138,5 +139,19 @@ async def sync_table_schema(
     US-017)."""
     try:
         await db_admin.sync_table_schema(name)
+    except db_admin.DbAdminError as err:
+        raise _map_db_admin_error(err)
+
+
+@router.post("/tables/{name}/seed", status_code=status.HTTP_204_NO_CONTENT)
+async def seed_table_rows(
+    name: str,
+    caller: User = Depends(auth_service.require_role(UserRole.admin)),
+) -> None:
+    """Seed a table's missing required rows
+    (``POST /api/admin/db/tables/{name}/seed`` → 204, 404 on ``unknown-table``,
+    400 on ``not-seedable``; feedback round 1, F1)."""
+    try:
+        await db_admin.seed_table_rows(name)
     except db_admin.DbAdminError as err:
         raise _map_db_admin_error(err)

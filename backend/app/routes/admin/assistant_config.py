@@ -41,11 +41,10 @@ There is deliberately **no single-mode GET** (the editor loads all five in one
 call) and deliberately **no DELETE anywhere** — disable-not-delete
 (``context.md`` → scope decision 6).
 
-Skeleton (feature 012, step 005): the router object, its prefix and tag, the
-eight route registrations, and the handler signatures (incl. response models via
-return annotations, the ``str`` path params, the ``caller`` dependency and the
-201 create status) are frozen, and the error→status map + helper are real; the
-handler bodies are UNIMPLEMENTED.
+The eight handlers are the tool catalogue read, the mode list and mode save, and
+the sub-agent list / create (201) / update / disable / enable — each one call
+into :mod:`app.services.assistant_config` wrapped in the error→status mapping
+above.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

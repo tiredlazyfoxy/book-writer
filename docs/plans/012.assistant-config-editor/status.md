@@ -1023,6 +1023,113 @@ Where the skeleton/behavior line was drawn (so the coder knows exactly what is l
 - Compile gate: `cd frontend && npx tsc --noEmit` clean. `npm test` / `npm run test:types` /
   `npm run build` deliberately **not** run — the verifier owns tests.
 
+### Feedback round 1, item F1 — re-freeze (2026-08-08)
+
+Additive only. **No existing signature, field, route path, enum member or export changed**, and
+nothing was removed or renamed. `build_consistency_report()`'s body was deliberately **not
+touched** — the fourth status is the coder's work, and the new DTO field's empty default keeps
+every existing construction site compiling and every existing input producing the same three
+statuses it does today. `services/setup.py` untouched; `db_admin` still never calls `set_db_ready`.
+
+`backend/app/models/schemas/db_admin.py`:
+
+- `class TableReportEntry(BaseModel)` — **changed** (widened + extended). `status` is now
+  `Literal["ok", "drift", "missing", "seed-missing"]` (was `Literal["ok", "drift", "missing"]`),
+  and one field is appended: `missing_seed_keys: list[str] = []`. `name`, `missing_columns` and
+  `extra_columns` are unchanged and still required. The class docstring now describes the fourth
+  status, the new field, and the precedence rule.
+- `ConsistencyReport` / `VectorRebuildResponse` — **unchanged**.
+
+`backend/app/services/db_admin.py`:
+
+- `class DbAdminErrorCase(str, enum.Enum)` — **changed** (extended, not renamed): the five existing
+  members keep their exact values, and one is appended —
+  `not_seedable = "not-seedable"`. **Six members total.** Documented in the enum docstring as: a
+  named table is real but has no seed registry entry, or its schema is `missing`/`drift` and
+  therefore cannot receive rows.
+- `class SeedSpec(TypedDict)` — new — `required_keys: tuple[str, ...]`,
+  `seeder: Callable[[], Awaitable[None]]`. A `TypedDict`, not a free dictionary (`CLAUDE.md` → "no
+  untyped data").
+- `_SEEDABLE_TABLES: dict[str, SeedSpec]` — new, module-level, **real (not a stub)** — a literal
+  with exactly **one** entry, `"assistant_modes"` → `SeedSpec(required_keys=assistant_modes.DEFAULT_MODE_KEYS, seeder=assistant_modes.seed_default_modes)`.
+  Same "declaration, not a body" precedent as the route module's `_DB_ADMIN_ERROR_STATUS`.
+- `async def seed_table_rows(name: str) -> None` — new. Body `raise NotImplementedError`.
+- `build_consistency_report` / `create_missing_table` / `sync_table_schema` / `export_database` /
+  `validate_archive` / `import_database` / `rebuild_vector_index` / `DbAdminError` —
+  **unchanged**, bodies untouched.
+- Import added for the registry: `from app.db import assistant_modes` (folded into the existing
+  `from app.db import llm_servers, schema, vector` line), plus
+  `from collections.abc import Awaitable, Callable` and `from typing import TypedDict`.
+
+`backend/app/routes/admin/db.py`:
+
+- `@router.post("/tables/{name}/seed", status_code=status.HTTP_204_NO_CONTENT)` →
+  `async def seed_table_rows(name: str, caller: User = Depends(auth_service.require_role(UserRole.admin))) -> None`
+  — new. Declared **last**, after `create` and `sync` and after every static path, so route ordering
+  is preserved. The `try` / `except db_admin.DbAdminError as err: raise _map_db_admin_error(err)`
+  wrapper is part of the frozen shape and **is written**; the service call it wraps is the stub.
+- `_DB_ADMIN_ERROR_STATUS` — **changed** (extended): one entry appended,
+  `db_admin.DbAdminErrorCase.not_seedable: status.HTTP_400_BAD_REQUEST`. All **six** cases now
+  mapped, verified exhaustive against the enum. Real, not a stub. The module docstring's
+  error→status sentence was updated to match.
+- The six existing handlers and `_map_db_admin_error` — **unchanged**.
+
+`frontend/src/types/db.d.ts`:
+
+- `export type TableStatus` — **changed** (widened): `"ok" | "drift" | "missing" | "seed-missing"`.
+- `export interface TableReportEntry` — **changed** (extended): one field appended,
+  `missing_seed_keys: string[];` — **required, no `?`**, mirroring the backend DTO, which always
+  serialises it (the default is a *backend* construction convenience, never an absent wire field).
+  No `any`. `ConsistencyReport` / `VectorRebuildResponse` unchanged.
+
+`frontend/src/api/db.ts`:
+
+- `export async function seedTable(name: string, signal?: AbortSignal): Promise<void>` — new.
+  Mirrors `createTable` / `syncTable` (`POST ${BASE}/tables/${encodeURIComponent(name)}/seed`, 204,
+  no body). Body **throws**.
+
+`frontend/src/admin/pages/databasePageState.ts`:
+
+- `export async function seedTableAction(state: DatabasePageState, name: string, signal?: AbortSignal): Promise<void>`
+  — new. Mirrors `createTableAction` / `syncTableAction`. Body **throws**.
+- `class DatabasePageState` — **unchanged**: **no new field**. F1's decision D-d rules out a new
+  response DTO and forbids extending `rebuildResult`; the reloaded report is the confirmation, and
+  `actionError` stays the single shared error slot.
+
+Contract shapes fixed here so neither test-coder nor coder re-decides them:
+
+- **Naming mirrors the existing pairs exactly** — `seed_table_rows` beside `create_missing_table` /
+  `sync_table_schema`; `seedTable` beside `createTable` / `syncTable`; `seedTableAction` beside
+  `createTableAction` / `syncTableAction`.
+- **`missing_seed_keys` carries a default on the backend and is required on the wire.** The default
+  exists so `build_consistency_report()`'s four existing `TableReportEntry(...)` construction sites
+  compile untouched; Pydantic deep-copies the `[]` per instance (verified: two instances do not
+  share the list), so this is **not** a shared-mutable bug and must not be "fixed". The response
+  always contains the key, so the `.d.ts` field is non-optional.
+- **The registry is a literal, not a plugin system**, and holds exactly one entry. A table with no
+  entry is never `seed-missing` and refuses `seed_table_rows` with `not_seedable`. `024.chat-agent-loop`
+  adds an entry rather than re-opening this design.
+- **`seed_table_rows` returns `None` and the route is 204** (D-d) — no created-count, no response
+  DTO anywhere in the chain. Its refusals are `unknown_table` → 404 and `not_seedable` → 400; it has
+  **no** `table_not_missing`-style refusal, because seeding an already-complete table is a
+  successful no-op (F1 point 6).
+- **`seed_default_modes()` is called, not reimplemented** — it is reached only through the
+  registry's `seeder`, and its signature (`async def seed_default_modes() -> None`) is untouched.
+- Caller-compile edits (out of Source-files scope): **`frontend/src/admin/pages/DatabasePage.tsx`** —
+  one line. Widening `TableStatus` broke the inline status→colour lookup at `:126-130`
+  (`TS2339: Property 'seed-missing' does not exist on type '{ ok; drift; missing }'`), so the object
+  literal gained the key `"seed-missing": "orange"`. That is the **entire** edit: no `Seed` button,
+  no new render branch, no export change, nothing else in the file moved — the rendering work is the
+  coder's. The colour is a placeholder the coder may restyle. Without it the frontend does not
+  compile at all, so this was the minimal edit to keep the file compiling.
+- Compile gate: `cd backend && .venv/Scripts/python -c "import app.main"` clean (backend has no
+  separate typecheck); `cd frontend && npx tsc --noEmit` and `cd frontend && npm run test:types`
+  both clean. Additionally verified by introspection — the generated OpenAPI shows the family's
+  **seven** operations with `/tables/{name}/seed` registered **after** `create` and `sync` at 204;
+  the widened `Literal` reaches the schema as `enum: ["ok","drift","missing","seed-missing"]`; the
+  DTO's four existing fields stay required and `missing_seed_keys` is the only optional one. No
+  pytest run and no `npm test` — the verifier owns tests.
+
 ## Tests
 
 ### Step 001 — tests (2026-07-26)
@@ -1377,8 +1484,157 @@ Where the skeleton/behavior line was drawn (so the coder knows exactly what is l
   DoD-10 ✓, DoD-11 ✓, DoD-12 ✓, DoD-13 ✓, DoD-14 [manual/live, no test],
   DoD-15 [manual/live, no test]
 
+### Feedback round 1 — repro tests (2026-08-08)
+
+- `backend/tests/services/test_db_admin_seed.py` — reproduces: F1 — a present, schema-clean
+  `assistant_modes` holding zero rows is reported `ok` and no service call can seed it —
+  defends 001.db-layer-completion (`seed_default_modes` reachable on an existing DB). Ten
+  tests over F1 points 1-7: `seed-missing` detection with the exact absent
+  `DEFAULT_MODE_KEYS`, the partial and fully-seeded cases, the precedence rule (drift and
+  missing always outrank rows), the no-regression guard for every non-registry table
+  (`missing_seed_keys == []` whatever the status), an unrecognised key neither reported nor
+  removed, `seed_table_rows` creating the five / idempotent no-op / preserving an
+  admin-edited `system_prompt`, and the `unknown_table` / `not_seedable` refusals.
+- `backend/tests/routes/admin/test_db_seed.py` — reproduces: F1 — no admin endpoint reseeds
+  the modes. Three tests: `POST /api/admin/db/tables/assistant_modes/seed` → 204 with an
+  empty body and the report flipping `seed-missing` → `ok`; 404 for an unknown name and 400
+  for `not_seedable` (parameterized); 403 for a non-admin caller.
+  `backend/tests/routes/admin/test_db.py` was **not** edited.
+- `backend/tests/services/test_db_admin_import_seed.py` — reproduces: F2 — the admin-surface
+  `db_admin.import_database` leaves modes unseeded. Three tests: an archive without mode rows
+  ends with all five keys; an archive carrying prompt-bearing rows keeps them verbatim with
+  exactly five rows and no duplicates; a refused (corrupt) import raises `invalid_archive`
+  and seeds nothing. Archives built with the real `export_all()`, the
+  `test_setup_mode_seed.py` idiom.
+- `frontend/tests/admin/DatabasePage.test.tsx` — reproduces: F1 (frontend) — no `Seed`
+  affordance, api call or state action exists. Six tests: `seedTable` POSTs to
+  `/api/admin/db/tables/{name}/seed` with no body; `seedTableAction` clears `actionError`,
+  seeds and reloads the report; an `ApiError` lands in `actionError` and is never thrown; the
+  `Seed` button shows for a `seed-missing` row and for no other status; the existing
+  `missing` → `Create` / `drift` → `Sync` visibility rules still hold (regression guard);
+  pressing `Seed` seeds that table and re-reads the report. First spec for this page — adapted
+  from `AssistantModesPage.test.tsx` + `renderWithProviders`, queried by role + accessible
+  name (no `data-testid` added anywhere).
+- `frontend/tests/admin/AssistantModesPage.test.tsx` — **extended only**, two tests appended
+  for F3 (empty state states there are no modes and names the Database page's `Seed`
+  remediation, with the table gone; a non-empty list still renders the table and its
+  `aria-label="Edit mode"` control). **No existing test was weakened, rewritten or deleted**
+  and every prior assertion is preserved verbatim.
+- No test written for: F4 (reshape — docstring/comment corrections only; behaviour is
+  preserved by the existing suite).
+- Deviation to note: the `seedTable` URL assertion mocks `api/client::request` and imports the
+  real `api/db` via `vi.importActual`, the repo's api-layer precedent
+  (`tests/admin/assistantConfigApi.test.ts`). Every other frontend test in the file mocks the
+  `api/db` module, never `fetch`.
+
+#### Correction round — pre-existing tests reconciled to F1 (2026-08-08)
+
+Thirteen delivered-feature tests asserted that in a DB built by `init_db()` alone **every**
+metadata table reports `ok`. F1 makes that false for exactly one table: the sole
+seed-registry entry, `assistant_modes`, is `seed-missing` until its five `DEFAULT_MODE_KEYS`
+rows exist. No repro test from round 1 was touched, and **no assertion was weakened,
+sampled or dropped** — every whole-report loop still pins a status per table.
+
+- `backend/tests/services/test_db_admin_report.py` — `test_all_match__DoD1_US015_AC1` now
+  arranges a fully consistent DB (`assistant_modes.seed_default_modes()`) before asserting
+  every table `ok` with empty column diffs; "all match" means schema **and** required rows.
+  The other four tests (missing / drift / column diffs) are untouched — schema outranks rows.
+- `backend/tests/services/test_db_admin_remediation.py` — `test_create_missing__DoD1_US016_AC1`
+  and `test_sync_drops_extra_columns__DoD4_US017_AC2` now pick their target via a new
+  `_pick_table_outside_seed_registry()` helper, so `ok` after `create` / `sync` is a pure
+  schema verdict. Per D-c, schema remediation on a seedable table lands it on `seed-missing`
+  and seeding is a separate action; the tests do **not** demand that `create` / `sync` seeds,
+  and they still assert exactly as strongly that `create` makes a missing table exist with
+  the right columns and that `sync` drops the extra column.
+- Ten whole-report drift-clean guards —
+  `backend/tests/test_data_domain_{assistant_core,assistant_links,book,book_author_prompts,chapter,chapter_author_prompts,chapter_changes,chat,codex,continuity}.py`
+  — each seeds the default modes before building the report, so the per-table
+  `status == "ok"` loop and the named subject-table assertions stay verbatim: a fully
+  bootstrapped DB still has zero drift anywhere.
+
+## Feedback
+
+### Round 1 (2026-08-08)
+
+- **F1 bug** — `backend/app/services/db_admin.py`, `frontend/src/api/db.ts`,
+  `frontend/src/admin/pages/databasePageState.ts`,
+  `frontend/src/admin/pages/DatabasePage.tsx` — the `seed-missing` status and its `Seed`
+  remediation now work end to end.
+  - `db_admin.py`: new module-private `async def _missing_seed_keys(name: str) -> list[str]`
+    (not frozen — the coder's helper) returns the `_SEEDABLE_TABLES` entry's `required_keys`
+    that have no row, **in registry order**, via `assistant_modes.list_all()`; `[]` for a
+    table with no registry entry, so an unrecognised key is never reported and never removed.
+    `build_consistency_report()` calls it **only** in the present-and-schema-clean branch and
+    emits `seed-missing` when it is non-empty, else `ok` — schema outranks rows absolutely, so
+    `missing` and `drift` entries are untouched and keep `missing_seed_keys == []`.
+    `seed_table_rows(name)` filled: not in `SQLModel.metadata` → `unknown_table` (404, mirrors
+    `sync_table_schema`, deliberately not `not_in_metadata`); no registry entry, or a report
+    status of `missing` / `drift` → the new `not_seedable` (400); otherwise
+    `await spec["seeder"]()` — `assistant_modes.seed_default_modes()` **called, not
+    reimplemented** — so a fully-seeded table is a successful no-op. Docstrings for
+    `build_consistency_report` / `_missing_seed_keys` describe the precedence rule.
+  - `api/db.ts`: `seedTable` body — `request<void>(POST ${BASE}/tables/{name}/seed)`, identical
+    to `createTable` / `syncTable`.
+  - `databasePageState.ts`: `seedTableAction` body — clear `actionError` → `dbApi.seedTable` →
+    aborted-guard → `loadReport` → friendly `ApiError` catch into `actionError`; no rethrow, no
+    new state field.
+  - `DatabasePage.tsx`: `handleSeed` + a `size="xs"` `Seed` button rendered **only** for
+    `entry.status === "seed-missing"`; `Create` (`missing`) and `Sync` (`drift`) unchanged. No
+    toast, no modal, no confirmation. The skeleton's placeholder status→colour entry
+    `"seed-missing": "orange"` was kept as-is — it sits correctly between `drift`'s yellow and
+    `missing`'s red in the page's existing palette.
+  - Verified by a throwaway scratch script (never pytest): empty table → `seed-missing` with all
+    five keys; two-of-five seeded → the three absent keys only; an unrecognised extra key
+    neither reported nor removed and an edited `system_prompt` preserved through a seed; second
+    seed a no-op; every other table still `ok` with `missing_seed_keys == []`; a drifted and a
+    dropped `assistant_modes` both refuse with `not_seedable`; an unknown name refuses with
+    `unknown_table`.
+- **F2 bug** — `backend/app/services/db_admin.py` — `import_database` now ends with
+  `await assistant_modes.seed_default_modes()`, after `db_import_export.import_all(...)` and
+  outside/after `validate_archive`, so a refused archive still raises before anything is seeded.
+  Docstring updated to state the seed and its position. `set_db_ready` is still never called
+  here, and `services/setup.py` is untouched. Verified on a scratch DB: a fresh instance
+  restored from an archive with no mode rows ends with all five keys; archived rows keep their
+  `system_prompt` and gain no duplicate; a corrupt archive leaves zero rows.
+- **F3 bug** — `frontend/src/admin/pages/AssistantModesPage.tsx` — when the load succeeds and
+  `state.modes.length === 0`, the page renders a dimmed `Text` empty state
+  (`CodexListPage.tsx:162-168` idiom) instead of the header-only table: "No assistant modes are
+  configured. Open the Database page and use the Seed action on the assistant_modes row of the
+  consistency report to create them." — one flat text node, naming F1's remediation by its UI
+  location. The table branch is now `state.modes.length > 0`; loading, error and populated
+  branches, the per-row edit `ActionIcon`, the modal wiring, `observer`, the page state and both
+  exports are unchanged, and no `useState` was added. `SubAgentsPage.tsx` untouched.
+- **F4 reshape** — `backend/app/routes/admin/assistant_config.py`,
+  `backend/app/db/assistant_modes.py`, `backend/app/db/sub_agents.py`,
+  `backend/app/db/mode_tools.py`, `backend/app/db/subagent_tools.py`,
+  `backend/app/db/mode_subagents.py`, `backend/app/services/assistant_config.py` — comments and
+  docstrings only; **zero** code, signature, import or logic change in all seven files. Each
+  "…bodies are UNIMPLEMENTED" sentence was replaced by a one-line description of what the module
+  actually contains (the eight implemented handlers; the mode CRUD + seeder; the sub-agent CRUD
+  with no delete; the three link-table modules' lookups and count-returning bulk deletes). In
+  `services/assistant_config.py::list_tools` only the false parenthetical was replaced — the
+  sentence's point ("nothing may hard-code the count") survives verbatim.
+
 ## Notes & Issues
 
+- Feedback round 1: `backend/tests/services/test_setup_mode_seed.py`'s module docstring declares
+  the admin import surface (`services/db_admin.py`) deliberately out of scope — F2 makes that
+  sentence false. Test files are off-limits to the coder (the air gap), so it is left for the
+  verifier/orchestrator to route.
+- Feedback round 1: two more stale skeleton claims sit **outside** F4's seven named locations and
+  were therefore left alone — `backend/app/services/db_admin.py`'s module docstring ("Skeleton
+  (step 001): … the body is UNIMPLEMENTED") and
+  `frontend/src/admin/pages/AssistantModesPage.tsx`'s ("the coder fills the three summary
+  cells…"). Both are the same defect class as F4; a follow-up item could sweep them.
+- Feedback round 1: `SeedSpec` carries a seeder but no row-key **reader**, so `_missing_seed_keys`
+  resolves the live keys with an explicit `if name == "assistant_modes"` branch (each entity has
+  its own `db/` module and the registry deliberately holds one entry). A second registry entry
+  will need its own branch there; a registered table with no branch degrades to "never
+  `seed-missing`", never to a false positive. Widening `SeedSpec` was not done — it is a frozen
+  skeleton type.
+- Feedback round 1: no persistent model was added or altered (the change is one Pydantic
+  response DTO field plus service logic), so `CLAUDE.md`'s JSONL import/export rule requires no
+  change — confirmed, not assumed.
 - Step 001: the three bulk deletes are select-then-`session.delete` loops returning `len(rows)`, not a raw
   `sqlalchemy.delete()` — keeps `db/` imports unchanged and leaves `llm_servers.clear_all_embedding` the
   only raw-SQLAlchemy spot (feature 006 decision D5).

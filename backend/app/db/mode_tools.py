@@ -6,7 +6,8 @@ row types never leak past this module (see ``docs/architecture/backend.md`` —
 layer separation). Public functions accept and return ``ModeTool`` or plain
 types.
 
-Skeleton (008 step 002): signatures are frozen; bodies are UNIMPLEMENTED.
+Covers the mode-to-tool link rows: ``create``, ``get_by_id``, ``list_by_mode``
+and the count-returning bulk ``delete_by_mode`` (``0`` is a normal result).
 """
 
 from sqlmodel import select

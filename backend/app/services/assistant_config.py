@@ -124,8 +124,8 @@ async def list_tools() -> ToolsListResponse:
     A pure read of a module-level literal: no DB access. ``async`` only for
     consistency with the rest of this service's surface (so step 005's handler
     awaits it like every other call). Must be correct for a registry of zero, one
-    or many entries — nothing may hard-code the count (today there is exactly one,
-    ``web_search``).
+    or many entries — nothing may hard-code the count (the registry has grown
+    since this surface was written and will keep changing).
 
     Only ``name`` and ``description`` are surfaced; ``args_schema`` and
     ``callable`` never reach the wire, nor does any key derived from them.

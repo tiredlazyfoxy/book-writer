@@ -23,10 +23,12 @@ import gzip
 import io
 import json
 import zipfile
+from collections.abc import Awaitable, Callable
+from typing import TypedDict
 
 from sqlmodel import SQLModel
 
-from app.db import llm_servers, schema, vector
+from app.db import assistant_modes, llm_servers, schema, vector
 from app.models.schemas.db_admin import ConsistencyReport, TableReportEntry
 from app.services import db_import_export
 
@@ -46,6 +48,9 @@ class DbAdminErrorCase(str, enum.Enum):
     - ``invalid_archive`` — an import archive failed pre-validation (step 003).
     - ``no_embedding_provider`` — a vector rebuild was asked with no embedding
       server / ``embedding_model`` configured (step 004).
+    - ``not_seedable`` — a named table is real but has no seed registry entry, or
+      its schema is ``missing``/``drift`` and therefore cannot receive rows
+      (feedback round 1, F1) → 400.
     """
 
     not_in_metadata = "not-in-metadata"
@@ -53,6 +58,7 @@ class DbAdminErrorCase(str, enum.Enum):
     table_not_missing = "table-not-missing"
     invalid_archive = "invalid-archive"
     no_embedding_provider = "no-embedding-provider"
+    not_seedable = "not-seedable"
 
 
 class DbAdminError(Exception):
@@ -69,6 +75,66 @@ class DbAdminError(Exception):
         super().__init__(message)
 
 
+class SeedSpec(TypedDict):
+    """What a seedable table needs: its required row keys and its seeder.
+
+    - ``required_keys`` — every key that must have a row for the table to count
+      as fully seeded. A row carrying an *unrecognised* key is not an error and
+      is never reported or removed (F1 point 3).
+    - ``seeder`` — the zero-argument, idempotent ``db/`` coroutine that creates
+      the absent rows. It is **called, not reimplemented**.
+    """
+
+    required_keys: tuple[str, ...]
+    seeder: Callable[[], Awaitable[None]]
+
+
+_SEEDABLE_TABLES: dict[str, SeedSpec] = {
+    "assistant_modes": SeedSpec(
+        required_keys=assistant_modes.DEFAULT_MODE_KEYS,
+        seeder=assistant_modes.seed_default_modes,
+    ),
+}
+"""The seed-row registry (feedback round 1, F1 point 4).
+
+Maps a table name to its required seed keys and its seeder. Exactly **one**
+entry today. A table with no entry here is never reported ``seed-missing`` and
+refuses :func:`seed_table_rows` with ``not_seedable``. The registry exists so
+``024.chat-agent-loop`` and later features can add an entry rather than re-open
+this design; it is not a plugin system.
+"""
+
+
+async def _missing_seed_keys(name: str) -> list[str]:
+    """Which of ``name``'s required seed-row keys have no row (F1 points 3-4).
+
+    Returns the :data:`_SEEDABLE_TABLES` entry's ``required_keys`` that are
+    absent from the live table, in registry order; an empty list means the table
+    is fully seeded, or has no registry entry at all. Presence of keys, never a
+    row count: a row carrying an *unrecognised* key is not an error and is never
+    reported (nor removed).
+
+    The read is per-table by construction — :class:`SeedSpec` carries a seeder,
+    not a reader, and each entity has its own ``db/`` module. The registry holds
+    exactly one entry, so this is one branch; a future entry adds its own.
+    A registered table with no branch here is treated as "nothing to report", so
+    a table is never reported ``seed-missing`` on a guess.
+
+    Callers must only reach this for a table that is present and schema-clean —
+    schema outranks rows (F1 point 2).
+    """
+    spec = _SEEDABLE_TABLES.get(name)
+    if spec is None:
+        return []
+
+    if name == "assistant_modes":
+        present = {row.key for row in await assistant_modes.list_all()}
+    else:
+        return []
+
+    return [key for key in spec["required_keys"] if key not in present]
+
+
 async def build_consistency_report() -> ConsistencyReport:
     """Compute the per-table drift report (D1 / US-015).
 
@@ -76,9 +142,18 @@ async def build_consistency_report() -> ConsistencyReport:
     column names per table), calls :func:`app.db.schema.introspect` for the
     **actual** structure, and computes each expected table's status: ``missing``
     if absent from the live DB; else ``drift`` if the expected and actual
-    column-name sets differ; else ``ok``. For a drifted table, populates
-    ``missing_columns = expected − actual`` and ``extra_columns = actual −
-    expected``; ok/missing entries carry empty lists.
+    column-name sets differ; else — for a table with a :data:`_SEEDABLE_TABLES`
+    entry whose required rows are not all present — ``seed-missing``; else
+    ``ok``. For a drifted table, populates ``missing_columns = expected −
+    actual`` and ``extra_columns = actual − expected``; every other entry carries
+    empty lists. ``missing_seed_keys`` is populated only for a ``seed-missing``
+    entry and is empty everywhere else, including for every table without a
+    registry entry.
+
+    Precedence is absolute — schema outranks rows (F1 point 2): row health is
+    only ever consulted for a table that is present *and* schema-clean, so the
+    four statuses stay mutually exclusive and seeding is never offered against a
+    table that cannot receive rows.
     """
     actual = await schema.introspect()
 
@@ -102,12 +177,14 @@ async def build_consistency_report() -> ConsistencyReport:
         actual_columns = set(actual["tables"][table_name]["columns"])
 
         if expected_columns == actual_columns:
+            missing_seed_keys = await _missing_seed_keys(table_name)
             entries.append(
                 TableReportEntry(
                     name=table_name,
-                    status="ok",
+                    status="seed-missing" if missing_seed_keys else "ok",
                     missing_columns=[],
                     extra_columns=[],
+                    missing_seed_keys=missing_seed_keys,
                 )
             )
         else:
@@ -171,6 +248,54 @@ async def sync_table_schema(name: str) -> None:
 
     await schema.add_columns(name, entry.missing_columns)
     await schema.drop_columns(name, entry.extra_columns)
+
+
+async def seed_table_rows(name: str) -> None:
+    """Seed a table reported ``seed-missing`` (feedback round 1, F1 points 5-6).
+
+    The admin-gated remediation paired with the ``seed-missing`` status, mirroring
+    :func:`create_missing_table` / :func:`sync_table_schema`: looks ``name`` up in
+    :data:`_SEEDABLE_TABLES` and calls that entry's ``seeder``, which creates only
+    the absent rows and never touches an existing one (an admin-edited
+    ``system_prompt`` and any link rows survive untouched).
+
+    **Idempotent**: seeding an already-complete table is a no-op that still
+    succeeds — this deliberately does *not* copy :func:`create_missing_table`'s
+    ``table_not_missing`` refusal, because refusing would add ceremony with no
+    user value.
+
+    Refusals (DB left unchanged in each): :class:`DbAdminError` with case
+    ``unknown_table`` when ``name`` is not in ``SQLModel.metadata`` (→ 404); with
+    case ``not_seedable`` when ``name`` is a real table with no registry entry, or
+    when its schema status is ``missing`` / ``drift`` and it therefore cannot
+    receive rows (→ 400).
+
+    MUST NOT call ``set_db_ready`` (first-run-only, owned by ``services.setup``).
+    """
+    if name not in SQLModel.metadata.tables:
+        raise DbAdminError(
+            DbAdminErrorCase.unknown_table,
+            f"Table '{name}' is not defined in metadata or is missing from "
+            "the live database.",
+        )
+
+    spec = _SEEDABLE_TABLES.get(name)
+    if spec is None:
+        raise DbAdminError(
+            DbAdminErrorCase.not_seedable,
+            f"Table '{name}' has no required seed rows; there is nothing to seed.",
+        )
+
+    report = await build_consistency_report()
+    entry = next((e for e in report.tables if e.name == name), None)
+    if entry is None or entry.status in ("missing", "drift"):
+        raise DbAdminError(
+            DbAdminErrorCase.not_seedable,
+            f"Table '{name}' cannot receive rows while its schema is not clean; "
+            "create or sync it first.",
+        )
+
+    await spec["seeder"]()
 
 
 async def export_database() -> bytes:
@@ -239,12 +364,20 @@ async def import_database(archive_bytes: bytes) -> None:
 
     Calls :func:`validate_archive` first (raising on failure, DB untouched), then
     on success delegates to :func:`app.services.db_import_export.import_all`
-    (``init_db()`` → streaming per-table UPSERT → vector rebuild) — idempotent.
-    MUST NOT call ``set_db_ready`` (first-run-only, owned by ``services.setup``;
-    D4).
+    (``init_db()`` → streaming per-table UPSERT → vector rebuild) and finally
+    seeds the fixed five assistant modes — idempotent throughout. MUST NOT call
+    ``set_db_ready`` (first-run-only, owned by ``services.setup``; D4).
+
+    The seed sits where the bootstrap path puts it (``services/setup.py`` —
+    after the schema and rows exist), so an instance restored through the admin
+    surface is not left without its modes (feedback round 1, F2). It is
+    check-then-create keyed on ``key``, so modes carried by the archive keep
+    their stored ``system_prompt`` and gain no duplicate row. A **refused**
+    archive raises out of :func:`validate_archive` above and seeds nothing.
     """
     await validate_archive(archive_bytes)
     await db_import_export.import_all(archive_bytes)
+    await assistant_modes.seed_default_modes()
 
 
 async def rebuild_vector_index() -> int:

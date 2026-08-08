@@ -108,6 +108,33 @@ export async function syncTableAction(
 }
 
 /**
+ * Seed a table's missing required rows, then reload the report so the row flips to
+ * `ok`. Same shape as `createTableAction` / `syncTableAction`: clear `actionError` →
+ * call → reload the report → friendly fallback catch (no rethrow) so `void`-invoked
+ * effects never leak an unhandled rejection; the failure lands in `actionError`. Adds
+ * no state field — the reloaded report is the confirmation (F1 decision D-d).
+ */
+export async function seedTableAction(
+  state: DatabasePageState,
+  name: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  runInAction(() => {
+    state.actionError = null;
+  });
+  try {
+    await dbApi.seedTable(name, signal);
+    if (signal?.aborted) return;
+    await loadReport(state, signal);
+  } catch (err) {
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.actionError = err instanceof ApiError ? err.message : String(err);
+    });
+  }
+}
+
+/**
  * Import a database export, then reload the report on success. A 400 refusal
  * (US-019.AC-3) is caught and written to `actionError` so the page shows it and
  * does NOT claim success.

@@ -33,6 +33,17 @@ export async function syncTable(name: string, signal?: AbortSignal): Promise<voi
   });
 }
 
+/**
+ * `POST /api/admin/db/tables/{name}/seed` — seed a table's missing required rows
+ * (204, no body). Mirrors `createTable` / `syncTable`.
+ */
+export async function seedTable(name: string, signal?: AbortSignal): Promise<void> {
+  return request<void>(`${BASE}/tables/${encodeURIComponent(name)}/seed`, {
+    method: "POST",
+    signal,
+  });
+}
+
 /** `POST /api/admin/db/vector/rebuild` — rebuild the LanceDB vector index; returns the indexed-row count. */
 export async function rebuildIndex(signal?: AbortSignal): Promise<VectorRebuildResponse> {
   return request<VectorRebuildResponse>(`${BASE}/vector/rebuild`, {

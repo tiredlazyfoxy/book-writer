@@ -674,3 +674,56 @@ describe("the tool picker is catalogue-driven at any size (DoD-10)", () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------- F3 -----*/
+
+/**
+ * Feedback round 1, item **F3** — "The modes page renders a bare table header
+ * with no explanation when there are no modes". Reproduces: with a SUCCESSFUL
+ * load and an empty mode list the page renders a header-only table, so the
+ * author cannot tell a broken page from an empty one and is given no way out.
+ *
+ * Expected values come from feedback.md -> F3 alone: when the load succeeds and
+ * the list is empty the page renders an explanatory empty state INSTEAD of the
+ * table, stating that no assistant modes are configured AND naming the F1
+ * remediation by its UI location — the Database page's consistency report, where
+ * the `assistant_modes` row offers a `Seed` action. The wording is the coder's;
+ * only the meaningful tokens are asserted, case-insensitively.
+ */
+describe("the empty state names the remediation (F3)", () => {
+  it("F3: an empty list renders an explanation instead of a header-only table", async () => {
+    // The `beforeEach` default: all three loads succeed and return [].
+    renderPage();
+
+    await waitFor(() =>
+      expect(vi.mocked(assistantConfigApi.listModes)).toHaveBeenCalled(),
+    );
+    await waitFor(() => expect(textOutsideHeadings()).not.toBe(""));
+
+    const message = textOutsideHeadings();
+    // (a) it says there are none configured ...
+    expect(message).toMatch(/\b(no|not|none|empty)\b/i);
+    expect(message).toMatch(/modes?/i);
+    // (b) ... and it names the remediation by its UI location: the Database
+    // page's consistency report and its Seed action.
+    expect(message).toMatch(/database/i);
+    expect(message).toMatch(/seed/i);
+
+    // The header-only table is gone — the empty state replaces it.
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("F3 (regression guard): a non-empty list still renders the table and its edit control", async () => {
+    vi.mocked(assistantConfigApi.listModes).mockResolvedValue(ALL_MODES);
+    vi.mocked(assistantConfigApi.listTools).mockResolvedValue(ALL_TOOLS);
+    vi.mocked(assistantConfigApi.listSubAgents).mockResolvedValue(ALL_SUB_AGENTS);
+
+    renderPage();
+
+    const rows = await bodyRows();
+    expect(rows).toHaveLength(ALL_MODES.length);
+    for (const row of rows) {
+      expect(within(row).getByRole("button", { name: "Edit mode" })).toBeInTheDocument();
+    }
+  });
+});
