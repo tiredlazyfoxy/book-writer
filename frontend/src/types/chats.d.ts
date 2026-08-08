@@ -95,6 +95,20 @@ export interface ChatDetailResponse {
 }
 
 /**
+ * `POST /api/books/{book_id}/chats/{chat_id}/title` result — mirrors backend
+ * `ChatTitleResponse` (023). The chat's title after the auto-titling pass, and
+ * whether that pass changed it.
+ *
+ * `changed` is `false` for a non-trigger call, a swallowed titling failure and a
+ * blank result alike; `title` is then the chat's existing title. A titling
+ * failure never reaches the client as an error, so this DTO has no error member.
+ */
+export interface ChatTitleResponse {
+  title: string;
+  changed: boolean;
+}
+
+/**
  * One selectable `(server, model)` option for the author's model picker —
  * mirrors backend `ModelOptionResponse`. Carries the server id + display name
  * and one model enabled on it; never an api key.

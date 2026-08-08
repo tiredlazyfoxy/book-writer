@@ -30,10 +30,11 @@
  * `globals: false`: every primitive is imported explicitly.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import type { BookDetailResponse } from "../../src/types/books";
+import type { ChatResponse, ChatSamplingParams } from "../../src/types/chats";
 import { ApiError } from "../../src/api/client";
 import * as booksApi from "../../src/api/books";
 import * as chatsApi from "../../src/api/chats";
@@ -92,6 +93,7 @@ function armContinuityReads(): void {
   });
 }
 import { WorkspaceShell } from "../../src/work/components/shell/WorkspaceShell";
+import { requestOpenChat } from "../../src/work/chatPaneController";
 import { renderWithProviders } from "../support/render";
 
 // A module-factory mock replaces the WHOLE module. The shell's render subtree
@@ -102,13 +104,16 @@ vi.mock("../../src/api/books", () => ({
 }));
 
 // The shell now owns the chat pane and starts a chat load on mount, reading through
-// this module — enumerate every export it imports so no real fetch fires.
+// this module — enumerate every export it imports so no real fetch fires. 023 adds
+// `titleChat` (the post-turn auto-titling call) to that surface.
 vi.mock("../../src/api/chats", () => ({
   listChats: vi.fn(),
   createChat: vi.fn(),
   updateChat: vi.fn(),
   getChat: vi.fn(),
   listModelOptions: vi.fn(),
+  streamChatTurn: vi.fn(),
+  titleChat: vi.fn(),
 }));
 
 const BOOK_TITLE = "The Long Novel";
@@ -149,7 +154,46 @@ function renderShell(route: string): void {
   );
 }
 
+function makeSampling(): ChatSamplingParams {
+  return {
+    temperature: 0.8,
+    top_p: 0.95,
+    top_k: 40,
+    repeat_penalty: 1.1,
+    min_p: 0.05,
+    max_tokens: null,
+    seed: null,
+    presence_penalty: 0,
+    frequency_penalty: 0,
+    enable_thinking: true,
+  };
+}
+
+/** A fully-typed ChatResponse fixture; only id / title / modified_at vary. */
+function makeChat(id: string, title: string, modifiedAt: string): ChatResponse {
+  return {
+    id,
+    book_id: "bk-1",
+    author_id: "u-1",
+    title,
+    llm_server_id: "s-1",
+    model_name: "m-1",
+    sampling: makeSampling(),
+    archived: false,
+    created_at: modifiedAt,
+    modified_at: modifiedAt,
+  };
+}
+
+// Two chats the author owns; `GAMMA` is the most recently modified, so the pane
+// resolves it as the active chat on load (011's DoD-3 rule).
+const GAMMA = makeChat("c-1", "Gamma chat", "2026-03-01T00:00:00Z");
+const BETA = makeChat("c-2", "Beta chat", "2026-02-01T00:00:00Z");
+
 beforeEach(() => {
+  // The per-book active-chat pointer is device-local; clear it so each test resolves
+  // its active chat from the loaded list, not from a neighbour's leftovers.
+  window.localStorage.clear();
   armContinuityReads();
   // `restoreMocks` wipes the implementation between tests — default to a resolved
   // detail; individual tests override for pending / rejected cases.
@@ -233,5 +277,37 @@ describe("WorkspaceShell", () => {
 
     // The shell did not remount: no second load fired.
     expect(vi.mocked(booksApi.getBookDetail)).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * 023.chat-ux-revision, DoD-7 (retarget, design-note D12). The chats list page reaches
+ * the pane through the module registry the shell registers into (`plan.md` ->
+ * Interface -> `WorkspaceShell.tsx` / `chatPaneController.ts`; decision D5). Asserted
+ * from the OUTSIDE, as the list page sees it: `requestOpenChat` is answered, and the
+ * pane really switches to that chat — no route change is involved.
+ */
+describe("the shell answers requestOpenChat by opening that chat in the pane (023 DoD-7)", () => {
+  it("DoD-7: while the shell is mounted, requestOpenChat is handled and the pane's active chat becomes the requested one", async () => {
+    vi.mocked(chatsApi.listChats).mockImplementation((_bookId, isArchived) =>
+      Promise.resolve(isArchived ? [] : [GAMMA, BETA]),
+    );
+    vi.mocked(chatsApi.getChat).mockResolvedValue({ chat: BETA, messages: [] });
+
+    renderShell("/bk-1/state");
+
+    // The pane opens on the most recent chat.
+    const aside = await screen.findByRole("complementary");
+    await waitFor(() => expect(within(aside).getByText("Gamma chat")).toBeInTheDocument());
+
+    // A registered controller handles the request...
+    let handled = false;
+    await act(async () => {
+      handled = requestOpenChat("c-2");
+    });
+    expect(handled).toBe(true);
+
+    // ...and the requested chat is the one now open in the pane.
+    await waitFor(() => expect(within(aside).getByText("Beta chat")).toBeInTheDocument());
   });
 });

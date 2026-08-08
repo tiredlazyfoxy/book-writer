@@ -138,6 +138,19 @@ class ChatListResponse(BaseModel):
     items: list[ChatResponse]
 
 
+class ChatTitleResponse(BaseModel):
+    """Return of ``POST /api/books/{book_id}/chats/{chat_id}/title`` (023) — the
+    chat's title after the auto-titling pass, and whether that pass changed it.
+
+    ``changed`` is ``False`` for every non-trigger call, for a swallowed titling
+    failure and for a blank sanitized result; ``title`` is then the chat's
+    existing, unmodified title. A titling failure is never an error on the wire.
+    """
+
+    title: str
+    changed: bool
+
+
 class ChatMessageResponse(BaseModel):
     """A single message within a chat. ``reasoning`` is the assistant's thinking
     (``None`` for user messages and assistants that produced none)."""

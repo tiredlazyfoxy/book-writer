@@ -32,6 +32,10 @@ import { ThinkingBlock } from "../../src/work/components/chat/ThinkingBlock";
 import { Composer } from "../../src/work/components/chat/Composer";
 import { renderWithProviders } from "../support/render";
 
+// `titleChat` added by 023.chat-ux-revision so the whole-module factory keeps the
+// module's shape intact (the pane state now imports it for the post-turn title
+// refresh). MOCK COMPLETENESS ONLY — nothing in this file asserts on it, and no
+// assertion here changed.
 vi.mock("../../src/api/chats", () => ({
   listChats: vi.fn(),
   createChat: vi.fn(),
@@ -39,6 +43,7 @@ vi.mock("../../src/api/chats", () => ({
   getChat: vi.fn(),
   listModelOptions: vi.fn(),
   streamChatTurn: vi.fn(),
+  titleChat: vi.fn(),
 }));
 
 const BOOK_ID = "bk-1";

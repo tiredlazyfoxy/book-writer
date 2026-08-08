@@ -71,6 +71,21 @@ export interface RenderedMessage {
 /** Stable React key for the single in-flight assistant bubble (no persisted id yet). */
 const STREAMING_MESSAGE_KEY = "__streaming__";
 
+/**
+ * The header's model label when there is nothing to name — no active chat, or a
+ * chat with no `(server, model)` pair stored on it (023).
+ */
+const NO_MODEL_LABEL = "No model";
+
+/**
+ * The author-facing refusal when the "+" control has no model to create a chat
+ * with (023 → D6). UC-054's refuse-to-compose flow survives the removal of the
+ * new-chat form: the message moved onto the control that is actually blocked.
+ */
+const NO_MODEL_OPTIONS_MESSAGE =
+  "No model is available yet, so a chat cannot be created. Ask an administrator to " +
+  "enable a model on an active server.";
+
 /** The temperature default and bounds surfaced by the picker (feature decision 6). */
 export const DEFAULT_TEMPERATURE = 0.8;
 export const MIN_TEMPERATURE = 0;
@@ -155,6 +170,17 @@ export class ChatPaneState implements CloseTurnController {
   activeChatId: string | null = null;
   /** Whether the list shows archived chats (restore view) instead of active ones. */
   showArchived = false;
+
+  /**
+   * WHICH HEADER POPOVER IS OPEN (023) — the model picker, the settings panel, or
+   * neither.
+   *
+   * ONE DISCRIMINATOR, not two booleans (023 → D7): opening either popover closes
+   * the other BY CONSTRUCTION rather than by two flags remembering to disagree,
+   * and `sendChatTurn` clears it on acceptance so sending a message closes
+   * whatever was open. Nothing else writes it.
+   */
+  openedPanel: "model" | "settings" | null = null;
 
   newChatDraft: NewChatDraft = {
     title: "",
@@ -325,6 +351,71 @@ export class ChatPaneState implements CloseTurnController {
   get activeChat(): ChatResponse | null {
     if (this.activeChatId === null) return null;
     return this.chats.find((c) => c.id === this.activeChatId) ?? null;
+  }
+
+  /**
+   * WHETHER THE AUTHOR HAS AN UNSAVED SETTINGS EDIT (023) — `true` when
+   * `settingsDraft`'s `optionKey` / `temperature` diverge from
+   * {@link ChatPaneState.activeChat}'s persisted model pair / temperature,
+   * `false` when they match and `false` with no active chat.
+   *
+   * This is the flush test `sendChatTurn` reads before opening the stream (023 →
+   * D8): the backend's `prepare_turn` reads the chat's **stored** pair, so an
+   * unpersisted change would silently not apply to the very message it was made
+   * for. Pure — it decides nothing and persists nothing.
+   *
+   * AN UNSEEDED DRAFT IS NOT AN EDIT. `seedSettingsDraft` is the one thing that
+   * populates this draft from the active chat; until it has run, `optionKey` is
+   * `null` and `temperature` is {@link DEFAULT_TEMPERATURE} — values that say
+   * "nobody has filled this in yet", not "the author chose these". Read as a raw
+   * inequality, such a draft looks dirty against any chat that HAS a model pair,
+   * and flushing it would be actively destructive: `saveChatSettings` resolves an
+   * unmatched `optionKey` to an EMPTY pair, so the flush would clear the chat's own
+   * server/model on the server immediately before a turn that depends on the stored
+   * pair — and the send would never open its stream. The guard below is exact
+   * rather than a heuristic because the model picker is a `<Select allowDeselect=
+   * {false}>`: the author can pick a DIFFERENT option but can never clear the key
+   * back to `null`, so "no chosen option while the chat has a pair" can only ever
+   * be the unseeded state.
+   */
+  get settingsDirty(): boolean {
+    const chat = this.activeChat;
+    // No chat, nothing stored to diverge from — and nothing `sendChatTurn` could
+    // flush either, since it no-ops without an active chat.
+    if (chat === null) return false;
+
+    const drafted = this.settingsDraft.optionKey;
+    const stored = optionKeyForChat(chat);
+
+    // The draft holds no chosen model option while the chat has one: unseeded, so
+    // there is nothing to flush. Returned BEFORE the temperature comparison, since
+    // an unseeded draft's temperature is the default and would read as an edit too.
+    if (drafted === null && stored !== null) return false;
+
+    if (drafted !== stored) return true;
+    return this.settingsDraft.temperature !== chat.sampling.temperature;
+  }
+
+  /**
+   * THE HEADER'S MODEL LABEL (023) — built from
+   * {@link ChatPaneState.activeChat}'s **persisted** pair (e.g.
+   * `"<server> · <model>"`), NOT from `settingsDraft`, so the header always names
+   * the model the next turn will actually use; a placeholder string when the chat
+   * has no pair or there is no active chat. Pure.
+   */
+  get modelLabel(): string {
+    const chat = this.activeChat;
+    if (chat === null || chat.llm_server_id === null || chat.model_name === null) {
+      return NO_MODEL_LABEL;
+    }
+    // The server's NAME comes from the options list; a pair whose server is no
+    // longer offered still names its model rather than falling back to the
+    // placeholder — the chat does have a model, it is just not selectable.
+    const option = this.modelOptions.find(
+      (o) => o.server_id === chat.llm_server_id && o.model_name === chat.model_name,
+    );
+    if (option === undefined) return chat.model_name;
+    return `${option.server_name} · ${option.model_name}`;
   }
 
   /** Whether the new-chat draft can be submitted (a model chosen, temp in range). */
@@ -536,6 +627,96 @@ export async function createChatFromDraft(
 }
 
 /**
+ * CREATE A CHAT INSTANTLY, WITH NO FORM (023, UC-053 / US-056.AC-1 / UC-054's
+ * exception flow; 023 → D6).
+ *
+ * The pane's "+" control does not open a draft any more: it creates immediately
+ * with a DEFAULT MODEL PAIR — the active chat's pair when there is one, otherwise
+ * `modelOptions[0]` — and default sampling, posts through `chatsApi.createChat`,
+ * and makes the new chat active with an EMPTY transcript. D2's auto-titler names
+ * it after the first message, which is precisely why no title is asked for here.
+ *
+ * With `modelOptions` EMPTY nothing is created and `serverErrors.form` carries the
+ * author-facing refusal, so UC-054's refuse-to-compose flow survives the removal
+ * of the form.
+ *
+ * This is an ADDITION: {@link createChatFromDraft} above is untouched and still
+ * exported (023 preserves every 011/013/015/016 export, D11).
+ */
+export async function createChatInstant(
+  state: ChatPaneState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (state.modelOptions.length === 0) {
+    // UC-054's exception flow, moved from the removed form onto the control that
+    // is actually blocked: NOTHING is created and the author is told why.
+    runInAction(() => {
+      state.serverErrors = { form: NO_MODEL_OPTIONS_MESSAGE };
+      state.createStatus = "error";
+    });
+    return;
+  }
+
+  // The DEFAULT PAIR: the chat the author is already in, so a "+" continues with
+  // the model they were using; otherwise the first offered option.
+  const active = state.activeChat;
+  const inherited =
+    active !== null && active.llm_server_id !== null && active.model_name !== null
+      ? { server_id: active.llm_server_id, model_name: active.model_name }
+      : null;
+  const pair = inherited ?? {
+    server_id: state.modelOptions[0].server_id,
+    model_name: state.modelOptions[0].model_name,
+  };
+
+  const body: CreateChatRequest = {
+    // NO TITLE: D2's auto-titler names the chat after its first message, which is
+    // precisely why the form asking for one is gone (D6).
+    title: null,
+    llm_server_id: pair.server_id,
+    model_name: pair.model_name,
+    sampling: { ...DEFAULT_SAMPLING },
+  };
+
+  runInAction(() => {
+    state.serverErrors = {};
+    state.createStatus = "loading";
+  });
+
+  try {
+    const created = await chatsApi.createChat(bookId, body, signal);
+    if (signal?.aborted) return;
+    // Abort any turn still streaming into the chat being left, so no in-flight
+    // text leaks onto the new one (the `loadChatMessages` rule, without its fetch —
+    // a chat created a moment ago provably has no messages).
+    stopChatTurn(state);
+    runInAction(() => {
+      state.chats = [created, ...state.chats];
+      state.activeChatId = created.id;
+      // The EMPTY transcript, set rather than fetched.
+      state.messages = [];
+      state.messagesStatus = "ready";
+      state.messagesError = null;
+      state.expandedReasoning = {};
+      seedSettingsDraft(state);
+      state.createStatus = "ready";
+    });
+    writeActiveChatId(bookId, created.id);
+  } catch (err) {
+    if (signal?.aborted) return;
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.serverErrors = { form: err.message || "Could not create the chat." };
+        state.createStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
  * Archive or restore a chat (unimplemented — coder fills). Intent: PATCH
  * `archived`, update the list, and when the archived chat was active re-resolve
  * the active chat rather than leaving a dangling pointer. Abort-guarded;
@@ -725,7 +906,17 @@ function turnSubject(): TurnSubject | undefined {
  * the frame payload is not forwarded) and re-enables the composer; `error` sets
  * `turnError` / `turnStatus = "error"`, preserving every prior message.
  *
- * SKELETON (011/005): unimplemented — body throws.
+ * 023 EXTENDS THE CONTRACT, SIGNATURE UNCHANGED (D8; DoD-4 / DoD-5) — still
+ * UNIMPLEMENTED, and the frozen signature below is what the coder fills against:
+ * - BEFORE opening the stream, when {@link ChatPaneState.settingsDirty} is true,
+ *   `await saveChatSettings(state, bookId)` — the EXISTING function, reused as-is,
+ *   no new effect fn — because the backend's `prepare_turn` reads the chat's
+ *   STORED model pair, so an unpersisted change would silently not apply to the
+ *   very message it was made for;
+ * - if that flush leaves `settingsStatus === "error"`, DO NOT open the stream;
+ *   `saveChatSettings`'s own `serverErrors.form` is the author-facing message;
+ * - on acceptance, clear {@link ChatPaneState.openedPanel}, so sending closes
+ *   whichever popover was open.
  */
 export async function sendChatTurn(
   state: ChatPaneState,
@@ -737,6 +928,19 @@ export async function sendChatTurn(
   // A send with no active chat or an empty prompt is not accepted, so the composer
   // keeps the (possibly whitespace) text — a failed send never eats the input.
   if (chat === null || prompt === "") return;
+
+  // 023 / D8 — FLUSH BEFORE SEND. The backend's `prepare_turn` reads the chat's
+  // STORED model pair, so an unpersisted settings change would silently not apply
+  // to the very message it was made for. A clean draft issues no call at all.
+  if (state.settingsDirty) {
+    await saveChatSettings(state, bookId);
+    if (state.settingsStatus === "error") {
+      // The flush failed: DO NOT open the stream. `saveChatSettings` has already
+      // put the author-facing message in `serverErrors.form`, and the composer
+      // keeps the text so the send can be retried once the settings are fixed.
+      return;
+    }
+  }
 
   const optimistic: ChatMessageResponse = {
     id: `pending-user-${Date.now()}`,
@@ -752,6 +956,9 @@ export async function sendChatTurn(
     state.messages = [...state.messages, optimistic];
     // The send is accepted: clear the composer input now (not before).
     state.pendingPrompt = "";
+    // 023 / D7: sending closes whichever header popover was open — one
+    // discriminator, so neither can be left behind.
+    state.openedPanel = null;
     state.streamingContent = "";
     state.streamingThinking = "";
     state.liveThinkingExpanded = false;
@@ -776,6 +983,47 @@ export async function sendChatTurn(
   runInAction(() => {
     state.turnController = controller;
   });
+}
+
+/**
+ * REFRESH ONE CHAT'S TITLE FROM THE BACKEND'S AUTO-TITLER (023, D2).
+ *
+ * Calls `chatsApi.titleChat(bookId, chatId, signal)` — the endpoint owns the whole
+ * policy (it titles only at the 1st and 5th user message and swallows its own
+ * failures) — and, when the response says `changed`, replaces the matching row's
+ * `title` in `state.chats`, which is what `activeChat` and the header derive from.
+ *
+ * FIRE-AND-FORGET, NEVER AWAITED, from the module-private `finishTurn`, with the
+ * chat id captured at that point: it must never delay `turnStatus` returning to
+ * `idle`, and a titling failure must never surface as a turn failure. A chat other
+ * than the one that just finished may be active by the time it resolves, which is
+ * exactly why it patches the row by id rather than touching `activeChat`.
+ *
+ * TOTAL BY CONSTRUCTION: it never rejects and never throws, whatever the request
+ * does, so the fire-and-forget call site cannot produce an unhandled rejection.
+ */
+export async function refreshChatTitle(
+  state: ChatPaneState,
+  bookId: string,
+  chatId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const result = await chatsApi.titleChat(bookId, chatId, signal);
+    if (signal?.aborted) return;
+    // `changed: false` covers a non-trigger call, a swallowed backend failure and a
+    // blank result alike — in every one of them the stored title is the one already
+    // on screen, so there is nothing to patch.
+    if (!result.changed) return;
+    runInAction(() => {
+      state.chats = state.chats.map((c) =>
+        c.id === chatId ? { ...c, title: result.title } : c,
+      );
+    });
+  } catch {
+    // A title is a nicety: a failed refresh leaves the existing title on screen and
+    // is never surfaced to the author. Nothing rethrows — see the note above.
+  }
 }
 
 /**
@@ -900,6 +1148,11 @@ function turnStreamHandlers(
  * frame payload is discarded by `streamPost`), then atomically swap them in and
  * clear the streaming bubble so there is exactly one persisted assistant message —
  * no duplicate and no orphaned in-flight bubble.
+ *
+ * 023: this is also where the auto-title refresh is FIRED AND FORGOTTEN — the only
+ * place that knows a turn just completed successfully, since `onDone` carries no
+ * payload. It is never awaited, so `turnStatus` returns to `idle` on the turn's own
+ * schedule and a titling round trip can never hold the composer disabled.
  */
 async function finishTurn(state: ChatPaneState, bookId: string, chatId: string): Promise<void> {
   let reloaded: ChatMessageResponse[] | null = null;
@@ -919,6 +1172,12 @@ async function finishTurn(state: ChatPaneState, bookId: string, chatId: string):
     state.turnError = null;
     state.turnController = null;
   });
+
+  // NOT AWAITED, and with the chat id captured HERE: by the time the backend
+  // answers, another chat may be active, which is exactly why `refreshChatTitle`
+  // patches the row by id. It never rejects, so this cannot become an unhandled
+  // rejection.
+  void refreshChatTitle(state, bookId, chatId);
 }
 
 // ---------------------------------------------------------------------------

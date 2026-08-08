@@ -1,64 +1,39 @@
 import { observer } from "mobx-react-lite";
-import { Alert, NumberInput, Select, Stack } from "@mantine/core";
-import type { ModelOptionResponse } from "../../../types/chats";
+import { NumberInput, Stack } from "@mantine/core";
 import {
   MAX_TEMPERATURE,
   MIN_TEMPERATURE,
-  modelOptionKey,
   type ChatModelSettingsDraft,
 } from "./chatPaneState";
 
 /**
- * The model-picker + temperature form, used TWICE: inside the new-chat form and
- * as the active chat's editable settings. Renders the model picker (options
- * grouped/labelled by server name) and a temperature control, plus validation
- * messages. NO other sampling param is rendered — the rest are persisted and
- * untouched (feature decision 4). Mutates the passed `draft` in place.
+ * The active chat's editable SAMPLING settings — temperature and nothing else.
+ * NO other sampling param is rendered; the rest are persisted and carried through
+ * untouched (011's decision 4). Mutates the passed `draft` in place.
  *
- * SKELETON (011/004): props frozen; body throws.
+ * 023 NARROWS THIS COMPONENT: the `options` prop and the model `<Select>` are
+ * GONE. Model selection moved to `ChatPane`'s own "model" popover — a plain
+ * `<Select>` over `state.modelOptions` bound to `state.settingsDraft.optionKey`,
+ * not this component — so the two header popovers each own one concern and the
+ * empty-options refusal (UC-054's exception flow) now lives with the "+" control
+ * that creates a chat, where it is actually actionable.
+ *
+ * SKELETON (023): props frozen (`options` dropped); the temperature control is
+ * 011's, preserved unchanged.
  */
 export interface ChatSettingsPanelProps {
-  /** The `(server, model)` options from the model-options call. */
-  options: ModelOptionResponse[];
-  /** The draft edited in place (new-chat draft or the settings draft). */
+  /** The draft edited in place (the pane's settings draft). */
   draft: ChatModelSettingsDraft;
   /** Merged client + server validation messages for this surface. */
   errors: Record<string, string>;
 }
 
 export const ChatSettingsPanel = observer(function ChatSettingsPanel({
-  options,
   draft,
   errors,
 }: ChatSettingsPanelProps) {
-  // No enabled model on any server the author can reach → composing is refused
-  // (UC-054 exception flow): show a message instead of an empty picker.
-  if (options.length === 0) {
-    return (
-      <Alert color="yellow" variant="light">
-        No models are available. An administrator must enable a model on a server
-        before you can start a chat.
-      </Alert>
-    );
-  }
-
-  const data = options.map((option) => ({
-    value: modelOptionKey(option),
-    label: `${option.server_name} · ${option.model_name}`,
-  }));
-
   return (
     <Stack gap="xs">
-      <Select
-        label="Model"
-        placeholder="Choose a model"
-        data={data}
-        value={draft.optionKey}
-        onChange={(value) => {
-          draft.optionKey = value;
-        }}
-        error={errors.model}
-      />
       <NumberInput
         label="Temperature"
         value={draft.temperature}

@@ -66,6 +66,27 @@ async def list_by_chat_ordered(chat_id: int) -> list[ChatMessage]:
         return list(result.all())
 
 
+async def count_by_chat_and_role(chat_id: int, role: str) -> int:
+    """Count a chat's persisted messages whose ``role`` matches, without loading
+    any of them (023).
+
+    The auto-titler's trigger is derived from a LIVE count rather than a stored
+    flag (023 → D3), so it needs "how many ``user`` messages does this chat have"
+    as a scalar — never the transcript.
+
+    A chat with no matching message counts ``0``; the count is never ``None``.
+    """
+    session = await get_standalone_session()
+    async with session:
+        result = await session.exec(
+            select(func.count(ChatMessage.id))
+            .where(ChatMessage.chat_id == chat_id)
+            .where(ChatMessage.role == role)
+        )
+        total = result.one()
+        return 0 if total is None else int(total)
+
+
 async def next_position(chat_id: int) -> int:
     """Return the next free ordinal for ``chat_id`` — ``0`` for an empty chat and
     ``max(position) + 1`` otherwise.

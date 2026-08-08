@@ -1,38 +1,39 @@
 /**
- * Chat pane — list / pick / resolve / new / archive / settings —
- * 011.chat-panel / 004.chat-pane-list-and-settings,
- * DoD-1 · DoD-2 · DoD-3 · DoD-6 · DoD-7 · DoD-8 · DoD-9 · DoD-10 · DoD-11.
+ * Chat pane — pick / resolve / create / archive / settings, and 023's inversion.
+ * Retargeted by 023.chat-ux-revision (design-note D12), 023 DoD-8 · 023 DoD-9.
  *
- * Bound to the frozen signatures in status.md -> `## Skeleton` (step 004):
- *   class ChatPaneState { chats/chatsStatus/chatsError; modelOptions/…; activeChatId;
+ * WHAT CHANGED, AND WHAT DID NOT. This spec shipped with 011.chat-panel / step 004.
+ * 023 removes the chat LIST and the new-chat FORM from the pane (management moves to
+ * `ChatsListPage`) and narrows `ChatSettingsPanel` to temperature only, so the three
+ * cases that rendered a pane list / passed `options=` to that panel are gone — the
+ * arrangement they asserted no longer exists. Every other 011 case is PRESERVED
+ * verbatim: `chatPaneState`'s exported surface survives this feature untouched
+ * (`plan.md` -> Interface -> `chatPaneState.ts`, "every existing exported symbol from
+ * the harvest is preserved unchanged"; DoD-16), and `plan.md` -> Out of scope keeps
+ * 011's sampling carry-through rule. Those cases keep their original 011 DoD ids.
+ *
+ * Bound to the frozen signatures in status.md -> `## Skeleton`:
+ *   class ChatPaneState { chats/chatsStatus/chatsError; modelOptions; activeChatId;
  *     showArchived; newChatDraft; settingsDraft; serverErrors;
- *     createStatus/archiveStatus/settingsStatus;
- *     get visibleChats; get activeChat; get canCreateChat; get errors }
- *   loadChatPane(state, bookId, signal?): Promise<void>
- *   pickChat(state, bookId, chatId): void
- *   createChatFromDraft(state, bookId, signal?): Promise<void>
- *   setChatArchived(state, bookId, chatId, archived, signal?): Promise<void>
- *   saveChatSettings(state, bookId, signal?): Promise<void>
- *   modelOptionKey(option): string
- *   const MIN_TEMPERATURE = 0, MAX_TEMPERATURE = 2, DEFAULT_TEMPERATURE = 0.8
+ *     createStatus/archiveStatus/settingsStatus; messages/messagesStatus;
+ *     get visibleChats; get activeChat; get canCreateChat; get errors;
+ *     openedPanel; get settingsDirty; get modelLabel }            // 023 additions
+ *   loadChatPane / pickChat / createChatFromDraft / setChatArchived /
+ *   saveChatSettings / modelOptionKey                             // 011, unchanged
+ *   createChatInstant(state, bookId, signal?): Promise<void>      // 023, new
  *   interface ChatPaneProps { bookId: string; state: ChatPaneState }
- *   const ChatPane = observer(...)
- *   interface ChatSettingsPanelProps { options; draft; errors }
- *   const ChatSettingsPanel = observer(...)
- *   api/chats: listChats / createChat / updateChat / getChat / listModelOptions
- *   activeChat: readActiveChatId / writeActiveChatId
+ *   api/chats: listChats / createChat / updateChat / getChat / listModelOptions /
+ *              streamChatTurn / titleChat
  *
- * The air gap: expected values come from the spec (`004.md` DoD + Interface intent,
- * `context.md` decisions 2/4, UC-053 / US-056 / UC-081 / US-095 / US-105.AC-3 /
- * UC-082 / US-096), never from code. `../../src/api/chats` is mocked module-factory
- * form (never `fetch`), enumerating every export the subject imports. The shell owns
- * the load, so each test drives `loadChatPane` (or seeds observable state) itself and
- * then renders `<ChatPane>` with the populated state. `globals: false`.
+ * The air gap: expected values come from the spec — `plan.md` -> Definition of done
+ * (023 DoD-8, 023 DoD-9), its Interface section for `ChatPane.tsx` /
+ * `chatPaneState.ts`, decisions D6 / D1, and (for the preserved cases) 011's own step
+ * 004 DoD — never from code. `../../src/api/chats` is mocked module-factory form
+ * (never `fetch`), enumerating every export the subject imports. `globals: false`.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runInAction } from "mobx";
 import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ApiError } from "../../src/api/client";
 import type { ChatResponse, ChatSamplingParams, ModelOptionResponse } from "../../src/types/chats";
 import * as chatsApi from "../../src/api/chats";
@@ -42,6 +43,7 @@ import {
   MAX_TEMPERATURE,
   MIN_TEMPERATURE,
   createChatFromDraft,
+  createChatInstant,
   loadChatPane,
   modelOptionKey,
   pickChat,
@@ -50,23 +52,23 @@ import {
 } from "../../src/work/components/chat/chatPaneState";
 import { readActiveChatId, writeActiveChatId } from "../../src/work/activeChat";
 import { ChatPane } from "../../src/work/components/chat/ChatPane";
-import { ChatSettingsPanel } from "../../src/work/components/chat/ChatSettingsPanel";
 import { renderWithProviders } from "../support/render";
 
 // A module-factory mock replaces the WHOLE api module — it must supply every named
-// export the pane state imports. `getChat` is included for completeness (step 005's
-// conversation fetch) so the factory keeps the module shape intact.
+// export the pane state imports, `titleChat` (023's post-turn auto-titling) included.
 vi.mock("../../src/api/chats", () => ({
   listChats: vi.fn(),
   createChat: vi.fn(),
   updateChat: vi.fn(),
   getChat: vi.fn(),
   listModelOptions: vi.fn(),
+  streamChatTurn: vi.fn(),
+  titleChat: vi.fn(),
 }));
 
 const BOOK_ID = "bk-1";
 
-/** Full default sampling set (feature decision 6 recommended defaults). */
+/** Full default sampling set (011 feature decision 6 recommended defaults). */
 function makeSampling(overrides: Partial<ChatSamplingParams> = {}): ChatSamplingParams {
   return {
     temperature: 0.8,
@@ -125,13 +127,118 @@ const BETA = makeChat("c-2", "Beta chat", "2026-02-01T00:00:00Z");
 const ALPHA = makeChat("c-3", "Alpha chat", "2026-01-01T00:00:00Z");
 
 beforeEach(() => {
+  // The per-book active-chat pointer is device-local; clear it so each case resolves
+  // from its own fixtures rather than a neighbour's leftovers.
+  window.localStorage.clear();
   // `restoreMocks` wipes implementations between tests — default to empty resolved lists.
   vi.mocked(chatsApi.listChats).mockResolvedValue([]);
   vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
 });
 
-describe("lists the author's non-archived chats, most recent first, with an empty state (DoD-1)", () => {
-  it("DoD-1: visibleChats are the non-archived chats in most-recent-first order (UC-081, US-095.AC-1)", async () => {
+/* ===================================================================== 023 DoD-8 */
+
+describe("the chat pane no longer hosts a chat list (023 DoD-8)", () => {
+  it("023 DoD-8: with several chats loaded the pane shows only the ACTIVE chat — no list to pick from (D1: management moved to ChatsListPage)", async () => {
+    const state = new ChatPaneState();
+    mockList([GAMMA, BETA, ALPHA]);
+    await loadChatPane(state, BOOK_ID);
+    expect(state.activeChat?.id).toBe("c-1");
+
+    renderWithProviders(<ChatPane bookId={BOOK_ID} state={state} />);
+
+    // The active chat is identified in the pane...
+    expect(screen.getAllByText("Gamma chat").length).toBeGreaterThan(0);
+    // ...and the other chats are NOT rendered: the list is gone from the pane.
+    expect(screen.queryByText("Beta chat")).toBeNull();
+    expect(screen.queryByText("Alpha chat")).toBeNull();
+  });
+});
+
+/* ===================================================================== 023 DoD-9 */
+
+describe("the pane's instant create resolves a default model pair (023 DoD-9)", () => {
+  it("023 DoD-9 (UC-053, US-056.AC-1, D6): with an active chat, the new chat inherits that chat's model pair, becomes active and opens an empty transcript", async () => {
+    const state = new ChatPaneState();
+    const optFirst = makeOption("s-1", "Local Llama", "m-1");
+    const optActive = makeOption("s-2", "OpenAI", "m-2");
+    const active = makeChat("c-1", "Chat one", "2026-02-01T00:00:00Z", {
+      llm_server_id: "s-2",
+      model_name: "m-2",
+    });
+    runInAction(() => {
+      state.chats = [active];
+      state.activeChatId = "c-1";
+      state.modelOptions = [optFirst, optActive];
+      state.messages = [];
+    });
+
+    const created = makeChat("c-new", "New chat", "2026-05-05T00:00:00Z", {
+      llm_server_id: "s-2",
+      model_name: "m-2",
+    });
+    vi.mocked(chatsApi.createChat).mockResolvedValue(created);
+
+    await createChatInstant(state, BOOK_ID);
+
+    // No form: the pair defaults to the ACTIVE chat's, not to the first option.
+    expect(vi.mocked(chatsApi.createChat)).toHaveBeenCalledTimes(1);
+    const [bookArg, body] = vi.mocked(chatsApi.createChat).mock.calls[0];
+    expect(bookArg).toBe(BOOK_ID);
+    expect(body.llm_server_id).toBe("s-2");
+    expect(body.model_name).toBe("m-2");
+
+    // The new chat is the one now open, with nothing in it yet.
+    expect(state.activeChatId).toBe("c-new");
+    expect(state.activeChat?.id).toBe("c-new");
+    expect(state.messages).toHaveLength(0);
+    expect(state.chats.map((chat) => chat.id)).toContain("c-new");
+  });
+
+  it("023 DoD-9: with no active chat, the pair defaults to the first available model option", async () => {
+    const state = new ChatPaneState();
+    const optFirst = makeOption("s-1", "Local Llama", "m-1");
+    const optOther = makeOption("s-2", "OpenAI", "m-2");
+    runInAction(() => {
+      state.chats = [];
+      state.activeChatId = null;
+      state.modelOptions = [optFirst, optOther];
+    });
+    vi.mocked(chatsApi.createChat).mockResolvedValue(
+      makeChat("c-new", "New chat", "2026-05-05T00:00:00Z", {
+        llm_server_id: "s-1",
+        model_name: "m-1",
+      }),
+    );
+
+    await createChatInstant(state, BOOK_ID);
+
+    const body = vi.mocked(chatsApi.createChat).mock.calls[0][1];
+    expect(body.llm_server_id).toBe("s-1");
+    expect(body.model_name).toBe("m-1");
+    expect(state.activeChatId).toBe("c-new");
+  });
+
+  it("023 DoD-9 (UC-054 exception flow): with no model options at all the create is refused with an author-facing message, and nothing is created", async () => {
+    const state = new ChatPaneState();
+    runInAction(() => {
+      state.chats = [];
+      state.activeChatId = null;
+      state.modelOptions = [];
+    });
+
+    await expect(createChatInstant(state, BOOK_ID)).resolves.toBeUndefined();
+
+    expect(vi.mocked(chatsApi.createChat)).not.toHaveBeenCalled();
+    expect(state.activeChatId).toBeNull();
+    expect(typeof state.serverErrors.form).toBe("string");
+    expect((state.serverErrors.form ?? "").length).toBeGreaterThan(0);
+  });
+});
+
+/* ============================================ preserved 011.chat-panel / 004 cases */
+
+describe("the author's non-archived chats are ordered most recent first (011 DoD-1)", () => {
+  it("011 DoD-1: visibleChats are the non-archived chats in most-recent-first order (UC-081)", async () => {
     const state = new ChatPaneState();
     mockList([GAMMA, BETA, ALPHA]);
 
@@ -140,21 +247,7 @@ describe("lists the author's non-archived chats, most recent first, with an empt
     expect(state.visibleChats.map((chat) => chat.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 
-  it("DoD-1: the pane renders each chat's title", async () => {
-    const state = new ChatPaneState();
-    mockList([GAMMA, BETA, ALPHA]);
-    await loadChatPane(state, BOOK_ID);
-
-    renderWithProviders(<ChatPane bookId={BOOK_ID} state={state} />);
-
-    // A title may appear both in the header (active chat) and its list row, so match
-    // on presence, not uniqueness.
-    expect(screen.getAllByText("Gamma chat").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Beta chat").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Alpha chat").length).toBeGreaterThan(0);
-  });
-
-  it("DoD-1: with no chats the pane renders an empty state, not a crash or blank", async () => {
+  it("011 DoD-1: with no chats the pane renders an empty state, not a crash or blank", async () => {
     const state = new ChatPaneState();
     mockList([], []);
     await loadChatPane(state, BOOK_ID);
@@ -162,14 +255,13 @@ describe("lists the author's non-archived chats, most recent first, with an empt
     renderWithProviders(<ChatPane bookId={BOOK_ID} state={state} />);
 
     expect(state.visibleChats).toHaveLength(0);
-    // No chat rows, and the pane is not blank (an empty state is rendered).
     expect(screen.queryByText("Gamma chat")).toBeNull();
     expect((document.body.textContent ?? "").trim()).not.toBe("");
   });
 });
 
-describe("picking a chat sets the pane's active chat + the per-book pointer (DoD-2)", () => {
-  it("DoD-2: pickChat sets the active id and writes the pointer, without navigating or hitting the network (US-095.AC-2, US-105.AC-3)", () => {
+describe("picking a chat sets the pane's active chat + the per-book pointer (011 DoD-2)", () => {
+  it("011 DoD-2: pickChat sets the active id and writes the pointer, without navigating or hitting the network (US-095.AC-2)", () => {
     const state = new ChatPaneState();
 
     pickChat(state, BOOK_ID, "c-2");
@@ -186,8 +278,8 @@ describe("picking a chat sets the pane's active chat + the per-book pointer (DoD
   });
 });
 
-describe("on load, the active chat resolves from the pointer, else the most recent (DoD-3)", () => {
-  it("DoD-3: a stored pointer that names a visible chat becomes the active chat", async () => {
+describe("on load, the active chat resolves from the pointer, else the most recent (011 DoD-3)", () => {
+  it("011 DoD-3: a stored pointer that names a visible chat becomes the active chat", async () => {
     const state = new ChatPaneState();
     writeActiveChatId(BOOK_ID, "c-2");
     mockList([GAMMA, BETA, ALPHA]);
@@ -198,7 +290,7 @@ describe("on load, the active chat resolves from the pointer, else the most rece
     expect(state.activeChat?.id).toBe("c-2");
   });
 
-  it("DoD-3: with no stored pointer, the most recent chat becomes active", async () => {
+  it("011 DoD-3: with no stored pointer, the most recent chat becomes active", async () => {
     const state = new ChatPaneState();
     mockList([GAMMA, BETA, ALPHA]);
 
@@ -208,7 +300,7 @@ describe("on load, the active chat resolves from the pointer, else the most rece
     expect(state.activeChat?.id).toBe("c-1");
   });
 
-  it("DoD-3: a pointer that names a chat NOT in the list falls back to the most recent", async () => {
+  it("011 DoD-3: a pointer that names a chat NOT in the list falls back to the most recent", async () => {
     const state = new ChatPaneState();
     writeActiveChatId(BOOK_ID, "c-does-not-exist");
     mockList([GAMMA, BETA, ALPHA]);
@@ -218,7 +310,7 @@ describe("on load, the active chat resolves from the pointer, else the most rece
     expect(state.activeChat?.id).toBe("c-1");
   });
 
-  it("DoD-3: an empty list resolves to no active chat", async () => {
+  it("011 DoD-3: an empty list resolves to no active chat", async () => {
     const state = new ChatPaneState();
     mockList([], []);
 
@@ -229,8 +321,8 @@ describe("on load, the active chat resolves from the pointer, else the most rece
   });
 });
 
-describe("creating a chat requires an option + an in-range temperature (DoD-6)", () => {
-  it("DoD-6: canCreateChat requires both a chosen option AND a temperature in range", () => {
+describe("creating a chat requires an option + an in-range temperature (011 DoD-6)", () => {
+  it("011 DoD-6: canCreateChat requires both a chosen option AND a temperature in range", () => {
     const state = new ChatPaneState();
     const option = makeOption("s-1", "Local Llama", "qwen-72b");
 
@@ -265,7 +357,7 @@ describe("creating a chat requires an option + an in-range temperature (DoD-6)",
     expect(state.canCreateChat).toBe(false);
   });
 
-  it("DoD-6: a successful create goes through the api with the chosen (server, model) + temperature, becomes active, and appears in the list (UC-053, US-056.AC-1)", async () => {
+  it("011 DoD-6: a successful create goes through the api with the chosen (server, model) + temperature, becomes active, and appears in the list (UC-053, US-056.AC-1)", async () => {
     const state = new ChatPaneState();
     const option = makeOption("s-1", "Local Llama", "qwen-72b");
     mockList([], []);
@@ -303,29 +395,8 @@ describe("creating a chat requires an option + an in-range temperature (DoD-6)",
   });
 });
 
-describe("the model picker shows server + model names; no options refuses composing (DoD-7)", () => {
-  it("DoD-7: each option shows both its server name and its model name", async () => {
-    const user = userEvent.setup();
-    const options = [makeOption("s-1", "Local Llama", "qwen-72b"), makeOption("s-2", "OpenAI", "gpt-4o")];
-
-    const { container } = renderWithProviders(
-      <ChatSettingsPanel options={options} draft={{ optionKey: null, temperature: DEFAULT_TEMPERATURE }} errors={{}} />,
-    );
-
-    // If the picker is a collapsed dropdown (Mantine Select), open it so its options
-    // mount; opening any other inputs is harmless.
-    for (const control of Array.from(container.querySelectorAll("input"))) {
-      await user.click(control);
-    }
-
-    const text = document.body.textContent ?? "";
-    expect(text).toContain("Local Llama");
-    expect(text).toContain("qwen-72b");
-    expect(text).toContain("OpenAI");
-    expect(text).toContain("gpt-4o");
-  });
-
-  it("DoD-7: with no model options available, a chat cannot be composed (UC-054 exception flow)", async () => {
+describe("no model options refuses composing (011 DoD-7)", () => {
+  it("011 DoD-7: with no model options available, a chat cannot be composed (UC-054 exception flow)", async () => {
     const state = new ChatPaneState();
     mockList([], []);
     vi.mocked(chatsApi.listModelOptions).mockResolvedValue([]);
@@ -338,18 +409,10 @@ describe("the model picker shows server + model names; no options refuses compos
     });
     expect(state.canCreateChat).toBe(false);
   });
-
-  it("DoD-7: the settings form with no options renders a message rather than crashing or going blank", () => {
-    renderWithProviders(
-      <ChatSettingsPanel options={[]} draft={{ optionKey: null, temperature: DEFAULT_TEMPERATURE }} errors={{}} />,
-    );
-
-    expect((document.body.textContent ?? "").trim()).not.toBe("");
-  });
 });
 
-describe("settings are editable on the active chat (DoD-8)", () => {
-  it("DoD-8: changing the active chat's model + temperature calls update, and the pane reflects the new values (context.md decision 2/4)", async () => {
+describe("settings are editable on the active chat (011 DoD-8)", () => {
+  it("011 DoD-8: changing the active chat's model + temperature calls update, and the pane reflects the new values", async () => {
     const state = new ChatPaneState();
     const optCurrent = makeOption("s-1", "Local Llama", "m-1");
     const optNext = makeOption("s-2", "OpenAI", "m-2");
@@ -395,8 +458,8 @@ describe("settings are editable on the active chat (DoD-8)", () => {
   });
 });
 
-describe("archive removes from the active list; restore returns it; active re-resolves (DoD-9)", () => {
-  it("DoD-9: visibleChats shows the active set when not viewing archived, and the archived set when viewing archived (UC-082, US-096.AC-1)", () => {
+describe("archive removes from the active list; restore returns it; active re-resolves (011 DoD-9)", () => {
+  it("011 DoD-9: visibleChats shows the active set when not viewing archived, and the archived set when viewing archived (UC-082, US-096.AC-1)", () => {
     const state = new ChatPaneState();
     const active = makeChat("c-a", "Active chat", "2026-02-01T00:00:00Z", { archived: false });
     const archived = makeChat("c-b", "Archived chat", "2026-01-01T00:00:00Z", { archived: true });
@@ -417,7 +480,7 @@ describe("archive removes from the active list; restore returns it; active re-re
     expect(state.visibleChats.map((chat) => chat.id)).not.toContain("c-a");
   });
 
-  it("DoD-9: restoring a chat flips it back to the active set (US-096.AC-2)", async () => {
+  it("011 DoD-9: restoring a chat flips it back to the active set (US-096.AC-2)", async () => {
     const state = new ChatPaneState();
     const archived = makeChat("c-b", "Archived chat", "2026-01-01T00:00:00Z", { archived: true });
 
@@ -437,7 +500,7 @@ describe("archive removes from the active list; restore returns it; active re-re
     expect(state.chats.find((chat) => chat.id === "c-b")?.archived).toBe(false);
   });
 
-  it("DoD-9: archiving the ACTIVE chat re-resolves the active chat and leaves no dangling pointer", async () => {
+  it("011 DoD-9: archiving the ACTIVE chat re-resolves the active chat and leaves no dangling pointer", async () => {
     const state = new ChatPaneState();
     writeActiveChatId(BOOK_ID, "c-1");
     mockList([GAMMA, BETA]); // c-1 (most recent) is active, c-2 remains
@@ -461,8 +524,8 @@ describe("archive removes from the active list; restore returns it; active re-re
   });
 });
 
-describe("only temperature is surfaced; every other sampling param round-trips unchanged (DoD-10)", () => {
-  it("DoD-10: editing the temperature sends an update whose sampling carries every other param unchanged (context.md decision 4)", async () => {
+describe("only temperature is surfaced; every other sampling param round-trips unchanged (011 DoD-10)", () => {
+  it("011 DoD-10: editing the temperature sends an update whose sampling carries every other param unchanged (023 keeps 011's carry-through rule)", async () => {
     const state = new ChatPaneState();
     const optCurrent = makeOption("s-1", "Local Llama", "m-1");
     // Distinctive non-default values for every param other than temperature.
@@ -518,8 +581,8 @@ describe("only temperature is surfaced; every other sampling param round-trips u
   });
 });
 
-describe("a failed load or action surfaces an author-facing message, no crash (DoD-11)", () => {
-  it("DoD-11: a failed load records an error and the pane renders a message, not a blank", async () => {
+describe("a failed load or action surfaces an author-facing message, no crash (011 DoD-11)", () => {
+  it("011 DoD-11: a failed load records an error and the pane renders a message, not a blank", async () => {
     const state = new ChatPaneState();
     vi.mocked(chatsApi.listChats).mockRejectedValue(new ApiError(500, "Server error"));
 
@@ -535,7 +598,7 @@ describe("a failed load or action surfaces an author-facing message, no crash (D
     expect((document.body.textContent ?? "").trim()).not.toBe("");
   });
 
-  it("DoD-11: a failed action (create) surfaces an error instead of throwing", async () => {
+  it("011 DoD-11: a failed action (create) surfaces an error instead of throwing", async () => {
     const state = new ChatPaneState();
     const option = makeOption("s-1", "Local Llama", "qwen-72b");
     runInAction(() => {

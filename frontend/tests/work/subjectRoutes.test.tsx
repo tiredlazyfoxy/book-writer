@@ -21,10 +21,10 @@
  *     014 step 006 gave `/:bookId/chapters` its real list page and step 008 gives
  *     `/:bookId/chapter/:id` the real `ChapterPage`, so neither route names an owner
  *     placeholder any more;
- *   - `/:bookId/chats` no longer renders a content-pane view: under
- *     011.chat-panel / 004 (DoD-5, retarget 2026-07-26) it redirects to the
- *     book-state route (`/:bookId/state`), so no `011.chat-panel` surface appears in
- *     the content pane (US-105.AC-3);
+ *   - `/:bookId/chats` renders the chats LIST PAGE in the content pane: 023
+ *     .chat-ux-revision (DoD-8 / DoD-11, retarget 2026-08-07) deletes 011's
+ *     `ChatsRedirectRoute`, so the deep link neither redirects nor 404s — it lists the
+ *     author's chats in `main`;
  *   - there is NO `chat/:id` route, so a chat-id path falls through to the in-pane
  *     not-found page (US-105.AC-3) — its back-to-bookshelf anchor (href "/") from
  *     step 001 identifies it;
@@ -75,13 +75,16 @@ vi.mock("../../src/api/books", () => ({
 }));
 
 // The `/:bookId` shell (mounted by WorkRoutes) owns the chat pane and starts a chat
-// load on mount, reading through this module — enumerate every export it imports.
+// load on mount, and 023's `/chats` route mounts the chats list page on the same
+// module — enumerate every export they import, `titleChat` included.
 vi.mock("../../src/api/chats", () => ({
   listChats: vi.fn(),
   createChat: vi.fn(),
   updateChat: vi.fn(),
   getChat: vi.fn(),
   listModelOptions: vi.fn(),
+  streamChatTurn: vi.fn(),
+  titleChat: vi.fn(),
 }));
 
 // 013.codex / step 011: `/characters`, `/locations` and `/facts` no longer render a
@@ -282,12 +285,47 @@ describe("the three codex list routes render the codex list page (010 DoD-5, sup
   }
 });
 
-describe("the /chats deep link redirects out of the content pane (011.chat-panel/004 DoD-5)", () => {
-  it("DoD-5: /:bookId/chats redirects to the book-state route and shows no chats view in the content pane", async () => {
-    // Retargeted 2026-07-26: step 004 turns `/:bookId/chats` from a content-pane
-    // placeholder into a redirect to `/:bookId/state` (step file Interface intent ->
-    // `routes.tsx`; DoD-5). Expected target route + the absence of a content-pane
-    // chats surface both come from the spec, not from code.
+describe("the /chats deep link renders the chats list page (023.chat-ux-revision DoD-8)", () => {
+  it("DoD-8: /:bookId/chats renders the chats list page in the content pane and does NOT redirect", async () => {
+    // Retargeted by 023 (design-note D12): this case previously asserted 011's
+    // redirect to `/:bookId/state`. 023 inverts that deliberately — `routes.tsx`
+    // renders `<ChatsListPage/>` and `ChatsRedirectRoute` is deleted (`plan.md` ->
+    // Interface -> `routes.tsx`; DoD-8, DoD-11). The expected route and the
+    // content-pane surface both come from the spec, not from code. `plan.md` -> DoD-8
+    // records that this knowingly contradicts US-105.AC-3 / US-095.AC-1 / UC-081
+    // step 1; `outcome.md` item 1 carries the reconciliation.
+    vi.mocked(chatsApi.listChats).mockImplementation((_bookId, isArchived) =>
+      Promise.resolve(
+        isArchived
+          ? []
+          : [
+              {
+                id: "c-1",
+                book_id: "bk-1",
+                author_id: "u-1",
+                title: "Gamma chat",
+                llm_server_id: "s-1",
+                model_name: "m-1",
+                sampling: {
+                  temperature: 0.8,
+                  top_p: 0.95,
+                  top_k: 40,
+                  repeat_penalty: 1.1,
+                  min_p: 0.05,
+                  max_tokens: null,
+                  seed: null,
+                  presence_penalty: 0,
+                  frequency_penalty: 0,
+                  enable_thinking: true,
+                },
+                archived: false,
+                created_at: "2026-03-01T00:00:00Z",
+                modified_at: "2026-03-01T00:00:00Z",
+              },
+            ],
+      ),
+    );
+
     renderWithProviders(
       <>
         <WorkRoutes />
@@ -296,13 +334,12 @@ describe("the /chats deep link redirects out of the content pane (011.chat-panel
       { route: "/bk-1/chats" },
     );
 
-    // The deep link neither 404s nor lands a chat surface in the content pane: it
-    // redirects to the book-state route.
-    await waitFor(() => expect(screen.getByTestId("pathname").textContent).toBe("/bk-1/state"));
-
-    // No `011.chat-panel` chats placeholder survives inside the content pane.
+    // The list page resolves INSIDE the content pane...
     const main = await screen.findByRole("main");
-    expect(within(main).queryByText(/011\.chat-panel/)).toBeNull();
+    expect(await within(main).findByText("Gamma chat")).toBeInTheDocument();
+
+    // ...and the deep link stays on the chats route — no redirect.
+    await waitFor(() => expect(screen.getByTestId("pathname").textContent).toBe("/bk-1/chats"));
   });
 });
 

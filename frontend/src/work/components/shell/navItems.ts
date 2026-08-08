@@ -43,11 +43,17 @@ export interface WorkNavItem {
  * Locations · Facts · Chapters · Variants · Chats.
  *
  * Book state · Characters · Locations · Facts · Chapters · Variants · Chats.
- * Chapters also lights up for the singular single-chapter segment `/chapter`;
- * Chats is the sole entry whose target is the chat pane, the rest render into the
- * content pane. (Variants' per-chapter path `/variants/:chapterId` needs no extra
- * segment — it is a `/`-delimited descendant of `/variants`, which
- * {@link isWorkNavItemActive} already matches.)
+ * Chapters also lights up for the singular single-chapter segment `/chapter`.
+ * (Variants' per-chapter path `/variants/:chapterId` needs no extra segment — it
+ * is a `/`-delimited descendant of `/variants`, which {@link isWorkNavItemActive}
+ * already matches.)
+ *
+ * 023: ALL SEVEN entries now target the CONTENT pane. Chats used to be the one
+ * exception — a chat-pane control rather than a route link (011/004, US-105.AC-3) —
+ * but the chat list moved onto `/:bookId/chats` as an ordinary content page (D1),
+ * so nothing branches on `paneTarget` any more. The type and the field are kept:
+ * they are the declaration of where an entry renders, and dropping them would be a
+ * signature change this feature has no need to make.
  */
 export const WORK_NAV_ITEMS: readonly WorkNavItem[] = [
   { path: "/state", label: "Book state", icon: IconBook2, paneTarget: "content" },
@@ -62,7 +68,7 @@ export const WORK_NAV_ITEMS: readonly WorkNavItem[] = [
     paneTarget: "content",
   },
   { path: "/variants", label: "Variants", icon: IconGitBranch, paneTarget: "content" },
-  { path: "/chats", label: "Chats", icon: IconMessage, paneTarget: "chat" },
+  { path: "/chats", label: "Chats", icon: IconMessage, paneTarget: "content" },
 ];
 
 /**

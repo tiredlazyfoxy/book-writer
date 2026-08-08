@@ -44,6 +44,10 @@ import {
 import { installTurnStream } from "../support/sseFixture";
 
 // The api module the state layer sees: whole-module factory, every export enumerated.
+// `titleChat` added by 023.chat-ux-revision: the post-turn title refresh is fired
+// fire-and-forget from the module-private `finishTurn`, so a `done` frame reaches this
+// export. MOCK COMPLETENESS ONLY — it exists so the call cannot explode; nothing in
+// this file asserts on it, and no assertion here changed.
 vi.mock("../../src/api/chats", () => ({
   listChats: vi.fn(),
   createChat: vi.fn(),
@@ -51,6 +55,7 @@ vi.mock("../../src/api/chats", () => ({
   getChat: vi.fn(),
   listModelOptions: vi.fn(),
   streamChatTurn: vi.fn(),
+  titleChat: vi.fn(),
 }));
 
 // Below `api/chats` for the DoD-9 seam only: the real `streamChatTurn` awaits the
@@ -139,6 +144,10 @@ function primeActiveChat(state: ChatPaneState, messages: ChatMessageResponse[] =
 beforeEach(() => {
   // `restoreMocks` wipes implementations between tests — give `getChat` a benign default.
   vi.mocked(chatsApi.getChat).mockResolvedValue({ chat: CHAT, messages: [] });
+  // 023: the fire-and-forget post-turn title refresh resolves benignly (title
+  // unchanged), so it can never leave a rejected promise behind a `done` frame. Not
+  // asserted anywhere; these specs stay insensitive to its timing.
+  vi.mocked(chatsApi.titleChat).mockResolvedValue({ title: CHAT.title, changed: false });
 });
 
 describe("sending a prompt streams content deltas incrementally (DoD-2)", () => {

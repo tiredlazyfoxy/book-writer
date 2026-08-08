@@ -6,6 +6,7 @@ import { ChapterPage } from "./pages/ChapterPage";
 import { ChaptersPage } from "./pages/ChaptersPage";
 import { CodexEntryPage } from "./pages/CodexEntryPage";
 import { CodexListPage } from "./pages/CodexListPage";
+import { ChatsListPage } from "./pages/ChatsListPage";
 import { SubjectPlaceholderPage } from "./pages/SubjectPlaceholderPage";
 import { WorkspaceShell } from "./components/shell/WorkspaceShell";
 
@@ -54,19 +55,6 @@ function ChapterVariantsItemRoute() {
 }
 
 /**
- * `/work/:bookId/chats` degrades to a redirect to the book-state route (011/004):
- * the chat list is owned by the chat pane (US-095.AC-1 / US-105.AC-3), so this
- * documented deep link must neither 404 nor put a chat surface in the content
- * pane. Reads `:bookId` so the redirect is absolute (`/:bookId/state`,
- * basename-resolved), mirroring the index redirect. The doc tension is recorded
- * in `outcome.md`.
- */
-function ChatsRedirectRoute() {
-  const { bookId } = useParams();
-  return <Navigate to={`/${bookId}/state`} replace />;
-}
-
-/**
  * Work SPA route table, mounted under the `/work` basename by `App.tsx`. The
  * `/:bookId` route renders the keyed workspace shell; its nested catch-all
  * renders the not-found page **inside** the content pane for an unknown subject
@@ -105,7 +93,13 @@ export const WorkRoutes = observer(function WorkRoutes() {
           }
         />
         <Route path="variants/:chapterId" element={<ChapterVariantsItemRoute />} />
-        <Route path="chats" element={<ChatsRedirectRoute />} />
+        {/*
+          023 INVERTS 011/004's arrangement: `/chats` was a redirect to `/state`
+          because the chat list belonged to the chat pane; it is now an ordinary
+          content-pane page (D1). Picking a chat there still opens it in the chat
+          pane and leaves the URL alone, so no `chats/:id` route is introduced.
+        */}
+        <Route path="chats" element={<ChatsListPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

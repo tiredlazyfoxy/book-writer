@@ -7,12 +7,6 @@ export interface WorkNavigatorProps {
   /** The book id the entries are scoped to (from `/work/:bookId`). */
   bookId: string;
   /**
-   * Opens the chat pane's list (011/004). The entry whose frozen `paneTarget` is
-   * `"chat"` (Chats) renders a control that calls this instead of a router link;
-   * the six `"content"` entries stay in-SPA links. Wired by the coder.
-   */
-  onShowChatList: () => void;
-  /**
    * Desktop icon-rail mode (fast/005). OPTIONAL, defaulting to `false` — making it
    * required would break the existing call sites and `npm run test:types`. When
    * set, each entry is wrapped in a right-positioned `Tooltip` carrying its label
@@ -24,12 +18,17 @@ export interface WorkNavigatorProps {
 }
 
 /**
- * The work SPA's left-hand navigator: renders the seven `WORK_NAV_ITEMS`. The six
- * `paneTarget: "content"` entries are in-SPA react-router links under the current
- * book id, marking the active one via `isWorkNavItemActive`; the sole
- * `paneTarget: "chat"` entry (Chats) renders a control that calls `onShowChatList`
- * and does NOT navigate (011/004). No data loading, no MobX fields (mirrors
- * `AdminNav`).
+ * The work SPA's left-hand navigator: renders the seven `WORK_NAV_ITEMS` — ALL of
+ * them identically, as in-SPA react-router links under the current book id,
+ * marking the active one via `isWorkNavItemActive`. No data loading, no MobX
+ * fields (mirrors `AdminNav`).
+ *
+ * 023 REMOVED `onShowChatList` AND THE `paneTarget` BRANCH. Chats used to be the
+ * one entry that rendered a `<button>` control over the chat pane instead of a
+ * link (011/004, US-105.AC-3); 023 moves the chat list into the content pane, so
+ * Chats is now an ordinary route link like the other six and nothing in this body
+ * branches on `paneTarget` any more (DoD-12). The doc reconciliation this
+ * knowingly outruns is `outcome.md`'s obligation.
  *
  * `useLocation()` is react-router's own hook reading the URL it owns (not a custom
  * `useX` hook, not reactive app state), called once for the whole list — never one
@@ -45,7 +44,6 @@ export interface WorkNavigatorProps {
  */
 export const WorkNavigator = observer(function WorkNavigator({
   bookId,
-  onShowChatList,
   collapsed = false,
 }: WorkNavigatorProps) {
   const { pathname } = useLocation();
@@ -66,33 +64,19 @@ export const WorkNavigator = observer(function WorkNavigator({
         // unknown props onto the root element, so it keeps the entry findable by
         // accessible name once CSS hides the visible label, and leaves
         // `textContent` untouched when the label is visible.
-        const entry =
-          // The sole `paneTarget: "chat"` entry (Chats) is a control over the chat
-          // pane, NOT a router link (US-105.AC-3 / DoD-5): a `<button>` NavLink
-          // that opens the pane's list and leaves the URL untouched.
-          item.paneTarget === "chat" ? (
-            <NavLink
-              key={item.path}
-              component="button"
-              type="button"
-              label={item.label}
-              aria-label={item.label}
-              leftSection={<ItemIcon size={18} stroke={1.5} />}
-              onClick={onShowChatList}
-              classNames={railClassNames}
-            />
-          ) : (
-            <NavLink
-              key={item.path}
-              component={RouterLink}
-              to={workNavHref(bookId, item)}
-              label={item.label}
-              aria-label={item.label}
-              leftSection={<ItemIcon size={18} stroke={1.5} />}
-              active={isWorkNavItemActive(pathname, bookId, item)}
-              classNames={railClassNames}
-            />
-          );
+        // 023: ONE shape for all seven entries — no `paneTarget` branch left.
+        const entry = (
+          <NavLink
+            key={item.path}
+            component={RouterLink}
+            to={workNavHref(bookId, item)}
+            label={item.label}
+            aria-label={item.label}
+            leftSection={<ItemIcon size={18} stroke={1.5} />}
+            active={isWorkNavItemActive(pathname, bookId, item)}
+            classNames={railClassNames}
+          />
+        );
 
         if (!collapsed) return entry;
 

@@ -13,11 +13,22 @@ import {
   loadWorkspaceBook,
   toggleNavCollapsed,
 } from "./workspaceShellState";
-import { ChatPaneState, loadChatPane, stopChatTurn } from "../chat/chatPaneState";
+import {
+  ChatPaneState,
+  loadChatMessages,
+  loadChatPane,
+  pickChat,
+  stopChatTurn,
+} from "../chat/chatPaneState";
 import {
   registerCloseTurnController,
   unregisterCloseTurnController,
 } from "../../closeTurn";
+import {
+  registerChatPaneController,
+  unregisterChatPaneController,
+  type ChatPaneController,
+} from "../../chatPaneController";
 import { CHAT_WIDTH_CSS_VAR } from "../../workspaceLayout";
 
 /**
@@ -53,6 +64,22 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
     // same object and nothing extra is threaded anywhere. Registered in the effect
     // that already owns the pane's lifecycle — no new effect and no new component.
     registerCloseTurnController(chatPaneState);
+    // 023 / D5: the SAME effect also publishes the pane's one-verb open-a-chat
+    // seam, so the content-pane `ChatsListPage` can open a chat in the aside
+    // without a route change, a context or a cross-page callback. A small object
+    // rather than the pane state itself (unlike the close-turn controller): it has
+    // to close over `bookId`, which `ChatPaneState` deliberately does not hold. It
+    // doubles as its own unregister identity token.
+    const chatPaneController: ChatPaneController = {
+      openChat: (chatId: string) => {
+        pickChat(chatPaneState, bookId ?? "", chatId);
+        // Opening a chat means showing ITS conversation: without this the pane
+        // would swap its title and settings while still rendering the previous
+        // chat's transcript.
+        void loadChatMessages(chatPaneState, bookId ?? "", chatId);
+      },
+    };
+    registerChatPaneController(chatPaneController);
     void loadWorkspaceBook(state, bookId ?? "", ctrl.signal);
     void loadChatPane(chatPaneState, bookId ?? "", ctrl.signal);
     // `frontend.md`'s sanctioned "a single `autorun` started in the mount
@@ -70,6 +97,9 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
       // Identity-guarded inside the registry, so a late unmount whose registration
       // has already been superseded clears nothing.
       unregisterCloseTurnController(chatPaneState);
+      // Identity-guarded in the same way, in the SAME cleanup — no second effect
+      // (DoD-15).
+      unregisterChatPaneController(chatPaneController);
       ctrl.abort();
       // Unmount also aborts any live turn stream (a separate AbortController owned
       // by the pane state, not the load signal) — the unmount half of DoD-10.
@@ -138,16 +168,12 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
       </AppShell.Header>
 
       <AppShell.Navbar p="xs">
-        <WorkNavigator
-          bookId={id}
-          onShowChatList={() => {
-            // The Chats navigator entry is a pane-state control, not a link: it
-            // reveals the chat pane's active-chats list (the aside is always
-            // mounted). Mirrors the direct-mutation pattern used for `navbarOpened`.
-            chatPaneState.showArchived = false;
-          }}
-          collapsed={state.navCollapsed}
-        />
+        {/*
+          023: `onShowChatList` is GONE from both sides — the Chats entry is an
+          ordinary route link to `/:bookId/chats` now, and the chat list lives on
+          that content-pane page (D1). No dead prop is left on either side (DoD-12).
+        */}
+        <WorkNavigator bookId={id} collapsed={state.navCollapsed} />
       </AppShell.Navbar>
 
       <AppShell.Aside p="xs">

@@ -9,7 +9,7 @@ import {
 } from "@mantine/core";
 import { IconArchive, IconArchiveOff } from "@tabler/icons-react";
 import type { ISODateString } from "../../../types/common";
-import type { ChatPaneState } from "./chatPaneState";
+import type { ChatsListPageState } from "../../pages/chatsListPageState";
 
 /** Render a chat's last-modified stamp for the author, or an em dash when absent. */
 function formatStamp(value: ISODateString | null): string {
@@ -19,15 +19,22 @@ function formatStamp(value: ISODateString | null): string {
 }
 
 /**
- * The chat pane's list of visible chats (`state.visibleChats`): title,
- * last-modified stamp, the active one marked, a per-row archive (or restore, in
- * the archived view) action, and an empty state. Picking a row calls `onPick`;
- * NOTHING here navigates. Reads `state.activeChatId` / `state.showArchived`.
+ * The book's list of visible chats (`state.visibleChats`): title, last-modified
+ * stamp, a per-row archive (or restore, in the archived view) action, and an
+ * empty state. Picking a row calls `onPick`; NOTHING here navigates. Reads
+ * `state.showArchived`.
  *
- * SKELETON (011/004): props frozen; body throws.
+ * 023 RETARGETS THE PROPS onto `ChatsListPageState`: the list moved out of the
+ * chat pane and onto the content-pane `ChatsListPage` (D1/D5), which owns its own
+ * chats. The ACTIVE-CHAT MARKER is gone with it — the list page has no notion of
+ * "active"; that fact belongs to the pane, which the page reaches only through
+ * `work/chatPaneController.ts`.
+ *
+ * SKELETON (023): props frozen; the row shape is 011's, preserved unchanged
+ * except for the dropped active marker.
  */
 export interface ChatListProps {
-  state: ChatPaneState;
+  state: ChatsListPageState;
   /** Called with a chat id when a row is picked. */
   onPick: (chatId: string) => void;
   /** Called with a chat id and the target archived flag by the per-row action. */
@@ -53,7 +60,6 @@ export const ChatList = observer(function ChatList({
     <ScrollArea.Autosize mah={320}>
       <Stack gap={4}>
         {chats.map((chat) => {
-          const active = chat.id === state.activeChatId;
           return (
             <Group
               key={chat.id}
@@ -62,20 +68,15 @@ export const ChatList = observer(function ChatList({
               gap="xs"
               px="xs"
               py={4}
-              data-active={active || undefined}
               style={{
                 borderRadius: "var(--mantine-radius-sm)",
-                borderLeft: active
-                  ? "3px solid var(--mantine-primary-color-filled)"
-                  : "3px solid transparent",
-                background: active ? "var(--mantine-color-default-hover)" : undefined,
               }}
             >
               <UnstyledButton
                 onClick={() => onPick(chat.id)}
                 style={{ flex: 1, minWidth: 0 }}
               >
-                <Text size="sm" fw={active ? 600 : 400} truncate>
+                <Text size="sm" truncate>
                   {chat.title}
                 </Text>
                 <Text c="dimmed" size="xs">

@@ -34,12 +34,14 @@ from app.models.schemas.chats import (
     ChatDetailResponse,
     ChatListResponse,
     ChatResponse,
+    ChatTitleResponse,
     CreateChatRequest,
     ModelOptionListResponse,
     TurnRequest,
     UpdateChatRequest,
 )
 from app.services import authz
+from app.services import chat_titling
 from app.services import chat_turn
 from app.services import chats as chats_service
 from app.services import llm_servers as llm_servers_service
@@ -229,3 +231,29 @@ async def run_chat_turn(
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/{book_id}/chats/{chat_id}/title")
+async def title_chat(
+    chat_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChatTitleResponse:
+    """Run the auto-titling pass over an owned chat
+    (``POST /api/books/{book_id}/chats/{chat_id}/title`` → 200, 023 / FEAT-013).
+
+    Declared **after** the static ``model-options`` route (DoD-13) and alongside
+    ``turn``, so ``model-options`` is never captured as a ``chat_id``.
+
+    The **policy is the service's**, not this route's: whether the chat is at a
+    trigger count, which model titles it and what a failure means all live in
+    :func:`~app.services.chat_titling.maybe_title_chat`. A titling failure is not
+    an HTTP failure — it comes back as the existing title with ``changed=false``.
+    The only error this route maps is the ``chat_not_found`` ``ChatError`` for a
+    chat that is missing or another author's (404), plus the dependency's 403.
+    """
+    try:
+        return await chat_titling.maybe_title_chat(access, chat_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chats_service.ChatError as err:
+        raise _map_chat_error(err)

@@ -5,6 +5,7 @@ import type {
   CanvasOp,
   ChatDetailResponse,
   ChatResponse,
+  ChatTitleResponse,
   CreateChatRequest,
   ModelOptionResponse,
   SubjectKind,
@@ -95,6 +96,30 @@ export async function listModelOptions(
     { signal },
   );
   return res.items;
+}
+
+/**
+ * `POST /api/books/{bookId}/chats/{chatId}/title` (023) — run the chat's
+ * auto-titling pass. **No body**: the trigger policy (title at exactly the 1st and
+ * 5th user message) is the backend's, not the caller's, so this call carries no
+ * arguments beyond the ids. Returns the chat's title afterwards plus whether the
+ * pass changed it; a titling failure comes back as `changed: false`, never as an
+ * error.
+ *
+ * Skeleton (023): signature frozen; the body is the same thin `request<T>`
+ * forwarder every sibling in this module is (no branching, no computed value —
+ * the module's own frozen-at-skeleton convention, and no DoD asserts it: every
+ * spec mocks this module).
+ */
+export async function titleChat(
+  bookId: string,
+  chatId: string,
+  signal?: AbortSignal,
+): Promise<ChatTitleResponse> {
+  return request<ChatTitleResponse>(`${BASE}/${bookId}/chats/${chatId}/title`, {
+    method: "POST",
+    signal,
+  });
 }
 
 /**
