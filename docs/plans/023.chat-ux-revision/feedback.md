@@ -217,3 +217,78 @@ delivered suite remains the baseline: **706/706 frontend and 1246 backend must s
   both `Alert` banners, F1's `flexShrink: 0` on the root `Stack`, and `ComposerProps`.
   `getByRole("button", {name: /stop/i})` and `{name: /retry/i}` still resolve, and
   `getByRole("textbox")` still matches exactly one element.
+
+---
+
+## Round 3 — 2026-08-09 — Model change is invisible until the next send
+
+Author report, raised while reviewing feature 024: "when i change model it doesn't change
+immidiatelly in the interface, just after mesage post."
+
+**Diagnosed before filing.** The code is faithful to the delivered plan — this item objects to a
+**design decision**, not to a defect, and therefore supersedes part of it. Recorded here rather
+than as a bug because no contract is being violated: `modelLabel` does exactly what
+`plan.md:193-194` specifies.
+
+**Direction is not yet chosen** — see the two options under F5. B2 must not be dispatched until
+the author picks one, because they lead to materially different code.
+
+### F5 — Header model label lags the author's pick until a message is sent   [kind: reshape]   [target: plan.md]
+- Reported: "when i change model it doesn't change immidiatelly in the interface, just after
+  mesage post."
+- Expected: choosing a model in the header popover is reflected in the header **immediately**,
+  without requiring a message to be posted first. Exactly *how* it becomes immediate is the open
+  choice below.
+- Evidence: **not a defect — designed, and implemented as designed.** The `<Select>`'s `onChange`
+  writes only the draft (`ChatPane.tsx:131-140`, `state.settingsDraft.optionKey = value`), while
+  the header label is a separate computed reading the **persisted** pair
+  (`chatPaneState.ts:467-480`, `this.activeChat.llm_server_id` / `chat.model_name`, joined against
+  `modelOptions` for display names; never `settingsDraft`). The popover's own `Select` *does*
+  update instantly — `state` is observable and the component is an `observer` — so the author sees
+  their pick inside the popover but not in the header, which is precisely the confusing part.
+  023 removed the Save-settings block (`status.md:42-45`, `plan.md:214-217`: "No … 'Save settings'
+  button anywhere in the tree"), so **`sendChatTurn`'s flush is now the only path in the whole app
+  that persists a model change** (`chatPaneState.ts:1009-1017`, gated on `settingsDirty`).
+  `saveChatSettings` then replaces the chat row with the server's response
+  (`chatPaneState.ts:867-879`) — *that* row-replacement is what finally moves the label, at send
+  time. The lag is the designed invariant, spelled out in the code's own doc-comment
+  (`chatPaneState.ts:460-466`: "so the header always names the model the next turn will actually
+  use") and in **design-note D8** (`plan.md:401-406`), which chose it because the backend's
+  `prepare_turn` reads the chat's **stored** pair, not any client draft. D8's own recorded
+  trade-off: "settings changed but never followed by a message are lost on reload — the literal
+  spec'd behaviour."
+- Options (**author must choose before B2**):
+  - **(A) Label follows the draft.** `modelLabel` prefers `settingsDraft.optionKey` resolved
+    through `modelOptions` while `settingsDirty`, falling back to the persisted pair when clean.
+    Smallest change, one computed. **Cost:** the header would name a model the system cannot yet
+    honour — if the flush later fails (`chatPaneState.ts:1011-1016` returns without opening the
+    stream), the label keeps showing a pick that no turn will use. It also directly contradicts the
+    `:460-466` doc-comment and D8's rationale, and leaves D8's lost-on-reload trade-off in place.
+  - **(B) Persist on pick (recommended).** `onChange` calls `saveChatSettings` directly, so the
+    stored pair moves at pick time and the label — unchanged — becomes immediate *and* stays
+    truthful. **Also retires D8's lost-on-reload trade-off**, which is a genuine improvement rather
+    than a swap. **Cost:** one API call per pick; needs the in-flight/error path thought through
+    (what the header shows while the update is in flight, and on failure) and the send-time flush
+    kept for the temperature control, which has no equivalent commit point.
+- Areas: `frontend/src/work/components/chat/chatPaneState.ts` (`modelLabel`, and for (B) the
+  `onChange` effect path), `frontend/src/work/components/chat/ChatPane.tsx` (the `Select` binding).
+  Both inside the delivered plan's declared Source areas.
+- Constraints: preserve the send-time flush for **temperature** either way — `settingsDirty` and
+  `sendChatTurn`'s ordering are pinned by DoD-4 and by
+  `frontend/tests/work/chatPaneSettings.test.ts` ("settings are flushed before the turn stream
+  opens (DoD-4)", `:148`; "sending clears whichever popover is open (DoD-5)", `:217`). Under (B)
+  a picked-and-persisted model must leave `settingsDirty` false so the send issues **no** second
+  update call — DoD-4 clause 2 ("a pane the author has not edited issues no update call"). Preserve
+  `NO_MODEL_LABEL` for a chat with no pair, and the existing fallback where a pair whose server is
+  no longer offered still shows its bare `model_name` (`chatPaneState.ts:473-479`). Signature:
+  `get modelLabel(): string` **frozen**; under (B) the `Select`'s `onChange` may become a call to
+  an effect fn.
+- Note on coverage: **no existing test asserts `modelLabel`'s value** — the only mentions under
+  `frontend/tests` are doc-comment references to the frozen signature (`ChatPane.test.tsx:20`,
+  `chatPaneSettings.test.ts:7`). So neither option breaks an existing assertion, and this item
+  should gain one.
+- Out of scope: the temperature control's own commit semantics beyond keeping the flush working;
+  any change to `prepare_turn` or the backend's stored-pair contract; auto-scroll (still deferred
+  from F1).
+- STATUS: TBD
+- Changes: —
