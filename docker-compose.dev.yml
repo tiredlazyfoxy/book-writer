@@ -22,10 +22,17 @@ services:
       - LANCEDB_DIR=/app/data/vector
       # Host passthrough for the values the DB's "$ENV_VAR" api_key pointers
       # resolve against, plus web search credentials.
+      #
+      # The search credentials fall back to SEARCH_CSE_KEY / SEARCH_CSE_ID, the
+      # names they already carry in the developer environment, so the dev stack
+      # picks them up with nothing to copy. Setting the canonical BOOKWRITER_*
+      # name still wins. Note these must be RAW values here: backend/.env.local
+      # points at the same secrets through the "$ENV_VAR" indirection, but that
+      # resolves inside the container, where the host's variables do not exist.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LLAMA_SWAP_URL=${LLAMA_SWAP_URL:-}
-      - BOOKWRITER_GOOGLE_SEARCH_API_KEY=${BOOKWRITER_GOOGLE_SEARCH_API_KEY:-}
-      - BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID=${BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID:-}
+      - BOOKWRITER_GOOGLE_SEARCH_API_KEY=${BOOKWRITER_GOOGLE_SEARCH_API_KEY:-${SEARCH_CSE_KEY:-}}
+      - BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID=${BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID:-${SEARCH_CSE_ID:-}}
 
   frontend:
     image: node:22-slim
