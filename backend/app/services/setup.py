@@ -11,6 +11,7 @@ Skeleton (step 003): signatures are frozen; bodies are UNIMPLEMENTED.
 """
 
 from app.db import assistant_modes
+from app.db import mode_tools
 from app.db import users
 from app.db.engine import init_db, is_db_ready, set_db_ready
 from app.models.user import User, UserRole
@@ -55,6 +56,10 @@ async def create_database(
 
     await init_db()
     await assistant_modes.seed_default_modes()
+    # 024: the modes' default TOOL SELECTIONS, seeded immediately after the mode
+    # rows they hang off. A mode with zero ``mode_tool`` rows is an empty
+    # allowlist, so without this every mode ships able to call nothing at all.
+    await mode_tools.seed_default_mode_tools()
     admin = User(
         username=admin_username,
         pwdhash=auth_service.hash_password(password),
@@ -91,4 +96,7 @@ async def import_database(archive_bytes: bytes) -> None:
         raise SetupError(f"The import archive is invalid or corrupt: {exc}") from exc
 
     await assistant_modes.seed_default_modes()
+    # 024: same pairing as ``create_database``. Per-mode idempotent, so a mode
+    # carried by the archive with its own tool rows keeps them exactly.
+    await mode_tools.seed_default_mode_tools()
     set_db_ready(True)

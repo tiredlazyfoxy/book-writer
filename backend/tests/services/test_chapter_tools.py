@@ -44,6 +44,11 @@ the mirror enforces", "Descriptions are part of the contract", "The tools ship
 unreachable"), and ``context.md`` -> D4 / D5 / D10 / D11 / D17 -- never from
 implementation internals.
 
+DoD-12's "The tools ship unreachable" premise was deliberately reversed by feature
+024 (chat-agent-loop) decision D4, which seeds every mode's default tool rows; see
+the amended note above that test. The empty-allowlist RULE it guards is unchanged
+and is still asserted there.
+
 Test approach (``010.context.md`` -> "Testing"): **no LLM server is contacted and
 no live turn is run**. The ``ToolContext`` is built directly and the tools are
 invoked as functions, with an in-memory recording sink standing in for the turn's
@@ -906,19 +911,44 @@ async def test_no_path_in_any_of_the_four_tools_raises__DoD11(db: DbConfig):
 
 
 # ---------------------------------------------------------------------------
-# DoD-12 — registration alone grants nothing: the four ship UNREACHABLE
+# DoD-12 — the gating is the mode's `mode_tool` rows, not the registration
 # ---------------------------------------------------------------------------
 
+# Feature 024 (chat-agent-loop), decision D4, DELIBERATELY REVERSES this clause's
+# premise. This test was written as "the four ship UNREACHABLE": a fresh install
+# seeded no `mode_tool` row, so `write-chapter` resolved to an empty allowlist and
+# the four chapter tools could not be reached. D4 ("seed all five modes' prompts
+# and tool rows, by explicit author decision") makes `create_database` seed
+# `write-chapter`'s default set, so the four are reachable on a fresh install --
+# that reversal is the feature, and 024/plan.md records it for `outcome.md`.
+#
+# What D4 explicitly does NOT change (024/context.md -> "Standing constraints":
+# "The empty-allowlist rule itself is untouched -- only the seeded *starting
+# state* changes") is the RULE this test really guards: zero rows means an empty
+# allowlist, and registration alone grants nothing. Both halves are still asserted
+# below, now on a mode whose rows have been cleared. The test's name moved with
+# its premise; the `__DoD12` tag is intact.
 
-# DoD-12 (context.md -> D4; 010.context.md -> "The tools ship unreachable"): with
-# NO `mode_tool` rows for the `write-chapter` mode, a turn whose subject is the
-# book's `open` chapter is offered NONE of these four tools. Zero rows is an
-# empty allowlist, so registration alone grants nothing -- this file seeds no
-# selection, exactly as the feature ships none.
-async def test_open_chapter_turn_is_offered_none_of_the_four__DoD12(db: DbConfig):
-    # A fresh install: the modes are seeded, the selections are not.
+# 024/context.md -> "Default per-mode tool selections" (authoritative): the set
+# `write-chapter` is seeded with on a fresh database.
+WRITE_CHAPTER_DEFAULT_TOOLS = {
+    "web_search",
+    "codex_search",
+    "codex_read_entry",
+    "read_chapter_text",
+    "set_chapter_text",
+    "update_selection",
+    "add_text",
+}
+
+
+async def test_open_chapter_turn_is_offered_the_seeded_four__DoD12(db: DbConfig):
+    # A fresh install: the modes AND their default selections are seeded
+    # (024/plan.md -> DoD-4).
     await setup.create_database("root", "password123", "password123")
-    assert list(await mode_tools.list_by_mode("write-chapter")) == []
+    seeded = [row.tool_name for row in await mode_tools.list_by_mode("write-chapter")]
+    assert set(seeded) == WRITE_CHAPTER_DEFAULT_TOOLS
+    assert len(seeded) == len(WRITE_CHAPTER_DEFAULT_TOOLS)
 
     user = await _seed_user()
     book = await _seed_book(user.id)
@@ -934,12 +964,21 @@ async def test_open_chapter_turn_is_offered_none_of_the_four__DoD12(db: DbConfig
 
     names = await assistant_runtime.allowed_tool_names(mode)
 
-    # Zero rows is an EMPTY allowlist -- not the whole registry.
-    assert names == ()
-    assert set(names).isdisjoint(CHAPTER_TOOL_NAMES)
-    # ...so nothing resolves for the turn either.
-    assert tools_module.resolve_tools(list(names)) == []
+    # The allowlist is exactly the mode's seeded rows -- still driven by the rows,
+    # still not the whole registry.
+    assert set(names) == WRITE_CHAPTER_DEFAULT_TOOLS
+    assert CHAPTER_TOOL_NAMES <= set(names)
+    # ...and every one of them resolves for the turn.
+    assert {tool.name for tool in tools_module.resolve_tools(list(names))} == set(names)
 
-    # The absence is the gating, not a missing registration: all four ARE in the
-    # registry (DoD-1) and would resolve if a mode selected them.
+    # All four ARE in the registry (DoD-1) -- registration and selection are still
+    # two different things, which the clearing below proves.
     assert CHAPTER_TOOL_NAMES <= {tool.name for tool in tools_module.TOOL_REGISTRY}
+
+    # The empty-allowlist rule is UNTOUCHED by D4: with the mode's rows removed,
+    # registration alone grants nothing again.
+    await mode_tools.delete_by_mode("write-chapter")
+    cleared = await assistant_runtime.allowed_tool_names(mode)
+    assert cleared == ()
+    assert set(cleared).isdisjoint(CHAPTER_TOOL_NAMES)
+    assert tools_module.resolve_tools(list(cleared)) == []

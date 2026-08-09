@@ -2,6 +2,8 @@ import { observer } from "mobx-react-lite";
 import { Box, Paper, ScrollArea, Stack, Text } from "@mantine/core";
 import Markdown from "react-markdown";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { ToolCallTrace } from "./ToolCallTrace";
+import { toggleToolCallRow } from "./chatPaneState";
 import type { ChatPaneState } from "./chatPaneState";
 
 /**
@@ -118,6 +120,18 @@ export const MessageList = observer(function MessageList({ state }: MessageListP
                   onToggle={toggle}
                 />
               )}
+              {/* 024: the tool-call trace sits in the same per-message slot as the
+                  thinking region and above the body — what the assistant DID
+                  before it answered, in call order. It renders `null` when the
+                  message has no trace, so it needs no condition here, and its
+                  expansion map is keyed by (message key, row index), which the
+                  in-flight bubble's sentinel key serves unchanged. */}
+              <ToolCallTrace
+                rows={msg.toolTrace}
+                expanded={state.expandedToolCallRows}
+                rowKeyPrefix={msg.key}
+                onToggle={(rowKey) => toggleToolCallRow(state, rowKey)}
+              />
               <Box className="chat-markdown" fz="sm">
                 <Markdown>{msg.content}</Markdown>
               </Box>

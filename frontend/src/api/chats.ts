@@ -9,6 +9,8 @@ import type {
   CreateChatRequest,
   ModelOptionResponse,
   SubjectKind,
+  ToolCallFrame,
+  ToolResultFrame,
   TurnRequest,
   TurnSubject,
   UpdateChatRequest,
@@ -143,6 +145,15 @@ export interface TurnStreamHandlers {
   onDone: () => void;
   onError: (message: string) => void;
   onCanvas?: (frame: CanvasFrame) => void;
+  /**
+   * The assistant is about to invoke a tool (024). OPTIONAL, exactly like
+   * `onCanvas`: every pre-024 caller stays valid and a caller with nowhere to show
+   * a trace simply omits it. Reaches this interface through `sse.ts`'s EXISTING
+   * generic-event routing — `sse.ts` is NOT modified.
+   */
+  onToolCall?: (frame: ToolCallFrame) => void;
+  /** That tool has returned (024). Same optionality and same routing. */
+  onToolResult?: (frame: ToolResultFrame) => void;
 }
 
 /**
@@ -224,6 +235,14 @@ export async function streamChatTurn(
           // is unmodified. A malformed payload is dropped, never forwarded.
           const frame = canvasFrame(data);
           if (frame !== null) handlers.onCanvas?.(frame);
+        } else if (event === "tool_call") {
+          // 024: same shape as the `canvas` branch above — generic routing in,
+          // narrowed here, a malformed payload DROPPED rather than forwarded.
+          const frame = toolCallFrame(data);
+          if (frame !== null) handlers.onToolCall?.(frame);
+        } else if (event === "tool_result") {
+          const frame = toolResultFrame(data);
+          if (frame !== null) handlers.onToolResult?.(frame);
         }
       },
       onDone: () => handlers.onDone(),
@@ -294,6 +313,59 @@ function canvasFrame(data: unknown): CanvasFrame | null {
     text,
     ...(resolvedOp === undefined ? {} : { op: resolvedOp }),
   };
+}
+
+/**
+ * Narrow a raw `tool_call` `data: unknown` payload to a {@link ToolCallFrame}, or
+ * `null` when it is not one (024).
+ *
+ * Mirrors {@link canvasFrame}'s discipline EXACTLY: narrow field by field from
+ * `unknown` and return `null` — dropping the whole frame — on any type mismatch or
+ * missing required field. A bad or absent field is NEVER defaulted; a malformed
+ * frame is invisible, not partially rendered.
+ *
+ * `arguments` must be a non-null, non-array object; `tool_name` must be a string.
+ */
+function toolCallFrame(data: unknown): ToolCallFrame | null {
+  if (data === null || typeof data !== "object") return null;
+  const raw = data as { tool_name?: unknown; arguments?: unknown };
+
+  const toolName = raw.tool_name;
+  const args = raw.arguments;
+
+  if (typeof toolName !== "string") return null;
+  // An ARRAY is `typeof "object"` too, and `null` is as well — neither is an
+  // arguments map. An ABSENT `arguments` is malformed, not "no arguments": a
+  // tool called with none still carries `{}` on the wire, so defaulting here
+  // would invent a call shape the backend never sent.
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return null;
+
+  return { tool_name: toolName, arguments: args as Record<string, unknown> };
+}
+
+/**
+ * Narrow a raw `tool_result` `data: unknown` payload to a {@link ToolResultFrame},
+ * or `null` when it is not one (024). Same drop-on-mismatch discipline as
+ * {@link toolCallFrame}: `tool_name` and `result` must be strings and `ok` must be
+ * a boolean, or the whole frame is dropped.
+ *
+ * Both `result: ""` and `ok: false` are FALSY BUT VALID — a tool legitimately
+ * returns nothing, and a failed call is exactly what `ok: false` reports — so
+ * every check here is a `typeof` test, never a truthiness one.
+ */
+function toolResultFrame(data: unknown): ToolResultFrame | null {
+  if (data === null || typeof data !== "object") return null;
+  const raw = data as { tool_name?: unknown; result?: unknown; ok?: unknown };
+
+  const toolName = raw.tool_name;
+  const result = raw.result;
+  const ok = raw.ok;
+
+  if (typeof toolName !== "string") return null;
+  if (typeof result !== "string") return null;
+  if (typeof ok !== "boolean") return null;
+
+  return { tool_name: toolName, result, ok };
 }
 
 /** Narrow a raw `thinking` / `delta` `data: unknown` payload to its `text` chunk. */

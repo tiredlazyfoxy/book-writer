@@ -848,8 +848,20 @@ async def test_web_search_binds_unchanged_with_a_context__DoD13(db: DbConfig):
 
 
 # DoD-13, through a live turn: a no-mode turn (BASE_TOOL_NAMES, context.md
-# decision 6) still offers web_search and dispatches it to 011's own callable,
-# now that build_tool_bindings is handed the turn's ToolContext.
+# decision 6) still OFFERS web_search, now that build_tool_bindings is handed the
+# turn's ToolContext.
+#
+# Amended by feature 024 (chat-agent-loop): this case also asserted that the
+# callable handed to `chat_with_tools` under "web_search" IS the raw `web_search`
+# function object. 024/plan.md -> DoD-11 and decision D1 require the turn to pass
+# `tools=` a map of TRACE-WRAPPED callables (every other argument unchanged), so
+# object identity can never hold again by design. The behavioural property this
+# case is for -- a no-mode turn still offers web_search, under that exact name,
+# alongside exactly BASE_TOOL_NAMES -- is preserved and asserted below; the
+# identity check is dropped as the only thing D1 invalidates. The context-free
+# binding identity at `build_tool_bindings` level is untouched: it is asserted by
+# `test_web_search_binds_unchanged_with_a_context__DoD13` above, which the wrapper
+# does not sit on.
 async def test_web_search_still_offered_on_a_no_mode_turn__DoD13(
     db: DbConfig, monkeypatch
 ):
@@ -870,4 +882,10 @@ async def test_web_search_still_offered_on_a_no_mode_turn__DoD13(
 
     assert frames[-1].event == "done"
     assert set(fake.call["tools"].keys()) == set(assistant_runtime.BASE_TOOL_NAMES)
-    assert fake.call["tools"]["web_search"] is web_search
+    # web_search is offered, by name, with a dispatchable callable behind it and a
+    # matching tool definition -- the turn can still reach it.
+    assert "web_search" in fake.call["tools"]
+    assert callable(fake.call["tools"]["web_search"])
+    assert "web_search" in {
+        d["function"]["name"] for d in fake.call["tools_definitions"]
+    }

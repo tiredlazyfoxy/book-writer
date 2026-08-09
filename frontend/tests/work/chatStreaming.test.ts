@@ -30,6 +30,7 @@ import type {
   ChatMessageResponse,
   ChatResponse,
   ChatSamplingParams,
+  ToolTraceEntry,
 } from "../../src/types/chats";
 import * as chatsApi from "../../src/api/chats";
 import * as client from "../../src/api/client";
@@ -107,12 +108,16 @@ function makeChat(
   };
 }
 
+// 024.chat-agent-loop: `ChatMessageResponse.tool_trace` is a REQUIRED nullable
+// field, so this fixture carries it. It defaults to `null` — every pre-existing
+// call site is unchanged and no assertion in this file moved.
 function makeMessage(
   id: string,
   role: string,
   content: string,
   position: number,
   reasoning: string | null = null,
+  toolTrace: ToolTraceEntry[] | null = null,
 ): ChatMessageResponse {
   return {
     id,
@@ -122,6 +127,7 @@ function makeMessage(
     reasoning,
     position,
     created_at: "2026-01-01T00:00:00Z",
+    tool_trace: toolTrace,
   };
 }
 
@@ -412,5 +418,108 @@ describe("switching the active chat mid-stream aborts the live stream (DoD-10)",
 
     stopChatTurn(state);
     expect(controller.abort).toHaveBeenCalled();
+  });
+});
+
+/* ===========================================================================
+ * 024.chat-agent-loop — DoD-6: the live-to-persisted tool-trace handoff.
+ *
+ * Bound to the frozen skeleton (`status.md` -> `## Skeleton`):
+ *   chatPaneState.ts: `interface ToolTraceRow { toolName; arguments; result; ok }`,
+ *     `RenderedMessage.toolTrace: ToolTraceRow[]`,
+ *     `ChatPaneState.streamingToolTrace: ToolTraceRow[]`
+ *   api/chats.ts: `TurnStreamHandlers.onToolCall?` / `.onToolResult?`
+ *   types/chats.d.ts: `ChatMessageResponse.tool_trace: ToolTraceEntry[] | null`
+ *
+ * The seam `context.md` names: `finishTurn` reloads via `getChat` and CLEARS the
+ * streaming buffers, so a live-only trace would vanish exactly when the turn ends.
+ * The persisted values below are deliberately DIFFERENT from the live ones, so the
+ * rendered trace can only match if it was re-derived from the reloaded
+ * `ChatMessageResponse.tool_trace`. The live frames are fired through the turn's
+ * own handlers (`installTurnStream` captures them), the same way every other case
+ * in this file drives a frame.
+ * =========================================================================== */
+
+describe("the tool trace survives the done reload (DoD-6)", () => {
+  it("DoD-6: after finishTurn's reload the rendered toolTrace comes from the persisted message, not the cleared live buffer", async () => {
+    const state = new ChatPaneState();
+    primeActiveChat(state, []);
+    const fixture = installTurnStream(vi.mocked(chatsApi.streamChatTurn));
+
+    await sendChatTurn(state, BOOK_ID, "look Halden up and draft it");
+
+    // The turn makes a tool call live, and it lands in the live buffer.
+    const handlers = fixture.last().handlers;
+    handlers.onToolCall?.({
+      tool_name: "codex_search",
+      arguments: { query: "LIVE-ONLY-QUERY" },
+    });
+    handlers.onToolResult?.({
+      tool_name: "codex_search",
+      result: "LIVE-ONLY-RESULT",
+      ok: true,
+    });
+    expect(state.streamingToolTrace).toHaveLength(1);
+
+    // What the server persisted for that same turn — the same two calls, but with
+    // values no live buffer in this test ever held.
+    const persisted: ToolTraceEntry[] = [
+      {
+        tool_name: "codex_search",
+        arguments: { query: "PERSISTED-QUERY" },
+        result: "3 hits: Halden, Northgate",
+        ok: true,
+      },
+      {
+        tool_name: "write_codex_draft",
+        arguments: { field: "body" },
+        result: "the tool failed: no subject bound",
+        ok: false,
+      },
+    ];
+    const userMsg = makeMessage("m-1", "user", "look Halden up and draft it", 0);
+    const assistantMsg = makeMessage(
+      "m-2",
+      "assistant",
+      "Here is the draft.",
+      1,
+      null,
+      persisted,
+    );
+    vi.mocked(chatsApi.getChat).mockResolvedValue({
+      chat: CHAT,
+      messages: [userMsg, assistantMsg],
+    });
+
+    fixture.done();
+
+    await vi.waitFor(() => {
+      const assistants = state.renderedMessages.filter((m) => m.role === "assistant");
+      expect(assistants).toHaveLength(1);
+      expect(assistants[0].toolTrace).toHaveLength(2);
+    });
+
+    const rendered = state.renderedMessages.filter((m) => m.role === "assistant")[0];
+
+    // The turn's tool calls are still visible after the turn ended — in order,
+    // fully resolved (never a pending row), with the failed call still marked failed.
+    expect(rendered.toolTrace.map((row) => row.toolName)).toEqual([
+      "codex_search",
+      "write_codex_draft",
+    ]);
+    expect(rendered.toolTrace[0].arguments).toEqual({ query: "PERSISTED-QUERY" });
+    expect(rendered.toolTrace[0].result).toBe("3 hits: Halden, Northgate");
+    expect(rendered.toolTrace[0].ok).toBe(true);
+    expect(rendered.toolTrace[1].result).toBe("the tool failed: no subject bound");
+    expect(rendered.toolTrace[1].ok).toBe(false);
+
+    // Sourced from the reload, not from the live buffer: the buffer is cleared and
+    // none of its values survive into what is rendered.
+    expect(state.streamingToolTrace).toHaveLength(0);
+    expect(JSON.stringify(rendered.toolTrace)).not.toContain("LIVE-ONLY");
+
+    // A persisted message whose tool_trace is null renders an empty trace.
+    const userRow = state.renderedMessages.filter((m) => m.role === "user")[0];
+    expect(userRow.toolTrace).toHaveLength(0);
   });
 });

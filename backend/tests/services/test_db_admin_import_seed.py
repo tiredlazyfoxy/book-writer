@@ -85,7 +85,14 @@ async def test_admin_import_seeds_the_fixed_five__F2(db: DbConfig):
 
 # F2 — an archive that already carries mode rows keeps them exactly as archived:
 # the stored prompts survive, no duplicate row appears, and there are exactly the
-# fixed five afterwards (the archive's missing keys are the seed's, promptless).
+# fixed five afterwards (the archive's missing keys are the seed's own, carrying
+# the seed's default prompt).
+#
+# Amended by feature 024 (chat-agent-loop), decision D4: rows the seed creates now
+# carry `DEFAULT_MODE_SYSTEM_PROMPTS[key]` instead of a null prompt (024/plan.md ->
+# DoD-4 / DoD-12). Only the two seed-created rows' expected prompt changed; the
+# archived rows' verbatim survival, the no-duplicate count and the exact key set
+# are untouched.
 async def test_admin_import_preserves_archived_mode_rows__F2(db: DbConfig):
     created_at = datetime(2026, 8, 8, 6, 0, 0)
     for key, prompt in ARCHIVED_PROMPTS.items():
@@ -116,7 +123,11 @@ async def test_admin_import_preserves_archived_mode_rows__F2(db: DbConfig):
     for key in ABSENT_FROM_ARCHIVE:
         seeded = await assistant_modes.get_by_id(key)
         assert seeded is not None
-        assert seeded.system_prompt is None
+        # The seed's own default prompt — non-blank, and never an archived row's
+        # text (which would mean a seeded row displaced an archived one).
+        assert seeded.system_prompt is not None
+        assert seeded.system_prompt.strip() != ""
+        assert seeded.system_prompt not in set(ARCHIVED_PROMPTS.values())
 
 
 # F2 (Constraints) — a REFUSED import must not seed: the corrupt-archive refusal

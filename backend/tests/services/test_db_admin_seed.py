@@ -220,7 +220,16 @@ async def test_seed_table_rows_creates_the_five_and_is_idempotent__F1(db: DbConf
 
 
 # F1 point 7 — existing rows are untouched: an admin-edited `system_prompt`
-# survives the seed verbatim, and the rows the seed creates carry no prompt.
+# survives the seed verbatim, and the rows the seed creates carry the seed's own
+# default prompt (never the admin's text).
+#
+# Amended by feature 024 (chat-agent-loop), decision D4: the seed now writes
+# `DEFAULT_MODE_SYSTEM_PROMPTS[key]` for a key with no existing row instead of
+# leaving it null (024/plan.md -> DoD-4 / DoD-12), so the "rows the seed creates
+# carry no prompt" half of this clause is what D4 invalidates. F1 point 7's actual
+# property — the admin's edit survives verbatim and is not copied onto or
+# displaced by the seeded rows — is preserved and, on the seeded rows, tightened
+# from "null" to "non-blank AND not the admin's text".
 async def test_seed_table_rows_preserves_an_edited_prompt__F1(db: DbConfig):
     await _create_mode("edit-fact", "Admin-edited prompt for edit-fact.")
 
@@ -235,7 +244,9 @@ async def test_seed_table_rows_preserves_an_edited_prompt__F1(db: DbConfig):
     assert len(rows) == 5
     for row in rows:
         if row.key != "edit-fact":
-            assert row.system_prompt is None
+            assert row.system_prompt is not None
+            assert row.system_prompt.strip() != ""
+            assert row.system_prompt != "Admin-edited prompt for edit-fact."
 
 
 # F1 point 6 — refusals that need no schema arrangement: a name not in the

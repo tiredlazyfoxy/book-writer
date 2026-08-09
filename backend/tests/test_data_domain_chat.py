@@ -449,6 +449,10 @@ CHAT_FIELDS = {
     "created_at",
     "modified_at",
 }
+# Amended again by feature 024 (chat-agent-loop): `plan.md` -> `## Interface`
+# declares `ChatMessage.tool_trace: str | None = Field(default=None)` — the
+# nullable JSON-in-TEXT trace column. The pin is stale against the frozen
+# interface, not wrong about anything else; no other assertion here changed.
 CHAT_MESSAGE_FIELDS = {
     "id",
     "chat_id",
@@ -457,6 +461,7 @@ CHAT_MESSAGE_FIELDS = {
     "reasoning",
     "position",
     "created_at",
+    "tool_trace",
 }
 
 

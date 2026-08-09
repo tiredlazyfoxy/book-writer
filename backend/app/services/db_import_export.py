@@ -995,7 +995,12 @@ def _chat_message_to_dict(message: ChatMessage) -> dict[str, object]:
     through; ``position`` plain int passthrough; nullable ``created_at`` via
     ``.isoformat()`` or ``None``.
 
-    Skeleton (008 step 009): signature frozen; body UNIMPLEMENTED.
+    ``tool_trace`` (024) is exported as the STORED COLUMN STRING, verbatim — the
+    same JSON-in-TEXT treatment ``Chat.sampling_params`` gets two functions up.
+    The column is a serialized document, not a structure this codec models: it is
+    written and read only through
+    :class:`~app.models.schemas.chats.ToolTrace`, so re-encoding it here would
+    give a second writer and a second chance to drift.
     """
     return {
         "id": str(message.id),
@@ -1007,6 +1012,7 @@ def _chat_message_to_dict(message: ChatMessage) -> dict[str, object]:
         "created_at": (
             message.created_at.isoformat() if message.created_at else None
         ),
+        "tool_trace": message.tool_trace,
     }
 
 
@@ -1018,7 +1024,9 @@ def _dict_to_chat_message(data: dict[str, object]) -> ChatMessage:
     / ``content`` read directly; ``position`` plain int passthrough;
     ``created_at`` parsed from isoformat.
 
-    Skeleton (008 step 009): signature frozen; body UNIMPLEMENTED.
+    ``tool_trace`` (024) is restored verbatim via ``.get(...)``, so a pre-024
+    archive — which has no such key — imports with the column ``None``, exactly
+    what a message with no tool calls carries anyway.
     """
     raw_id = data.get("id")
     created_at = data.get("created_at")
@@ -1030,6 +1038,7 @@ def _dict_to_chat_message(data: dict[str, object]) -> ChatMessage:
         reasoning=data.get("reasoning"),
         position=data["position"],
         created_at=datetime.fromisoformat(created_at) if created_at else None,
+        tool_trace=data.get("tool_trace"),
     )
 
 

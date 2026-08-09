@@ -15,6 +15,57 @@ from sqlmodel import select
 from app.db.engine import get_standalone_session
 from app.models.mode_tool import ModeTool
 
+# The default tool selection seeded for each of the fixed five modes on a fresh
+# database (024, D4). Keys mirror ``db/assistant_modes.py:DEFAULT_MODE_KEYS``;
+# every name is an entry of ``services/tools.py:TOOL_REGISTRY``.
+#
+# A mode with ZERO ``mode_tool`` rows is an empty allowlist (the 012 rule, which
+# 024 does not touch) — so before this constant existed, every one of the five
+# modes resolved to no tools at all. Only the seeded STARTING STATE changes.
+#
+# The three codex modes and ``write-chapter`` carry ``web_search`` because losing
+# it on a mode-bearing turn was an unintended consequence of the zero-rows rule,
+# not a deliberate narrowing (``BASE_TOOL_NAMES`` gives it to every mode-less
+# turn). ``close-chapter`` carries exactly the five tools
+# ``assistant-config.md`` / ``services/close_tools.py`` already name as its set —
+# no more.
+DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
+    "edit-character": (
+        "web_search",
+        "codex_search",
+        "codex_read_entry",
+        "write_codex_draft",
+    ),
+    "edit-location": (
+        "web_search",
+        "codex_search",
+        "codex_read_entry",
+        "write_codex_draft",
+    ),
+    "edit-fact": (
+        "web_search",
+        "codex_search",
+        "codex_read_entry",
+        "write_codex_draft",
+    ),
+    "write-chapter": (
+        "web_search",
+        "codex_search",
+        "codex_read_entry",
+        "read_chapter_text",
+        "set_chapter_text",
+        "update_selection",
+        "add_text",
+    ),
+    "close-chapter": (
+        "draft_chapter_summary",
+        "draft_chapter_notes",
+        "propose_active_notes",
+        "raise_check_flag",
+        "read_continuity_context",
+    ),
+}
+
 
 async def create(row: ModeTool) -> ModeTool:
     """Persist ``row`` and return it with its snowflake ``id`` populated."""
@@ -62,3 +113,30 @@ async def delete_by_mode(mode_key: str) -> int:
             await session.delete(row)
         await session.commit()
         return len(rows)
+
+
+async def seed_default_mode_tools() -> None:
+    """Idempotently give each default mode its default tool selection (024, D4).
+
+    For every key of :data:`DEFAULT_MODE_TOOL_NAMES`: if that mode currently holds
+    **zero** ``ModeTool`` rows, insert one row per name in its default set. A mode
+    with **any** existing row — previously seeded, admin-edited down to a subset,
+    or admin-extended — is left entirely untouched.
+
+    **The idempotency unit is the mode, not the row.** That is the whole safety
+    property: a tool an admin deliberately removed is never re-added, as long as
+    the mode still holds at least one row. Safe to call any number of times.
+
+    Called from ``services/setup.py`` at both existing ``seed_default_modes()``
+    call sites, immediately after that call.
+    """
+    for mode_key, tool_names in DEFAULT_MODE_TOOL_NAMES.items():
+        # The idempotency check, asked ONCE per mode: any row at all means this
+        # mode's selection is somebody's decision — a previous seed's or an
+        # admin's — and the whole set is left alone. Asking per (mode, tool)
+        # instead would re-add a tool an admin deliberately removed on every
+        # subsequent seed, which is the failure this shape exists to prevent.
+        if await list_by_mode(mode_key):
+            continue
+        for tool_name in tool_names:
+            await create(ModeTool(mode_key=mode_key, tool_name=tool_name))

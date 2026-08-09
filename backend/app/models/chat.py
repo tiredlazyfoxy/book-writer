@@ -71,6 +71,13 @@ class ChatMessage(SQLModel, table=True):
     - ``position`` — required non-null int; the message number / order of the
       message within its chat (an explicit ordinal alongside ``created_at``).
     - ``created_at`` — nullable, app-set timestamp (single timestamp).
+    - ``tool_trace`` — nullable TEXT holding a JSON object (024): the ordered
+      trace of the tool calls the assistant made while producing this message.
+      ``None`` for user messages and for an assistant turn during which no tool
+      ran. Same JSON-in-TEXT-behind-a-Pydantic-model shape as
+      ``Chat.sampling_params`` (``backend/persistence.md``): written via
+      ``ToolTrace(...).to_column()``, read via ``ToolTrace.parse_column(...)`` —
+      those two are the column's only reader and writer.
     """
 
     __tablename__ = "chat_messages"
@@ -82,3 +89,4 @@ class ChatMessage(SQLModel, table=True):
     reasoning: str | None = Field(default=None)
     position: int
     created_at: datetime | None = Field(default=None)
+    tool_trace: str | None = Field(default=None)

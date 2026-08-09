@@ -271,10 +271,19 @@ async def test_list_modes_returns_fixed_five_in_order__DoD1_UC095_US110_AC1(
     assert other.tool_names == []
     assert other.sub_agent_ids == []
 
-    # A seeded, never-configured mode reports a null prompt rather than being
-    # dropped from the list.
+    # A seeded, never-configured mode is listed with the prompt the SEED gave it,
+    # rather than being dropped from the list.
+    #
+    # Amended by feature 024 (chat-agent-loop), decision D4: seed_default_modes()
+    # now writes a real non-blank system_prompt for a key with no existing row
+    # instead of None (024/plan.md -> DoD-4 / DoD-12), so "never configured by an
+    # admin" no longer means "null prompt". The clause this case exists for — an
+    # unconfigured mode is still LISTED, with empty selections — is unchanged; only
+    # the prompt's expected value moved. The prompt text itself stays untested
+    # (024/plan.md -> Test plan -> "Not tested").
     untouched = by_key["write-chapter"]
-    assert untouched.system_prompt is None
+    assert untouched.system_prompt is not None
+    assert untouched.system_prompt.strip() != ""
     assert untouched.tool_names == []
     assert untouched.sub_agent_ids == []
 

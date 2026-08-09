@@ -29,8 +29,11 @@ internals:
       not to carry all five, so the archive here is a prompt-bearing PARTIAL set:
       "exactly five afterwards" is then reachable only when the seed runs on the
       import path, while the archived rows still test non-destructiveness. Rows
-      the seed creates carry `system_prompt = None` (001.context.md ->
-      "seed_default_modes and the gap being closed").
+      the seed creates carried `system_prompt = None` (001.context.md ->
+      "seed_default_modes and the gap being closed") until feature 024's decision
+      D4, which makes the seed write a real non-blank default prompt for a key
+      with no existing row (024/plan.md -> DoD-4 / DoD-12); DoD-9's own clause is
+      otherwise unchanged.
     (DoD-1..DoD-7 live in tests/db/test_assistant_config_db.py; DoD-10 is
     [manual/live] — no automated test.)
 
@@ -166,8 +169,20 @@ async def test_import_database_seed_is_non_destructive__DoD9(db: DbConfig):
         assert fetched is not None
         assert fetched.system_prompt == prompt
 
-    # The keys the archive lacked exist as freshly seeded rows (null prompt).
+    # The keys the archive lacked exist as freshly seeded rows, carrying the
+    # seed's own default prompt.
+    #
+    # Amended by feature 024 (chat-agent-loop), decision D4: seed_default_modes()
+    # now writes `DEFAULT_MODE_SYSTEM_PROMPTS[key]` for a key with no existing row
+    # in place of `system_prompt=None` (024/plan.md -> DoD-4 / DoD-12), which is
+    # exactly the "(null prompt)" this loop pinned. DoD-9's own property — the
+    # archive's stored prompts survive untouched, no duplicate row, exactly five
+    # modes afterwards — is asserted above and is unchanged.
     for key in ABSENT_FROM_ARCHIVE:
         seeded = await assistant_modes.get_by_id(key)
         assert seeded is not None
-        assert seeded.system_prompt is None
+        assert seeded.system_prompt is not None
+        assert seeded.system_prompt.strip() != ""
+        # Never an archived row's text: a seeded row must not displace an
+        # imported one.
+        assert seeded.system_prompt not in set(ARCHIVED_PROMPTS.values())

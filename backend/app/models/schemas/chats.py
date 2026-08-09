@@ -24,7 +24,7 @@ declarative — there is nothing to leave unimplemented.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -151,9 +151,106 @@ class ChatTitleResponse(BaseModel):
     changed: bool
 
 
+class ToolCallFrame(BaseModel):
+    """``data:`` payload of a ``tool_call`` SSE frame (024) — the assistant is
+    about to invoke ``tool_name`` with ``arguments``.
+
+    The sixth frame kind, beside ``thinking`` / ``delta`` / ``done`` / ``error`` /
+    ``canvas``. ``routes/chats.py``'s serializer is generic over the event name, so
+    this frame reaches the client with **no route change**.
+
+    - ``tool_name`` — the registry name of the tool being called.
+    - ``arguments`` — the keyword arguments the model produced for it, whole
+      (``chat_with_tools`` hands a tool its arguments only once the model has
+      finished emitting them — there is no partial-argument frame).
+    """
+
+    tool_name: str
+    arguments: dict[str, Any]
+
+
+class ToolResultFrame(BaseModel):
+    """``data:`` payload of a ``tool_result`` SSE frame (024) — ``tool_name`` has
+    returned.
+
+    Always follows exactly one :class:`ToolCallFrame` for the same tool, in the
+    same turn: ``chat_with_tools`` dispatches tool calls sequentially, so at most
+    one call is in flight at a time.
+
+    - ``tool_name`` — the registry name of the tool that returned.
+    - ``result`` — the tool's returned text, or the error string the wrapper
+      substituted when the call (or its frame emission) failed.
+    - ``ok`` — whether the call completed without raising.
+    """
+
+    tool_name: str
+    result: str
+    ok: bool
+
+
+class ToolTraceEntry(BaseModel):
+    """One row of a turn's tool-call trace (024) — a completed call, call side and
+    result side joined.
+
+    The live pair (:class:`ToolCallFrame` + :class:`ToolResultFrame`) is what the
+    client renders *during* the turn; this is the same fact persisted onto the
+    assistant :class:`~app.models.chat.ChatMessage`'s ``tool_trace`` column so it
+    survives the reload that replaces the in-flight bubble.
+    """
+
+    tool_name: str
+    arguments: dict[str, Any]
+    result: str
+    ok: bool
+
+
+class ToolTrace(BaseModel):
+    """The typed gate over the ``ChatMessage.tool_trace`` JSON/TEXT column (024).
+
+    The same JSON-in-TEXT-behind-a-Pydantic-model shape ``Chat.sampling_params``
+    already uses (``backend/persistence.md``): this model is the **sole** reader
+    and writer of the column, so no free dictionary and no raw ``json`` call ever
+    touches it.
+
+    """
+
+    entries: list[ToolTraceEntry]
+
+    @classmethod
+    def parse_column(cls, raw: str | None) -> list[ToolTraceEntry] | None:
+        """Read the nullable ``tool_trace`` column into its entries.
+
+        ``None`` in → ``None`` out (a turn during which no tool ran stores no
+        trace). Otherwise the stored JSON is parsed through this model and its
+        ``entries`` returned — an empty trace therefore reads back as ``[]``, not
+        as ``None``.
+
+        A value that no longer parses is treated as no trace (``None``) rather
+        than failing the read, the same tolerance ``services/chats.py``'s
+        ``_parse_sampling`` applies to the sibling ``Chat.sampling_params``
+        column: a message must stay readable even if its trace does not.
+        """
+        if raw is None:
+            return None
+        try:
+            return cls.model_validate_json(raw).entries
+        except (ValueError, TypeError):
+            return None
+
+    def to_column(self) -> str:
+        """Serialize this trace to the column's JSON-in-TEXT form."""
+        return self.model_dump_json()
+
+
 class ChatMessageResponse(BaseModel):
     """A single message within a chat. ``reasoning`` is the assistant's thinking
-    (``None`` for user messages and assistants that produced none)."""
+    (``None`` for user messages and assistants that produced none).
+
+    ``tool_trace`` (024) is the ordered list of tool calls the assistant made while
+    producing this message — ``None`` for user messages and for an assistant turn
+    during which no tool ran. It **defaults to ``None``** so every pre-024 caller
+    that builds this DTO still binds unchanged.
+    """
 
     id: str
     chat_id: str
@@ -162,6 +259,7 @@ class ChatMessageResponse(BaseModel):
     reasoning: str | None
     position: int
     created_at: datetime | None
+    tool_trace: list[ToolTraceEntry] | None = None
 
 
 class ChatMessageListResponse(BaseModel):

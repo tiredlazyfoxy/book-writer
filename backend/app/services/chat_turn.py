@@ -72,11 +72,13 @@ serializer is generic over the event name, so a ``TurnFrame`` whose event is
 """
 
 import asyncio
+import functools
+import inspect
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 import aiohttp
 from llm import LLMError
@@ -93,6 +95,10 @@ from app.models.schemas.chats import (
     DoneFrame,
     ErrorFrame,
     ThinkingFrame,
+    ToolCallFrame,
+    ToolResultFrame,
+    ToolTrace,
+    ToolTraceEntry,
     TurnRequest,
 )
 from app.services import assistant_runtime
@@ -104,6 +110,7 @@ from app.services import prompt_composition
 from app.services import secrets
 from app.services import subagent_delegation
 from app.services import tools as tools_service
+from app.services.tools import FrameEmitter
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +327,135 @@ _STREAM_DONE = object()
 _ERROR_MESSAGE = (
     "The assistant could not complete this turn. Please try again."
 )
+
+# What a tool that RAISED returns to the model instead (024). Every tool module's
+# contract is "a tool never raises" — this is the wrapper keeping that contract on
+# behalf of one that broke it, so ``chat_with_tools`` sees an ordinary string
+# result and the turn carries on rather than aborting on a ``RuntimeError``.
+_TOOL_FAILED_MESSAGE = "Tool '{name}' failed: {error}"
+
+# How many characters of a tool result the debug dump prints per call (D5). A tool
+# result can be a whole chapter; the dump is a diagnostic, not an archive.
+_DEBUG_RESULT_CHARS = 2000
+
+
+async def _emit_trace_frame(
+    emit_frame: FrameEmitter, event: str, data: BaseModel
+) -> None:
+    """Put one trace frame on the turn's stream, swallowing a delivery failure.
+
+    The trace is a VISIBILITY channel: if a frame cannot be delivered the author
+    loses sight of one call, but the tool call itself — and therefore the turn —
+    must be entirely unaffected. So a failure here is logged and swallowed, never
+    raised into :func:`_wrap_tool_with_trace`'s body, and never allowed to change
+    what the model is told the tool returned. Mirrors the way
+    ``services/codex_tools.py`` already guards its own ``canvas`` emission.
+    """
+    try:
+        await emit_frame(event, data)
+    except Exception:
+        logger.warning(
+            "the %s frame could not be delivered", event, exc_info=True
+        )
+
+
+def _wrap_tool_with_trace(
+    name: str,
+    func: Callable[..., object],
+    emit_frame: FrameEmitter,
+    trace: list[ToolTraceEntry],
+) -> Callable[..., Awaitable[str]]:
+    """Wrap one bound tool callable so every call it receives is announced,
+    reported and recorded (024, D1).
+
+    Returns an **async** wrapper closing over ``name`` / ``func`` / ``emit_frame``
+    / ``trace``. On call it must:
+
+    1. emit a ``tool_call`` frame
+       (``ToolCallFrame(tool_name=name, arguments=kwargs)``) BEFORE invoking the
+       tool;
+    2. invoke ``func(**kwargs)``, awaiting the result if it is awaitable;
+    3. emit a ``tool_result`` frame
+       (``ToolResultFrame(tool_name=name, result=<str>, ok=<bool>)``) after;
+    4. append exactly one :class:`ToolTraceEntry` to ``trace``, in call order.
+
+    **It never raises, and always returns a ``str``.** That is load-bearing —
+    every tool module's contract is "a tool never raises", and
+    ``chat_with_tools`` re-raises an escaping exception as ``RuntimeError`` and
+    aborts the whole turn. Three guards hold it:
+
+    - an exception from ``func`` becomes an error-string result with ``ok=False``
+      — the tool failed, and that is what the model and the trace are told;
+    - an exception from **either** ``emit_frame`` call is caught inside
+      :func:`_emit_trace_frame`, logged and swallowed, so a failed frame emission
+      never aborts the tool call: the tool still runs and its REAL result is what
+      the model, the trace and the caller receive. A lost visibility frame must
+      not rewrite what the assistant was told a tool returned;
+    - an outermost guard covers anything else (a non-serializable argument, a
+      failed model construction), so nothing at all escapes into
+      ``chat_with_tools``'s dispatch loop.
+
+    Applied once per entry of the turn's existing ``tool_map``, immediately before
+    the existing ``client.chat_with_tools(...)`` call; ``tools=`` then receives the
+    wrapped dict and **every other argument is unchanged**.
+    """
+
+    @functools.wraps(func)
+    async def traced_tool(**kwargs: object) -> str:
+        # ``dict(kwargs)`` — the arguments as the model produced them, snapshotted
+        # so the frame and the trace entry can never diverge from each other.
+        arguments: dict[str, Any] = dict(kwargs)
+        try:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("tool call: %s(%r)", name, arguments)
+            await _emit_trace_frame(
+                emit_frame,
+                "tool_call",
+                ToolCallFrame(tool_name=name, arguments=arguments),
+            )
+
+            ok = True
+            try:
+                raw = func(**kwargs)
+                if inspect.isawaitable(raw):
+                    raw = await raw
+                result = raw if isinstance(raw, str) else str(raw)
+            except Exception as exc:
+                # The tool broke its own "never raises" contract. Converted here,
+                # because an exception escaping into ``chat_with_tools`` is
+                # re-raised as ``RuntimeError`` and aborts the WHOLE turn.
+                ok = False
+                result = _TOOL_FAILED_MESSAGE.format(name=name, error=exc)
+                logger.warning("tool %s raised", name, exc_info=True)
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "tool result: %s -> ok=%s %s",
+                    name,
+                    ok,
+                    result[:_DEBUG_RESULT_CHARS],
+                )
+            await _emit_trace_frame(
+                emit_frame,
+                "tool_result",
+                ToolResultFrame(tool_name=name, result=result, ok=ok),
+            )
+            trace.append(
+                ToolTraceEntry(
+                    tool_name=name, arguments=arguments, result=result, ok=ok
+                )
+            )
+            return result
+        except Exception as exc:
+            # The backstop. Nothing above is expected to reach here — every known
+            # failure is already converted — but "a tool never raises" is absolute,
+            # so an unexpected one still leaves as a string.
+            logger.warning(
+                "the tool trace wrapper failed for %s", name, exc_info=True
+            )
+            return _TOOL_FAILED_MESSAGE.format(name=name, error=exc)
+
+    return traced_tool
 
 
 async def compose_turn_system_prompt(context: TurnContext) -> str:
@@ -656,6 +792,18 @@ async def run_turn(
         tool_context,
     )
 
+    # 3b. The tool-call trace (024, D1). ``chat_with_tools`` exposes no before /
+    #     after hook, but the app supplies the callables it dispatches — so one
+    #     generic wrapper around each bound callable sees every call, announces it
+    #     on the SAME queue the other frames ride, and records it for persistence.
+    #     ``tools=`` below receives this wrapped map; every OTHER argument to
+    #     ``chat_with_tools`` is unchanged, and the library itself is untouched.
+    tool_trace: list[ToolTraceEntry] = []
+    traced_tool_map: dict[str, Callable[..., object]] = {
+        tool_name: _wrap_tool_with_trace(tool_name, func, emit_frame, tool_trace)
+        for tool_name, func in tool_map.items()
+    }
+
     # 4. The message history to replay (includes the just-persisted user message).
     history = await chat_messages.list_by_chat_ordered(chat.id)
     messages: list[dict[str, str]] = [
@@ -664,6 +812,25 @@ async def run_turn(
 
     sampling = chats_service._parse_sampling(chat.sampling_params)
     options = build_sampling_options(sampling, server.backend_type)
+
+    # 4b. The context dump (024, D5) — everything actually put in front of the
+    #     model this turn: the composed system prompt, the tools it may call and
+    #     the replayed history. GATED ON LOG LEVEL: prompt text and message bodies
+    #     are the author's book, so a default-level run must never write them to
+    #     the log. The per-call tool arguments and results are dumped from
+    #     :func:`_wrap_tool_with_trace`, under the same gate.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "chat turn context — chat=%s mode=%s tools=%s\n"
+            "--- system prompt ---\n%s\n"
+            "--- history (%d messages) ---\n%s",
+            chat.id,
+            mode_key,
+            sorted(traced_tool_map),
+            system,
+            len(messages),
+            "\n".join(f"[{m['role']}] {m['content']}" for m in messages),
+        )
 
     # The splitter routes each raw delta onto the thinking / content channels; the
     # persisted message is assembled from these accumulators — NOT from
@@ -697,7 +864,9 @@ async def run_turn(
                 await client.chat_with_tools(
                     messages,
                     tools_definitions=tool_defs,
-                    tools=tool_map,
+                    # 024: the ONLY changed argument — the same map, each callable
+                    # wrapped so its call is announced, reported and recorded.
+                    tools=traced_tool_map,
                     system=system,
                     max_loops=MAX_LOOPS,
                     options=options,
@@ -743,6 +912,12 @@ async def run_turn(
     # 6. Success — persist ONE assistant message (content from the content deltas,
     #    reasoning from the thinking deltas) and emit the terminal ``done`` DTO.
     reasoning = "".join(thinking_parts) or None
+    # 024: the trace assembled by the wrappers, written through its typed gate —
+    # ``None`` when NO tool ran, exactly as ``reasoning`` is ``None`` when nothing
+    # was thought. It is persisted for the same reason ``reasoning`` is: the client
+    # discards its live buffers and re-reads the message once the turn ends, so a
+    # live-only trace would erase itself at completion.
+    trace_column = ToolTrace(entries=tool_trace).to_column() if tool_trace else None
     position = await chat_messages.next_position(chat.id)
     assistant = await chat_messages.create(
         ChatMessage(
@@ -752,6 +927,7 @@ async def run_turn(
             reasoning=reasoning,
             position=position,
             created_at=datetime.now(timezone.utc),
+            tool_trace=trace_column,
         )
     )
     # 016: the deterministic post-turn step, run ONCE at natural completion and

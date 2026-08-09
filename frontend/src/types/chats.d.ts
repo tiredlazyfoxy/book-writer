@@ -71,9 +71,29 @@ export interface ChatResponse {
 }
 
 /**
+ * One row of a message's persisted tool-call trace (024) — mirrors backend
+ * `ToolTraceEntry`. A completed call: the call side and the result side joined.
+ *
+ * This is the PERSISTED twin of the live {@link ToolCallFrame} /
+ * {@link ToolResultFrame} pair. It is what survives `finishTurn`'s reload, so the
+ * trace the author watched during the turn is still there once the turn ends.
+ */
+export interface ToolTraceEntry {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result: string;
+  ok: boolean;
+}
+
+/**
  * A single message within a chat — mirrors backend `ChatMessageResponse`.
  * `reasoning` is the assistant's thinking (`null` for user messages and
  * assistants that produced none); step 005 renders it.
+ *
+ * `tool_trace` (024) is the ordered list of tool calls the assistant made while
+ * producing this message — `null` for user messages and for an assistant turn
+ * during which no tool ran. Nullable, never omitted: the backend field carries a
+ * `None` default and is therefore always present on the wire.
  */
 export interface ChatMessageResponse {
   id: string;
@@ -83,6 +103,7 @@ export interface ChatMessageResponse {
   reasoning: string | null;
   position: number;
   created_at: ISODateString | null;
+  tool_trace: ToolTraceEntry[] | null;
 }
 
 /**
@@ -251,4 +272,45 @@ export interface CanvasFrame {
   field: CanvasField;
   text: string;
   op?: CanvasOp;
+}
+
+/**
+ * `data:` payload of a `tool_call` SSE frame (024) — the assistant is about to
+ * invoke `tool_name` with `arguments`. Wire-exact with backend `ToolCallFrame`.
+ *
+ * The SIXTH frame kind, beside `thinking` / `delta` / `done` / `error` / `canvas`.
+ * Like `canvas` it reaches the client through `api/sse.ts`'s EXISTING
+ * generic-event routing (any event name that is not `done` or `error` goes to
+ * `onEvent`), so `sse.ts` is unchanged.
+ *
+ * - `tool_name` — the tool's registry name. NOT a literal union: an unknown name
+ *   must render as a generic row rather than break the trace, so the wire type
+ *   stays a free string here on purpose.
+ * - `arguments` — the keyword arguments the model produced, WHOLE. They arrive in
+ *   one frame, not streamed: `chat_with_tools` hands a tool its arguments only
+ *   once the model has finished emitting them. `Record<string, unknown>`, never
+ *   `any` — a consumer narrows the members it wants to display.
+ */
+export interface ToolCallFrame {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+}
+
+/**
+ * `data:` payload of a `tool_result` SSE frame (024) — `tool_name` has returned.
+ * Wire-exact with backend `ToolResultFrame`. The SEVENTH frame kind.
+ *
+ * Always follows exactly one {@link ToolCallFrame} for the same tool in the same
+ * turn: the backend dispatches tool calls sequentially, so at most one call is in
+ * flight at a time.
+ *
+ * - `tool_name` — the tool's registry name.
+ * - `result` — the tool's returned text, or the error string the backend wrapper
+ *   substituted when the call failed.
+ * - `ok` — whether the call completed without raising.
+ */
+export interface ToolResultFrame {
+  tool_name: string;
+  result: string;
+  ok: boolean;
 }

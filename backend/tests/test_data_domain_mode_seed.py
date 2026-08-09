@@ -50,7 +50,16 @@ FIXED_FIVE_KEYS = {
 
 # DoD-1: on a fresh throwaway DB (init_db already ran via the fixture), calling
 # seed_default_modes() creates exactly five AssistantMode rows, whose keys are
-# exactly the fixed five; each seeded row is created with system_prompt = None.
+# exactly the fixed five; each seeded row carries a real system_prompt.
+#
+# Amended by feature 024 (chat-agent-loop), decision D4: the seed now writes
+# `DEFAULT_MODE_SYSTEM_PROMPTS[key]` for a key with no existing row, in place of
+# the `system_prompt=None` this clause originally pinned (024/plan.md -> DoD-4 and
+# DoD-12: "Each of the five seeded AssistantMode rows carries a non-blank
+# system_prompt on a fresh database"). The prompt TEXT is deliberately not
+# asserted (024/plan.md -> Test plan -> "Not tested"): only its non-blankness,
+# which is what D4 changed this clause into. The row count and the exact key set
+# above are untouched.
 async def test_seed_creates_exactly_the_fixed_five__DoD1(db: DbConfig):
     await assistant_modes.seed_default_modes()
 
@@ -60,9 +69,10 @@ async def test_seed_creates_exactly_the_fixed_five__DoD1(db: DbConfig):
     assert len(rows) == 5
     # The set of keys equals exactly the fixed five.
     assert {row.key for row in rows} == FIXED_FIVE_KEYS
-    # Each seeded row is created with a null system_prompt.
+    # Each seeded row is created with a real, non-blank system_prompt.
     for row in rows:
-        assert row.system_prompt is None
+        assert row.system_prompt is not None
+        assert row.system_prompt.strip() != ""
 
 
 # ---------------------------------------------------------------------------

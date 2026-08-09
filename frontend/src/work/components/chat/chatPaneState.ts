@@ -7,6 +7,7 @@ import type {
   ChatSamplingParams,
   CreateChatRequest,
   ModelOptionResponse,
+  ToolTraceEntry,
   TurnSubject,
   UpdateChatRequest,
 } from "../../../types/chats";
@@ -66,6 +67,46 @@ export interface RenderedMessage {
   content: string;
   reasoning: string | null;
   streaming: boolean;
+  /**
+   * The tool calls made while this message was produced, in call order (024) —
+   * `[]` when none were. For a persisted message this is mapped from the reloaded
+   * `ChatMessageResponse.tool_trace` (`null` → `[]`), so `result` / `ok` are
+   * always non-null; for the in-flight bubble it is `streamingToolTrace`, where a
+   * row still in flight carries `result: null` / `ok: null`.
+   */
+  toolTrace: ToolTraceRow[];
+}
+
+/**
+ * One row of the tool-call trace as the pane renders it (024) — the live and the
+ * persisted shape unified, so `ToolCallTrace` has ONE thing to render.
+ *
+ * `result` / `ok` are `null` **exactly while a call is in flight** — between its
+ * `tool_call` frame and its `tool_result` frame. A persisted row always has both.
+ */
+export interface ToolTraceRow {
+  toolName: string;
+  arguments: Record<string, unknown>;
+  result: string | null;
+  ok: boolean | null;
+}
+
+/**
+ * Map a persisted message's wire trace onto the pane's row shape (024) — `null`
+ * (no tool ran, or a user message) becomes `[]`.
+ *
+ * A persisted row is always COMPLETE: it was written after the call returned, so
+ * `result` / `ok` are never `null` on this path. Only a live row, between its
+ * `tool_call` and `tool_result` frames, carries nulls.
+ */
+function toolTraceRows(trace: ToolTraceEntry[] | null): ToolTraceRow[] {
+  if (trace === null) return [];
+  return trace.map((entry) => ({
+    toolName: entry.tool_name,
+    arguments: entry.arguments,
+    result: entry.result,
+    ok: entry.ok,
+  }));
 }
 
 /** Stable React key for the single in-flight assistant bubble (no persisted id yet). */
@@ -210,6 +251,15 @@ export class ChatPaneState implements CloseTurnController {
   streamingContent = "";
   /** The in-flight turn's thinking buffer — `thinking` frames appended as they arrive. */
   streamingThinking = "";
+  /**
+   * The in-flight turn's tool-call trace (024) — a flat streaming buffer beside
+   * `streamingContent` / `streamingThinking`, same pattern. A `tool_call` frame
+   * pushes a pending row; the matching `tool_result` frame fills it. Cleared with
+   * the other streaming buffers when the turn finishes — the trace the author
+   * keeps seeing afterwards comes from the RELOADED message's `tool_trace`, not
+   * from here.
+   */
+  streamingToolTrace: ToolTraceRow[] = [];
 
   /** The current turn's lifecycle: idle, streaming, or failed. */
   turnStatus: "idle" | "streaming" | "error" = "idle";
@@ -220,6 +270,17 @@ export class ChatPaneState implements CloseTurnController {
   liveThinkingExpanded = false;
   /** Per persisted-message reasoning expansion, keyed by message id (collapsed by default). */
   expandedReasoning: Record<string, boolean> = {};
+
+  /**
+   * Per tool-trace-row expansion (024), keyed `` `${messageKey}:${rowIndex}` ``
+   * — collapsed by default. The row-level twin of {@link expandedReasoning}: a
+   * trace row is scoped to its message, so the key has to carry both, and the
+   * in-flight bubble's sentinel message key works here unchanged.
+   *
+   * Written only through {@link toggleToolCallRow} (the external-effect
+   * convention), never by the component.
+   */
+  expandedToolCallRows: Record<string, boolean> = {};
 
   /** The composer's pending prompt text (cleared only once a send is accepted). */
   pendingPrompt = "";
@@ -474,6 +535,13 @@ export class ChatPaneState implements CloseTurnController {
       content: m.content,
       reasoning: m.reasoning,
       streaming: false,
+      // THE SEAM (024). This getter is the ONLY place the persisted trace becomes
+      // renderable, and it re-derives from `this.messages` — so once `finishTurn`
+      // swaps the reloaded array in, the trace the author watched during the turn
+      // is still on screen, sourced from the server rather than from the cleared
+      // `streamingToolTrace` buffer. No explicit carry-over step exists, or is
+      // needed.
+      toolTrace: toolTraceRows(m.tool_trace),
     }));
     // The single in-flight assistant bubble, fed from the streaming buffers, is
     // appended only while a turn streams (it carries no persisted id yet).
@@ -484,6 +552,9 @@ export class ChatPaneState implements CloseTurnController {
         content: this.streamingContent,
         reasoning: this.streamingThinking === "" ? null : this.streamingThinking,
         streaming: true,
+        // The live buffer, read directly: a row still in flight carries
+        // `result: null` / `ok: null` and renders as pending.
+        toolTrace: this.streamingToolTrace,
       });
     }
     return rendered;
@@ -844,6 +915,9 @@ export async function loadChatMessages(
     state.turnError = null;
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     state.expandedReasoning = {};
   });
@@ -950,6 +1024,8 @@ export async function sendChatTurn(
     reasoning: null,
     position: state.messages.length,
     created_at: null,
+    // 024: a user message never carries a tool trace.
+    tool_trace: null,
   };
 
   runInAction(() => {
@@ -961,6 +1037,9 @@ export async function sendChatTurn(
     state.openedPanel = null;
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     state.turnStatus = "streaming";
     state.turnError = null;
@@ -1041,6 +1120,9 @@ export async function retryChatTurn(state: ChatPaneState, bookId: string): Promi
   runInAction(() => {
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     state.turnStatus = "streaming";
     state.turnError = null;
@@ -1083,6 +1165,9 @@ export function stopChatTurn(state: ChatPaneState): void {
     state.turnController = null;
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     // A user-initiated stop re-enables the composer; an already-failed turn keeps
     // its error/retry surface.
@@ -1090,6 +1175,23 @@ export function stopChatTurn(state: ChatPaneState): void {
       state.turnStatus = "idle";
       state.turnError = null;
     }
+  });
+}
+
+/**
+ * Flip one tool-trace row's expansion (024) — `state.expandedToolCallRows[rowKey]`,
+ * where `rowKey` is `` `${messageKey}:${rowIndex}` ``.
+ *
+ * An EXTERNAL effectful operation `(state, args)` per the project's MobX rules, so
+ * `ChatPaneState` keeps no effectful method and `ToolCallTrace` stays fully
+ * controlled and stateless (the `ThinkingBlock` discipline).
+ *
+ * Collapsed is the default, so an absent key reads as `false` and the first
+ * toggle expands it.
+ */
+export function toggleToolCallRow(state: ChatPaneState, rowKey: string): void {
+  runInAction(() => {
+    state.expandedToolCallRows[rowKey] = !(state.expandedToolCallRows[rowKey] ?? false);
   });
 }
 
@@ -1140,6 +1242,45 @@ function turnStreamHandlers(
     onCanvas: (frame) => {
       dispatchCanvasFrame(bookId, frame);
     },
+    // 024 — the live half of the trace. A `tool_call` opens a PENDING row; the
+    // `tool_result` that follows closes it. Nothing else in the pane reads these
+    // buffers, and both are cleared with the other streaming state once the turn
+    // ends — what the author keeps seeing then is the RELOADED message's
+    // `tool_trace`.
+    onToolCall: (frame) => {
+      runInAction(() => {
+        state.streamingToolTrace = [
+          ...state.streamingToolTrace,
+          {
+            toolName: frame.tool_name,
+            arguments: frame.arguments,
+            result: null,
+            ok: null,
+          },
+        ];
+      });
+    },
+    onToolResult: (frame) => {
+      runInAction(() => {
+        // The MOST RECENT still-open row. Tool dispatch is sequential on the
+        // backend, so at most one row is ever open — searching backwards for it
+        // is simply the cheapest way to say "the one that is in flight", and a
+        // result arriving with none open (a dropped or duplicated call frame) is
+        // discarded rather than inventing a row nothing announced.
+        const rows = state.streamingToolTrace;
+        let pending = -1;
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+          if (rows[i].result === null) {
+            pending = i;
+            break;
+          }
+        }
+        if (pending === -1) return;
+        state.streamingToolTrace = rows.map((row, i) =>
+          i === pending ? { ...row, result: frame.result, ok: frame.ok } : row,
+        );
+      });
+    },
   };
 }
 
@@ -1167,6 +1308,9 @@ async function finishTurn(state: ChatPaneState, bookId: string, chatId: string):
     if (reloaded !== null) state.messages = reloaded;
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     state.turnStatus = "idle";
     state.turnError = null;
@@ -1251,6 +1395,8 @@ export async function startCloseTurn(
     reasoning: null,
     position: state.messages.length,
     created_at: null,
+    // 024: a user message never carries a tool trace.
+    tool_trace: null,
   };
 
   runInAction(() => {
@@ -1261,6 +1407,9 @@ export async function startCloseTurn(
     state.messages = [...state.messages, optimistic];
     state.streamingContent = "";
     state.streamingThinking = "";
+    // 024: the live trace is a streaming buffer like the two above and is reset
+    // with them — the finished turn's trace lives on the reloaded message.
+    state.streamingToolTrace = [];
     state.liveThinkingExpanded = false;
     state.turnStatus = "streaming";
     state.turnError = null;

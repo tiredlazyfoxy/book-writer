@@ -43,6 +43,7 @@ from app.models.schemas.chats import (
     CreateChatRequest,
     ModelOptionListResponse,
     ModelOptionResponse,
+    ToolTrace,
     UpdateChatRequest,
 )
 from app.services import authz
@@ -117,7 +118,11 @@ def _to_message_response(message: ChatMessage) -> ChatMessageResponse:
     """Map a ``ChatMessage`` row to a :class:`ChatMessageResponse` by hand. Ids
     stringified; nullable ``reasoning`` passed through.
 
-    Skeleton (011 step 001): UNIMPLEMENTED.
+    ``tool_trace`` (024) is read through :meth:`ToolTrace.parse_column`, the
+    column's only reader — ``None`` stays ``None``. This mapper is what carries
+    the persisted trace back to the client after the pane discards its live
+    buffers and re-reads the chat, so it is the same call that serves the ``done``
+    frame's DTO and the reload.
     """
     return ChatMessageResponse(
         id=str(message.id),
@@ -127,6 +132,7 @@ def _to_message_response(message: ChatMessage) -> ChatMessageResponse:
         reasoning=message.reasoning,
         position=message.position,
         created_at=message.created_at,
+        tool_trace=ToolTrace.parse_column(message.tool_trace),
     )
 
 

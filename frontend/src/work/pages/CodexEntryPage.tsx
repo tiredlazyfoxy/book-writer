@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { observer } from "mobx-react-lite";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  ActionIcon,
   Alert,
   Button,
   Container,
@@ -14,6 +15,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { IconArrowBackUp, IconDeviceFloppy } from "@tabler/icons-react";
 import type { CodexKind } from "../../types/codex";
 import { registerContentSubject, unregisterContentSubject } from "../contentSubject";
 import {
@@ -183,7 +185,42 @@ export const CodexEntryPage = observer(function CodexEntryPage({ mode }: CodexEn
   return (
     <Container size="lg" py="md">
       <Stack gap="md">
-        <Title order={3}>{heading}</Title>
+        {/* THE PAGE HEADER (024, D7). The page had no header row: the title was a
+            bare `Title` and Save / Discard were text buttons in a footer below the
+            editor. They move up here as icons so the editor is not interrupted by
+            a control bar, which is a RELOCATION ONLY — the same `canSave` /
+            `isReadOnly` gating, the same handlers, the same "Unsaved changes"
+            text, and `aria-label`s that keep the controls addressable by their
+            accessible names exactly as the text buttons were. */}
+        <Group justify="space-between" wrap="nowrap" gap="xs">
+          <Title order={3}>{heading}</Title>
+          <Group gap="xs" wrap="nowrap">
+            {state.isDirty && (
+              <Text size="sm" c="dimmed">
+                Unsaved changes
+              </Text>
+            )}
+            <ActionIcon
+              aria-label="Save"
+              variant="filled"
+              disabled={!state.canSave}
+              loading={state.saveStatus === "saving"}
+              onClick={() => {
+                void handleSave();
+              }}
+            >
+              <IconDeviceFloppy size={18} stroke={1.5} />
+            </ActionIcon>
+            <ActionIcon
+              aria-label="Discard"
+              variant="default"
+              disabled={state.isReadOnly}
+              onClick={() => discardCodexDraft(state)}
+            >
+              <IconArrowBackUp size={18} stroke={1.5} />
+            </ActionIcon>
+          </Group>
+        </Group>
 
         {state.isReadOnly && state.editability.readOnlyReason !== null && (
           <Alert color="yellow" title="Read-only">
@@ -232,30 +269,6 @@ export const CodexEntryPage = observer(function CodexEntryPage({ mode }: CodexEn
           readOnly={state.isReadOnly}
           onChange={(event) => editCodexDraft(state, "body", event.currentTarget.value)}
         />
-
-        <Group gap="xs">
-          <Button
-            disabled={!state.canSave}
-            loading={state.saveStatus === "saving"}
-            onClick={() => {
-              void handleSave();
-            }}
-          >
-            Save
-          </Button>
-          <Button
-            variant="default"
-            disabled={state.isReadOnly}
-            onClick={() => discardCodexDraft(state)}
-          >
-            Discard
-          </Button>
-          {state.isDirty && (
-            <Text size="sm" c="dimmed">
-              Unsaved changes
-            </Text>
-          )}
-        </Group>
       </Stack>
     </Container>
   );

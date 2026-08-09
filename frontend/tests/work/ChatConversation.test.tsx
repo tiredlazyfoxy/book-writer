@@ -95,6 +95,9 @@ function makeMessage(
     reasoning,
     position,
     created_at: "2026-01-01T00:00:00Z",
+    // 024.chat-agent-loop: `ChatMessageResponse.tool_trace` is a REQUIRED nullable
+    // field. COMPILE RE-BIND ONLY — no assertion in this file changed.
+    tool_trace: null,
   };
 }
 
