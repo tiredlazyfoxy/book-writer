@@ -84,6 +84,25 @@ changes.
   for the one mapper that fills it, and both the `done` frame and `finishTurn`'s reload go through
   it. Possible impact: when a plan adds a field to an existing response DTO, its mapper's module
   belongs in Source areas by default.
+- **Adding a column to an existing table has a second non-optional obligation, undocumented until
+  now.** Feature 024 added `ChatMessage.tool_trace` and the change was complete by every rule the
+  docs state — except that `SQLModel.metadata.create_all` never alters an existing table, so the
+  column reached fresh databases only and every `chat_messages` INSERT failed on an existing
+  install. The remedy is `db/engine.py`'s additive-migration seam, now filled and driven by an
+  `ADDITIVE_COLUMNS` declaration table. Possible impact: state the rule alongside root `CLAUDE.md`'s
+  "DB Import/Export" obligation and in `docs/architecture/backend/persistence.md` — *a new column on
+  an existing table requires an `ADDITIVE_COLUMNS` entry in the same change, exactly as it requires
+  an import/export codec update*; `docs/architecture/backend.md` should describe the seam as the
+  project's in-code migration mechanism (additive only, idempotent by introspection, nullable-only
+  per SQLite).
+- **The seam only fires where `init_db()` is called — the two setup flows (`create_database`,
+  `import_all`) — never at application startup** (`main.py`'s `lifespan` deliberately defers schema
+  creation, and that was explicitly out of scope for this repair). So an instance that is already
+  configured still picks up a new column only via feature 007's admin `sync_table_schema` page or a
+  re-import. Possible impact: whichever architecture doc describes 007's schema-sync page should
+  name the two mechanisms as complementary (seam = fresh-create/import path, admin sync = running
+  instance), and the question of whether reconciliation should ever run at startup is an
+  `/architect` decision that this note deliberately leaves open.
 - The three-layer JSON-in-TEXT trio is now `LlmServer.enabled_models`, `Chat.sampling_params` and
   `ChatMessage.tool_trace`, and only the last one is read through a gate that TOLERATES an
   unparseable stored value (mirroring `services/chats.py:_parse_sampling`, which does the same for

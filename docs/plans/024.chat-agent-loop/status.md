@@ -47,6 +47,32 @@
   "Unsaved changes" text; the footer `Group` is gone. Relocation only — same `canSave` /
   `isReadOnly` gating, same handlers
 
+## Feedback
+
+### Round 1 (2026-08-09)
+
+- F1 bug — `backend/app/db/engine.py` — filled the previously empty **ADDITIVE MIGRATION SEAM** so
+  `ChatMessage.tool_trace` reaches a database created before 024 (`create_all` only ever creates
+  missing *tables*, so on an existing install every `chat_messages` INSERT — including a plain user
+  message — died with `table chat_messages has no column named tool_trace`). Added a module-level
+  `ADDITIVE_COLUMNS: tuple[tuple[str, str], ...]` declaration table (one entry:
+  `("chat_messages", "tool_trace")`) and a private `_apply_additive_columns(sync_conn)` run under
+  `run_sync` inside the seam's existing `_engine.begin()` block. The SQL type is **compiled from
+  `SQLModel.metadata`** (`column.type.compile(dialect=sqlite.dialect())`, the same device
+  `db/schema.py:add_columns` uses) rather than written out, so the DDL cannot drift from the model,
+  and the column is emitted NULLABLE with no default — all SQLite allows on `ADD COLUMN`.
+  **Idempotency is by introspection, not by error text**: live column names are reflected with
+  `inspect(sync_conn)` first and a present column emits no DDL at all, with a
+  `try/except OperationalError` backstop for a lost race; an entry whose table is absent, or whose
+  column is no longer in metadata, is skipped (warned) instead of raising. Raw DDL rather than
+  reusing `db/schema.py`'s `introspect`/`add_columns` because `schema.py` imports `engine.py` —
+  calling into it from here would invert the `db/` layering and need a deferred import to dodge the
+  cycle; the reason is recorded in the seam comment. `async def init_db() -> None` is unchanged, as
+  are both callers (`services/setup.py`, `services/db_import_export.py`), and a fresh database is
+  untouched (the seam emits nothing there — `create_all` already made the column). The seam's
+  comment now names `ADDITIVE_COLUMNS` as the one-line extension point instead of saying "no
+  columns to add yet".
+
 ## Skeleton
 
 ### Frozen interface (2026-08-09)
@@ -185,6 +211,21 @@ weakened elsewhere.
 - Deliberately not tested (per plan `## Test plan`): 6 items — per-tool icon/label styling,
   Save/Discard placement and appearance, the debug-level context dump, the new frame schema
   declarations, mode `system_prompt` wording, `ThinkingBlock`.
+
+### Feedback round 1 — repro tests (2026-08-09)
+
+- `backend/tests/db/test_engine_additive_migration.py` — reproduces: F1 — `init_db()` never carries
+  `ChatMessage.tool_trace` onto a database created before 024, so every `chat_messages` insert
+  (including a plain user message) fails with `table chat_messages has no column named tool_trace`
+  — defends DoD-2. Four tests, all tagged `__F1`, bound to the harvested `init_engine(config)` /
+  `init_db()` signatures: (1) after `init_db()` on a pre-024 database the table carries a nullable
+  `tool_trace` column and a normal-path insert succeeds and round-trips the column; (2) idempotency
+  — a second and third `init_db()` raise nothing, leave the column present exactly once and already
+  written rows intact; (3) first-run on a genuinely fresh database still yields `chat_messages` with
+  a nullable `tool_trace` and a working insert; (4) parameterized end-to-end symptom check after one
+  or two `init_db()` runs. The pre-024 database is built with stdlib `sqlite3`
+  (`ALTER TABLE chat_messages DROP COLUMN tool_trace`) — no implementation internal touched.
+- No existing test modified.
 
 ## Notes & Issues
 
