@@ -23,6 +23,8 @@ if ($Backend) {
         $env:BOOKWRITER_DB_PATH = "$PSScriptRoot\backend\data\test\bookwriter_test.db"
         Write-Host "  Using test DB: $env:BOOKWRITER_DB_PATH"
     }
+    $env:BOOKWRITER_LOG_DIR = "$PSScriptRoot/logs"
+    Write-Host "  Logging to: $env:BOOKWRITER_LOG_DIR"
     & .venv\Scripts\uvicorn app.main:app --port 8185 --reload
     Pop-Location
 }

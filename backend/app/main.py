@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from app.db import engine as db_engine
 from app.db import users
 from app.db import vector
+from app.logging_config import configure_logging
 from app.routes import auth
 from app.routes import book_author_prompts
 from app.routes import books
@@ -41,15 +42,14 @@ from app.routes.admin import users as admin_users
 from app.services import embedding as embedding_service
 from app.settings import get_settings
 
-logging.basicConfig(
+# Console always; the rotating file sink activates only when ``log_dir`` is set
+# (``BOOKWRITER_LOG_DIR``). Third-party quieting lives inside the call.
+_log_settings = get_settings()
+configure_logging(
+    log_dir=_log_settings.log_dir,
+    backup_count=_log_settings.log_backup_count,
     level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler()],
 )
-
-# Silence noisy third-party loggers.
-for _quiet in ("aiosqlite", "httpx", "httpcore"):
-    logging.getLogger(_quiet).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 

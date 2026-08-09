@@ -41,6 +41,14 @@ class Settings(BaseSettings):
       unset so the app boots without web search configured (feature 011).
     - ``google_search_engine_id`` — the Custom Search engine id (``cx``) passed
       to the same resolver. Defaults to unset (feature 011).
+    - ``log_dir`` — directory for the development log file sink. Honors the
+      ``BOOKWRITER_LOG_DIR`` environment override; defaults to unset, which
+      keeps logging console-only (pytest, Docker). ``start.ps1 -app`` points it
+      at the git-ignored repo-root ``logs/``. Consumed by
+      ``app.logging_config.configure_logging``.
+    - ``log_backup_count`` — how many rolled ``bookwriter.log.N`` backups the
+      file sink keeps. Honors the ``BOOKWRITER_LOG_BACKUP_COUNT`` environment
+      override; defaults to ``10``.
     """
 
     model_config = SettingsConfigDict(
@@ -67,6 +75,15 @@ class Settings(BaseSettings):
     google_search_engine_id: str | None = Field(
         default=None,
         validation_alias="BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID",
+    )
+    log_dir: Path | None = Field(
+        default=None,
+        validation_alias="BOOKWRITER_LOG_DIR",
+    )
+    log_backup_count: int = Field(
+        default=10,
+        ge=0,
+        validation_alias="BOOKWRITER_LOG_BACKUP_COUNT",
     )
 
 
