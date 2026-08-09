@@ -179,8 +179,16 @@ export const CodexEntryPage = observer(function CodexEntryPage({ mode }: CodexEn
   }
 
   const kindHeading = state.kind === null ? "Codex entry" : KIND_HEADINGS[state.kind];
-  const heading =
-    state.entry === null ? `New ${kindHeading.toLowerCase()}` : state.entry.name || kindHeading;
+  // A fact has no name (US-078.AC-2), so a heading here could only ever repeat
+  // the kind — dead chrome above the editor, and actively misleading: it reads
+  // like a title the author is somehow unable to edit. Only the NAMED kinds get
+  // a heading, where it carries the entry's actual name. `kindHeading` stays the
+  // fallback for a named entry whose name is still blank.
+  const heading = !state.requiresName
+    ? null
+    : state.entry === null
+      ? `New ${kindHeading.toLowerCase()}`
+      : state.entry.name || kindHeading;
 
   return (
     <Container size="lg" py="md">
@@ -192,8 +200,12 @@ export const CodexEntryPage = observer(function CodexEntryPage({ mode }: CodexEn
             `isReadOnly` gating, the same handlers, the same "Unsaved changes"
             text, and `aria-label`s that keep the controls addressable by their
             accessible names exactly as the text buttons were. */}
-        <Group justify="space-between" wrap="nowrap" gap="xs">
-          <Title order={3}>{heading}</Title>
+        <Group
+          justify={heading === null ? "flex-end" : "space-between"}
+          wrap="nowrap"
+          gap="xs"
+        >
+          {heading !== null && <Title order={3}>{heading}</Title>}
           <Group gap="xs" wrap="nowrap">
             {state.isDirty && (
               <Text size="sm" c="dimmed">
