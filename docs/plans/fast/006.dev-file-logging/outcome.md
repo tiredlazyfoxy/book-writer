@@ -51,3 +51,14 @@ not be discoverable only from source.
 
 - `backup_count=0` is a legal setting (`ge=0`) but the stdlib handler then keeps no backups and appends to the live file instead of truncating it, so `bookwriter.log` grows unbounded across runs. Possible impact: mention the `>= 1` recommendation next to `BOOKWRITER_LOG_BACKUP_COUNT` in `backend.md` → "Logging".
 - The file handler is one shared instance attached to three loggers (root, `uvicorn`, `uvicorn.error`); the idempotency marker is per-handler, so a re-run detaches it from all three and closes it once. Possible impact: worth a sentence in `backend.md` → "Logging" so a later change does not attach a second, separate file handler per logger and double every uvicorn line.
+
+---
+Status: Applied 2026-08-09
+Applied items: 4
+Rejected items: 0
+
+Notes:
+- The "Logging" item landed as written in `docs/architecture/backend.md`, plus a dated decision-history entry there recording rotate-at-start-on-a-fixed-filename and the default-off `BOOKWRITER_LOG_DIR` gating.
+- The `backup_count=0` observation was **folded into the rotation bullet** as a clause with the `>= 1` guidance rather than given its own bullet — it is a footnote to rotation, not a peer of it.
+- The shared-handler observation landed as one sentence in the same section.
+- The "config/secrets settings inventory" item was **retargeted**: the new variables went to the `| Variable | Purpose |` table under `docs/architecture/dev-environment.md` → "Environment variables", not to `backend/persistence.md`, which mentions `BOOKWRITER_DB_PATH` only in passing as a property of the DB file and is not the env-var inventory. Four already-shipped variables missing from that table (`BOOKWRITER_NODE_ID`, `LANCEDB_DIR`, `BOOKWRITER_GOOGLE_SEARCH_API_KEY`, `BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID`) were filled in the same pass.

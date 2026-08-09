@@ -56,10 +56,16 @@ Local values live in `.env.local` (gitignored), loaded via `python-dotenv` / `py
 | Variable | Purpose |
 |----------|---------|
 | `BOOKWRITER_DB_PATH` | Overrides the SQLite DB file path. Dev default: `backend/data/bookwriter.db`. The `-test` switch points this at a temporary DB. |
+| `BOOKWRITER_NODE_ID` | The 10-bit snowflake node id, range 0–1023, default `0`. Must be unique per instance when more than one generates ids concurrently. See `backend/auth-ids.md`. |
+| `LANCEDB_DIR` | Directory of the LanceDB sidecar index. Dev default: `backend/data/vector`. **The name is bare — no `BOOKWRITER_` prefix** — because that settings field declares no validation alias, so pydantic-settings derives the variable name from the field name. Stated explicitly because the inconsistency otherwise reads as a typo. |
+| `BOOKWRITER_LOG_DIR` | Enables the development log-file sink and names its directory. Unset (the default) means console-only, which is what keeps the test suite and the containers quiet. `start.ps1 -app` sets it to the git-ignored repo-root `logs/`. |
+| `BOOKWRITER_LOG_BACKUP_COUNT` | How many rolled `bookwriter.log.N` backups to keep. Default `10`; use `>= 1` (see `backend.md` → "Logging" for why `0` grows unbounded). |
 | `OPENAI_API_KEY` | Resolved at use time via `$OPENAI_API_KEY` indirection from a stored provider config. Never returned in API responses. |
 | `LLAMA_SWAP_URL` | Base URL of a llama-swap server, when that backend is used. |
+| `BOOKWRITER_GOOGLE_SEARCH_API_KEY` | Google Programmable Search API key for the assistant's web search. Unset by default. |
+| `BOOKWRITER_GOOGLE_SEARCH_ENGINE_ID` | Google Programmable Search engine id, paired with the key above. Unset by default; with either unset, web search is unconfigured. |
 
-Provider and LLM-server settings themselves are stored **in the database** (managed via the Admin SPA), not in environment variables — the env vars above hold only secrets (resolved by `$ENV_VAR` indirection) and the DB path. Additional provider secrets follow the same `$ENV_VAR` indirection pattern; keep their names provider-generic.
+Provider and LLM-server settings themselves are stored **in the database** (managed via the Admin SPA), not in environment variables — do not look for a `base_url`, a model name or any other provider configuration here. The env vars above are limited to what must be known before the database is reachable or is specific to one deployment: secrets (resolved by `$ENV_VAR` indirection), filesystem locations, instance identity, and a small number of process-level knobs. Additional provider secrets follow the same `$ENV_VAR` indirection pattern; keep their names provider-generic.
 
 ## Docker & production — **designed, not yet created**
 
