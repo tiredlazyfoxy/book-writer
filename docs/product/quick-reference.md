@@ -146,6 +146,8 @@ tables. This file is exempt from the line budget.
 | UC-098 | Set my own book system prompt | FEAT-019 | ACT-004, ACT-005 | delivered |
 | UC-099 | Set my own chapter system prompt | FEAT-019 | ACT-004, ACT-005 | delivered |
 | UC-100 | Browse public books | FEAT-007 | ACT-006 | delivered |
+| UC-101 | A stored chat is titled from its own content | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-102 | See what the assistant did during a turn | FEAT-013 | ACT-004, ACT-005 | delivered |
 
 ## Stories
 
@@ -269,4 +271,6 @@ tables. This file is exempt from the line budget.
 | US-116 | Member sets their own chapter system prompt, layered under their own book prompt | FEAT-019 | delivered |
 | US-117 | Author undoes the assistant's last write to the open artifact | FEAT-013 | delivered |
 | US-118 | Reader browses public books they are not a member of | FEAT-007 | delivered |
+| US-119 | Author's chats carry meaningful titles without naming them | FEAT-013 | delivered |
+| US-120 | Author sees which tools the assistant used and what they returned | FEAT-013 | delivered |
 <!-- product-spec:end -->

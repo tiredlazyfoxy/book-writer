@@ -14,7 +14,13 @@
   4. Author saves. System adds the entry to the codex per the book's
      collaboration mode (FEAT-017).
 - **Exception flow:** LLM is unreachable or returns nothing → same as UC-056
-  (composition request fails); not respecced here.
+  (composition request fails); not respecced here. Author asks the
+  assistant to write a **name** into a **fact** entry → the write is
+  refused and the entry is unchanged; a fact has no name (US-078.AC-2),
+  and the body is where its content goes. The refusal reaches the author
+  in the conversation (UC-102) rather than passing silently.
+  `[confirmed: user]` interview 2026-08-10, "finalization — plans 023 +
+  024"; challenge C-f2324-7.
 - **Postconditions:** Draft exists on the shared canvas until explicitly
   saved; nothing is added to the codex before the save request. **Revised,
   round 5:** the draft lands directly in the open entry in the content

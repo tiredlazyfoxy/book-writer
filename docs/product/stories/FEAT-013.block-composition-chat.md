@@ -22,11 +22,19 @@ renumbered.)
   - **US-056.AC-3** — Given no chapter is open in the book, when the
     author starts a chat, then the chat still starts, with a reduced
     baseline.
+  - **US-056.AC-4** — Given no model is available to the author, when they
+    start a new chat, then starting it is refused with a message saying so.
+  - **US-056.AC-5** — Given no model is available to the author, when they
+    start a new chat, then no chat is created — their chats list gains no
+    entry.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
   "block composition chat": "The author starts and ends chats freely — not
   bound to a block or a chapter."; interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "chats are persistent,
-  not ephemeral."
+  not ephemeral." AC-4 and AC-5: `[confirmed:
+  docs/plans/023.chat-ux-revision/]` DoD-9 (delivered 2026-08-08, verifier
+  PASS) — delivery evidence, not an interview answer; see interview
+  2026-08-10, "addendum — review round 1 findings".
 
 ### US-057 — The mode-dependent baseline is available to a composition chat
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-054
@@ -158,14 +166,21 @@ renumbered.)
   and continue it, so that I don't lose earlier work when I step away.
 - **Acceptance criteria:**
   - **US-095.AC-1** — Given the author has stored chats for the book, when
-    they open the chat pane's list, then their non-archived chats are
-    shown.
+    they open the book's chats list, then their non-archived chats are
+    shown, most recently active first.
   - **US-095.AC-2** — Given a listed chat, when the author picks it, then
     it reopens with its full prior history.
+  - **US-095.AC-3** — Given the author is viewing their chats list, when
+    they ask to see archived chats, then their archived chats are shown
+    (restoring one is US-096).
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Like Claude's chat
   manager — chats are stored, continuable... picker lives inside the chat
-  pane."
+  pane." **Amended, finalization 2026-08-10:** the list is reached from
+  the book's material rather than from inside the chat pane; the picked
+  chat still opens in the chat pane (AC-2, unchanged). `[confirmed: user]`
+  interview 2026-08-10, "finalization — plans 023 + 024"; challenge
+  C-f2324-1. Delivered: `docs/plans/023.chat-ux-revision/` (2026-08-08).
 
 ### US-096 — Archive a chat instead of ending it
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-082
@@ -306,14 +321,23 @@ renumbered.)
     (e.g., Characters), then that list renders in the content pane.
   - **US-105.AC-2** — Given a rendered list, when the author picks a list
     item, then it opens in the content pane.
-  - **US-105.AC-3** — Given the navigator, when the author picks a chat,
-    then it opens in the chat pane, not the content pane.
+  - **US-105.AC-3** — Given the navigator, when the author picks
+    **Chats**, then their chats list renders in the content pane, the same
+    as every other kind.
   - **US-105.AC-4** — Given the navigator, when the author picks
     **Variants**, then the chapter's variants and revisions render in the
     content pane.
+  - **US-105.AC-5** — Given a rendered chats list, when the author picks a
+    chat from it, then that chat opens in the chat pane, not the content
+    pane.
+  - **US-105.AC-6** — Given a rendered chats list, when the author picks a
+    chat from it, then the list stays where it is — the author is not
+    taken away from it.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
   "the working-page navigator". AC-4: `[confirmed: user]` interview
-  2026-07-24, "augment round 7", divergence 2.
+  2026-07-24, "augment round 7", divergence 2. AC-3 amended and AC-5/AC-6
+  added: `[confirmed: user]` interview 2026-08-10, "finalization — plans
+  023 + 024"; challenge C-f2324-1.
 
 ### US-107 — Unsaved content-pane edits are retained and restored
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-092
@@ -361,4 +385,59 @@ renumbered.)
   without a story (20 snapshots per (book, chapter), in memory,
   assistant writes only). Delivered:
   `docs/plans/015.chapter-writing-free-mode/` (2026-07-30).
+
+### US-119 — Author's chats carry meaningful titles without naming them
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-101
+- **Status:** delivered
+- **Story:** As an author, I want my chats to be labelled by what they are
+  about, so that I can find the right one in my list without having named
+  each one myself.
+- **Acceptance criteria:**
+  - **US-119.AC-1** — Given a chat that the author has not named, when
+    they send their first message in it, then the chat's title becomes a
+    short label drawn from that conversation.
+  - **US-119.AC-2** — Given a chat titled this way, when the author sends
+    their fifth message in it, then the title is drawn again from the
+    conversation as it now stands.
+  - **US-119.AC-3** — Given a chat, when the author sends a message that is
+    neither their first nor their fifth in it, then the chat's title is
+    left unchanged.
+  - **US-119.AC-4** — Given titling fails or produces nothing, when the
+    author sends a message, then the chat keeps the title it already had.
+  - **US-119.AC-5** — Given titling fails or produces nothing, when the
+    author sends a message, then no error about the title is shown to the
+    author.
+  - **US-119.AC-6** — Given titling fails or produces nothing, when the
+    author sends a message, then the message is sent normally.
+- **Source:** `[confirmed: user]` interview 2026-08-10, "finalization —
+  plans 023 + 024". Delivered: `docs/plans/023.chat-ux-revision/`
+  (2026-08-08).
+
+### US-120 — Author sees which tools the assistant used and what they returned
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-102
+- **Status:** delivered
+- **Story:** As an author, I want to see what the assistant looked up or
+  changed while answering me, so that I can judge its answer instead of
+  taking it on trust.
+- **Acceptance criteria:**
+  - **US-120.AC-1** — Given the assistant takes an action while answering,
+    when it starts that action, then the action appears in the
+    conversation, named, before its outcome is known.
+  - **US-120.AC-2** — Given an action shown in the conversation, when it
+    returns, then its outcome is shown against it, marked as having
+    succeeded or failed.
+  - **US-120.AC-3** — Given the assistant takes several actions in one
+    answer, when they are shown, then they appear in the order they were
+    taken.
+  - **US-120.AC-4** — Given an action shown in the conversation, when the
+    author expands it, then what was asked for and what came back are
+    shown.
+  - **US-120.AC-5** — Given the author returns to the chat later, when
+    they read that answer again, then the actions taken for it are still
+    shown with it.
+  - **US-120.AC-6** — Given an action shown in the conversation, when the
+    author has not expanded it, then its detail is collapsed.
+- **Source:** `[confirmed: user]` interview 2026-08-10, "finalization —
+  plans 023 + 024". Delivered: `docs/plans/024.chat-agent-loop/`
+  (2026-08-09).
 <!-- product-spec:end -->

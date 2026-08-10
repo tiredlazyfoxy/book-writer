@@ -12,10 +12,23 @@
     writes a draft directly into the entry.
   - **US-086.AC-2** — Given a draft written into the entry, when the
     author has not saved, then the codex is unchanged.
+  - **US-086.AC-3** — Given a **fact** entry open in the content pane,
+    when the author asks the assistant to write its name, then the write
+    is refused with a reason the author can see.
+  - **US-086.AC-4** — Given a **fact** entry open in the content pane,
+    when the author asks the assistant to write its name, then the entry
+    is unchanged — a fact has no name (US-078.AC-2); its body carries its
+    content.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4: "i
   can ask LLM to generate the cahracter or rewrite/edit the character, or
   location or some lore fact."; interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "assistant fills it."
+  AC-3 and AC-4: `[confirmed: user]` interview 2026-08-10, "finalization —
+  plans 023 + 024" — the behaviour was reported as a defect
+  (`docs/plans/024.chat-agent-loop/feedback.md`, F2) and **confirmed as
+  the requirement**; US-078.AC-2 stands unchanged and the refusal is
+  specified here rather than left as an unwritten consequence. Challenge
+  C-f2324-7.
 
 ### US-087 — Author has the assistant rewrite an existing entry on the shared canvas
 - **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-077

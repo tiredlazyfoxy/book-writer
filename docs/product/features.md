@@ -15,10 +15,17 @@ advanced only where a plan's step files carry the `US-###.AC-#` citations for
 it and every step is `done` + PASS. Ids a plan named but explicitly excluded
 (UC-025/US-026, UC-075/US-084, US-057, US-099, US-100, US-102) were left
 `proposed`. **Delivered means the code shipped and was verified, not that the
-behaviour is reachable:** the five assistant modes seed with no prompts and no
-tool assignments, so every assistant-facing feature below needs an
-administrator to configure it in `012.assistant-config-editor` before it does
-anything — see `docs/plans/roadmap.md`.
+behaviour has been exercised.** Until 2026-08-09 it also did not mean
+*reachable*: the five assistant modes seeded with no prompts and no tool
+assignments, so every assistant-facing feature below needed an administrator
+to configure it before it did anything.
+**Superseded by `024.chat-agent-loop` (2026-08-09):** each mode now ships
+with a default prompt and a default set of tools, so a **fresh** installation
+is configured out of the box and the administrator edits down from there. Two
+caveats survive and are not paperwork: an installation created **before**
+that change keeps its blank prompts until they are filled in (see FEAT-020's
+`_TBD:`), and reachable is still not the same as exercised — the ids marked
+`deferred` below are waiting on a live run, not on configuration.
 
 ## Feature blocks
 
@@ -291,6 +298,13 @@ anything — see `docs/plans/roadmap.md`.
   state-note edits are refused, not held as proposals (FEAT-010
   dependency, `relationships.md`); each close run deletes `origin=check`
   flags before running rather than resolving them (UC-068).
+  **Finalization, 2026-08-10 (plan `024.chat-agent-loop`):** UC-047's
+  deferral reason changes but not its status. The close procedure's tools
+  are now assigned by default rather than awaiting an administrator, so
+  assistant-driven drafting is **reachable**; it has **not yet been run
+  once**, which is what `deferred` now means for UC-047 and
+  US-049/US-050/US-051. Recorded as a second consecutive deferral so the
+  status is not carried forward by inertia (challenge C-f2324-4).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "summaries & state notes"; codex round 4;
   interview 2026-07-23, "Augment round 5", "SPA pages" / "RULE (per author
@@ -314,20 +328,26 @@ anything — see `docs/plans/roadmap.md`.
   docs/plans/013.codex/ (2026-07-27) — the codex reach (UC-078/US-089) and
   the mode runtime;
   docs/plans/015.chapter-writing-free-mode/ (2026-07-30) — the chapter
-  canvas write path (UC-055; US-059, US-098, US-103, US-117).
-- **Still open (2026-07-31):** US-057 (the mode-dependent baseline as
+  canvas write path (UC-055; US-059, US-098, US-103, US-117);
+  docs/plans/023.chat-ux-revision/ (2026-08-08) — the chats list as the
+  book's own material, instant chat creation, and automatic chat titling
+  (UC-081, UC-090, UC-101; US-056.AC-4/AC-5, US-095, US-105.AC-3/AC-5/AC-6, US-119);
+  docs/plans/024.chat-agent-loop/ (2026-08-09) — visibility of what the
+  assistant does during a turn (UC-102, US-120)
+- **Still open (2026-08-10):** US-057 (the mode-dependent baseline as
   specified — context assembly beyond the focused subject), UC-085/US-099
   (pull a named chapter into context), UC-086/US-100 (search the book's
-  material by meaning — **partial**: the vector corpus is codex-only, so
-  chapters, summaries and state notes are unreachable this way),
-  UC-088/US-102 (scoped in-chat consistency check), and UC-090/US-105's
-  Variants navigator entry (awaits `018.chapter-history-variants`). Main-chat
-  model selection and token budgeting remain undesigned.
+  material by meaning — the search itself is now reachable by default, but
+  the searchable material is still codex-only, so chapters, summaries and
+  state notes remain out of reach, and it has not been run), UC-088/US-102
+  (scoped in-chat consistency check), and UC-090/US-105's Variants
+  navigator entry (awaits `018.chapter-history-variants`). Main-chat model
+  selection and token budgeting remain undesigned.
 - **Realized by:** UC-053, UC-054, UC-055, UC-056, UC-057, UC-078, UC-081,
   UC-082, UC-083, UC-084, UC-085, UC-086, UC-087, UC-088, UC-090, UC-092,
-  US-056, US-057, US-058, US-059, US-060, US-061, US-089, US-095, US-096,
-  US-097, US-098, US-099, US-100, US-101, US-102, US-103, US-105, US-107,
-  US-117
+  UC-101, UC-102, US-056, US-057, US-058, US-059, US-060, US-061, US-089,
+  US-095, US-096, US-097, US-098, US-099, US-100, US-101, US-102, US-103,
+  US-105, US-107, US-117, US-119, US-120
 - **Note:** Chats are persistent and managed per author, per book — listed,
   picked, continued, and archived rather than ended (UC-081/UC-082, not
   destroyed, reversible); a chat is not bound to any one chapter, codex
@@ -375,6 +395,16 @@ anything — see `docs/plans/roadmap.md`.
   **Round 8:** its assistant modes, per-mode tools and sub-agents are
   configured by FEAT-020, whose five granular modes are what this
   feature's coarser "chapter mode / codex-entry mode" language maps onto.
+  **Finalization, 2026-08-10:** the chats list moved out of the chat pane
+  and onto the book's material list (UC-081, UC-090) — the same
+  capability, a different surface, decided before delivery and amended
+  here rather than treated as drift. Chats are titled from their own
+  content (UC-101), so an author never has to name one to tell it apart.
+  What the assistant does while answering — what it looked up, what it
+  wrote, and whether each succeeded — is shown in the conversation and
+  kept with the answer (UC-102); this is observability over
+  UC-078/UC-086/UC-087/UC-055, not new capability, and it is what makes a
+  tool-level refusal such as UC-076's visible instead of silent.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "block composition chat" / "generation
   context"; codex round 4; interview 2026-07-23, "Augment round 5 —
@@ -493,6 +523,10 @@ anything — see `docs/plans/roadmap.md`.
   stays unbuilt; each close run deletes `origin=check` flags before
   running rather than resolving them (UC-068's `_TBD:` records the chosen
   behaviour, kept open).
+  **Finalization, 2026-08-10 (plan `024.chat-agent-loop`):** as for
+  FEAT-012 — the check's tools are assigned by default now, so
+  UC-064/UC-065/UC-080 are **reachable**; none has been run, and all stay
+  `deferred` on that basis, not on configuration (challenge C-f2324-4).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 3 —
   variants, cloning & consistency", "consistency check & chapter flags";
   challenge C12; codex round 4; interview 2026-07-23, "Augment round 5",
@@ -542,7 +576,7 @@ anything — see `docs/plans/roadmap.md`.
   the same composition chat that composes edits.
 - **Actors:** ACT-004, ACT-005 · **Priority:** should
 - **Status:** delivered
-- **Delivered:** docs/plans/013.codex/ (2026-07-27)
+- **Delivered:** docs/plans/013.codex/ (2026-07-27); docs/plans/024.chat-agent-loop/ (2026-08-09)
 - **Realized by:** UC-076, UC-077, US-086, US-087, US-088
 - **Note:** Sourced from live chapter/entry text via the shared canvas: the
   assistant fills the open codex entry directly in the content pane, as a
@@ -551,6 +585,13 @@ anything — see `docs/plans/roadmap.md`.
   not respecced: both use cases point at UC-056. Ships after FEAT-017.
   **Finalization, 2026-07-30 (formerly "block"):** the domain noun is now
   **edit** — see `glossary.md`.
+  **Finalization, 2026-08-10:** an assistant write aimed at a **fact's
+  name** is refused and the entry is left unchanged (US-086.AC-3, US-086.AC-4) — a fact
+  has no name (US-078.AC-2), and this was confirmed as the requirement
+  after being reported as a defect. The refusal is visible to the author
+  in the conversation (UC-102). Plan `024` also made this feature
+  reachable on a fresh installation by seeding the codex modes' tools
+  (FEAT-020).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4;
   interview 2026-07-23, "Augment round 5", "the working page — two-pane,
   chat + content"; interview 2026-07-30, "finalization — 021 + 014 + 015"
@@ -611,14 +652,20 @@ anything — see `docs/plans/roadmap.md`.
   (2026-07-26) — the admin editor (UC-095, UC-096, UC-097; US-110..US-114);
   docs/plans/013.codex/ (2026-07-27) — the mode runtime (mode determination,
   tool gating, sub-agent delegation), extended to the chapter modes by
-  docs/plans/015 and docs/plans/016.
-- **Reachability, 2026-07-31:** the five modes seed with **empty prompts and
-  no tool or sub-agent selections**, which is the specified default (an empty
-  prompt adds nothing) but means every tool in the code-defined registry —
-  codex, chapter-write, and the close-chapter tools — is unreachable until an
-  administrator configures each mode here. This is the operating step the
-  FEAT-012 UC-047 deferral is waiting on; it is configuration, not
-  unfinished delivery.
+  docs/plans/015 and docs/plans/016; docs/plans/024.chat-agent-loop/
+  (2026-08-09) — the seeded default prompts and per-mode tool sets.
+- **Reachability, 2026-08-09 (supersedes the 2026-07-31 note):** the five
+  modes ship with a **default system prompt and a default set of tools
+  each**, so the assistant is configured on a fresh installation and the
+  administrator **edits down** from there rather than up from nothing.
+  This reverses the earlier default, which left every tool in the
+  registry unreachable until someone configured each mode. The gating
+  rule itself is unchanged: a mode an administrator edits to zero tools
+  has zero tools — a seeded starting state is not a floor. **Accepted
+  with its risk stated:** because the modes are configured by default, an
+  assistant run can write real material on an installation nobody has
+  configured; this was an explicit decision, not an inherited default
+  (challenge C-f2324-5).
 - **Realized by:** UC-095, UC-096, UC-097, US-110, US-111, US-112, US-113,
   US-114
 - **Note:** Modes are a **fixed system set of five** — edit-character,
@@ -646,13 +693,20 @@ anything — see `docs/plans/roadmap.md`.
   applies it at runtime, FEAT-019 supplies the orthogonal per-book/
   per-chapter prompts; how the prompts combine and how tools/sub-agents
   are invoked is the deferred FEAT-013 assistant subsystem
-  (`/architect`). `_TBD: whether a mode's tools default on or off before
-  the admin configures it._` **Round 9:** a sub-agent may be **assigned a
-  specific model** (one the configured LLM servers, FEAT-004, expose) or
-  **re-use the main chat's model** (the default) — modes carry no model
-  field. This partially resolves the model-selection `_TBD:` on
-  FEAT-013: resolved for sub-agents, still open for the main chat's own
-  model.
+  (`/architect`). **Resolved 2026-08-09:** a mode's tools default **on**,
+  as a seeded per-mode set the administrator edits down. **Round 9:** a
+  sub-agent may be **assigned a specific model** (one the configured LLM
+  servers, FEAT-004, expose) or **re-use the main chat's model** (the
+  default) — modes carry no model field. This partially resolves the
+  model-selection `_TBD:` on FEAT-013: resolved for sub-agents, still open
+  for the main chat's own model.
+  `_TBD: whether an installation that already exists is entitled to a
+  later release's default prompts — today a default prompt reaches only a
+  mode that does not exist yet, so an installation predating a
+  prompt-carrying release stays unprompted and nothing surfaces it. Found
+  only because the assistant misbehaved; the existing rule exists to
+  protect an administrator's own edits, so changing it is a decision, not
+  a repair (challenge C-f2324-6)._`
 - **Source:** `[confirmed: user]` interview 2026-07-24, "FEAT-020 —
   assistant modes & sub-agents (augment round 8)"; challenges C-r8-1..
   C-r8-5; interview 2026-07-24, "FEAT-020 — sub-agent model assignment

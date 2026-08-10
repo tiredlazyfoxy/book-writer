@@ -11,7 +11,7 @@ not change.)
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** Author is a member of the book.
 - **Main flow:**
-  1. Author starts a new chat.
+  1. Author starts a new chat directly, with nothing to fill in first.
   2. System starts the chat, private to the author; independent of any
      chapter, codex entry or content-pane subject — the pairing is
      spatial, not a data binding.
@@ -19,6 +19,12 @@ not change.)
 - **Exception flow:** No chapter is open in the book → the chat still
   starts, with a reduced baseline (the chapter-mode continuity fields have
   nothing to attach to). Resolves prior open item T15.
+  No model is available to the book's author → starting a chat is refused
+  with a message saying so, and no chat is created.
+  `[confirmed: docs/plans/023.chat-ux-revision/]` DoD-9 (delivered
+  2026-08-08, verifier PASS); the requirement is delivery evidence, not an
+  interview answer — see interview 2026-08-10, "addendum — review round 1
+  findings".
 - **Postconditions:** A composition chat exists, visible only to its
   author; it persists until archived (UC-082), not until "ended" — the
   author may leave it at any time (UC-057) without losing it.
@@ -147,16 +153,40 @@ not change.)
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
 - **Preconditions:** Author is a member of the book.
 - **Main flow:**
-  1. Author opens the chat pane's list of their stored chats for the book.
-  2. System shows their non-archived chats.
+  1. Author opens the book's **chats list**, which renders alongside the
+     book's other material rather than inside the chat pane.
+  2. System shows their non-archived chats, most recently active first;
+     the author may ask to see their archived chats as well.
   3. Author picks a chat.
-  4. System reopens it with its full prior history, ready to continue.
-- **Postconditions:** Selected chat is active in the chat pane; the
-  author's other stored chats remain available to switch to.
+  4. System opens it **in the chat pane**, with its full prior history,
+     ready to continue — without taking the author away from the list.
+- **Postconditions:** Selected chat is active in the chat pane; the chats
+  list remains where it was, so the author can pick another. The author's
+  other stored chats remain available to switch to.
+- **Note (finalization, 2026-08-10):** The list moved out of the chat pane
+  and onto the book's own material list, reached the same way the author
+  reaches characters, locations, facts and chapters (UC-090). The
+  capability is unchanged — this is where it is surfaced, not what it
+  does. The relocation was decided **before** delivery, with the
+  contradiction against this use case's previous wording shown to the
+  author at the time (`docs/plans/023.chat-ux-revision/`, 2026-08-08); it
+  is amended here rather than treated as drift. A chat's chosen model and
+  creativity setting are **committed when the author next sends a
+  message**, not when they are picked.
+  `_TBD: whether a model or creativity change the author makes but never
+  follows with a message must survive leaving and returning — the choice
+  is currently lost, and whether that is the requirement is undecided._`
+  `_TBD: an ARCHIVED chat picked from the list currently opens an empty
+  chat pane rather than its history, contradicting step 4 — whether the
+  archived view should offer restore only (as UC-082 scopes it) or the
+  pane should open any picked chat is undecided._`
+  `[confirmed: user]` interview 2026-08-10, "finalization — plans 023 +
+  024"; challenges C-f2324-1, C-f2324-3.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Like Claude's chat
   manager — chats are stored, continuable, started fresh, and the user
-  picks/archives them; the picker lives inside the chat pane."
+  picks/archives them; the picker lives inside the chat pane."; interview
+  2026-08-10, "finalization — plans 023 + 024"
 
 ### UC-082 — Archive a chat
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
@@ -290,8 +320,9 @@ not change.)
   3. Author picks an item.
   4. System loads the item into the content pane, per UC-083's read-only
      rules.
-  5. If the entry is **Chats**, the picked chat opens in the chat pane
-     (UC-081), not the content pane.
+  5. If the entry is **Chats**, the list renders in the content pane like
+     every other kind (step 2), and the picked **chat** opens in the chat
+     pane (UC-081), not the content pane.
 - **Postconditions:** Content pane holds the selected list or item; chats
   route to the chat pane; the navigator choice does not bind the active
   chat (independence, seam S1).
@@ -300,6 +331,11 @@ not change.)
   entry, added round 7 to reconcile the architecture pass, renders the
   chapter's variant-and-revision view (UC-059) — not a new capability, the
   surface UC-059 lives on.
+  **Finalization, 2026-08-10:** Chats is no longer the navigator's one
+  exception — every entry, Chats included, renders its list in the
+  content pane; only the picked chat itself lands in the chat pane.
+  `[confirmed: user]` interview 2026-08-10, "finalization — plans 023 +
+  024"; challenge C-f2324-1.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
   "the working-page navigator": "Browse the book's material by kind. Final
   entries: Characters, Locations, Facts, Chapters, Book state, Chats." /
@@ -332,4 +368,59 @@ not change.)
   storage, private to the author, unsaved. Survives a full reload / next
   day... invisible to co-authors. Each item keeps its own buffer." Except
   the exception flow, tagged `_TBD:` per challenge C-r6-3.
+
+### UC-101 — A stored chat is titled from its own content
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
+- **Preconditions:** A composition chat exists, belonging to the author.
+- **Main flow:**
+  1. Author sends their first message in the chat.
+  2. System gives the chat a short title drawn from what the conversation
+     is about, replacing the placeholder it was created with.
+  3. Author sends further messages; once the conversation has developed,
+     the system titles it a second time so the title reflects where the
+     conversation went rather than only how it opened.
+- **Exception flow:** The title cannot be produced, or comes back empty →
+  the chat keeps the title it already had, the author is shown no error,
+  and the message the author was sending is unaffected.
+- **Postconditions:** The chat is distinguishable from the author's other
+  chats in the list (UC-081) without the author having named it. The
+  title is a label only — nothing in the conversation depends on it, and
+  the author is never required to supply one.
+- **Note:** Titling happens twice at fixed points in the conversation, not
+  continuously, so a title stops changing under the author once the chat
+  is established. Which model produces the title is `/architect`'s.
+- **Source:** `[confirmed: user]` interview 2026-08-10, "finalization —
+  plans 023 + 024"; delivered by `docs/plans/023.chat-ux-revision/`
+  (2026-08-08), DoD-1..DoD-3; challenge C-f2324-2.
+
+### UC-102 — See what the assistant did during a turn
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005
+- **Preconditions:** A composition chat is active and the assistant is
+  answering.
+- **Main flow:**
+  1. Assistant reaches for something while answering — the web (UC-087),
+     the codex (UC-078), the book's material (UC-086), or a write into the
+     open artifact (UC-055).
+  2. System shows that action in the conversation as it happens, naming
+     what the assistant reached for, before the outcome is known.
+  3. System shows the outcome against that same action once it returns,
+     marked as having succeeded or failed.
+  4. Author expands the action to see what was asked for and what came
+     back; it is collapsed by default so the conversation stays readable.
+- **Alternate flow:** The assistant takes several actions in one answer →
+  each is shown separately, in the order it was taken.
+- **Exception flow:** An action fails → it is shown as failed with what
+  came back, and the assistant continues its answer; a failed action is
+  not hidden from the author.
+- **Postconditions:** The record of what the assistant did belongs to the
+  answer it produced — the author sees it again when they return to the
+  chat, not only while the answer is being written. It is a record, not a
+  control: the author cannot re-run or undo an action from it.
+- **Note:** This is observability over capabilities that already exist
+  (UC-078, UC-086, UC-087, UC-055), not a new capability. It is what makes
+  a refusal such as UC-076's fact-name refusal visible to the author
+  rather than silent.
+- **Source:** `[confirmed: user]` interview 2026-08-10, "finalization —
+  plans 023 + 024"; delivered by `docs/plans/024.chat-agent-loop/`
+  (2026-08-09), DoD-1, DoD-2, DoD-5, DoD-6, DoD-9; challenge C-f2324-2.
 <!-- product-spec:end -->

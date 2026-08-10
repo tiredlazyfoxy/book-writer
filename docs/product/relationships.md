@@ -77,11 +77,13 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
   change).
 - FEAT-012 → FEAT-020 — **new, finalization 2026-07-31:** a real runtime
   dependency, distinct from the taxonomy-alignment edge above — the close
-  procedure's five tools ship unreachable until an admin assigns them to
-  the `close-chapter` mode (FEAT-020). Build-order consequence for
-  `/roadmap`: FEAT-020 must land before FEAT-012's and FEAT-016's
-  assistant-driven use cases can be exercised, even though their code
-  already exists.
+  procedure's tools are FEAT-020's to grant. **Reworded 2026-08-10:** they
+  are now granted by default rather than awaiting an administrator, so the
+  **build-order consequence is discharged** — FEAT-020 has landed and
+  nothing blocks FEAT-012's and FEAT-016's assistant-driven use cases from
+  being exercised. The dependency itself stands: those use cases still run
+  only on what FEAT-020 configures, and an administrator who removes the
+  tools removes the capability.
 - FEAT-012 → FEAT-010 — **new, finalization 2026-07-31:** a co-author's
   proposal-mode state-note edit needs FEAT-010's proposal-holding
   mechanism; plan 016 refuses it because that mechanism does not
@@ -91,6 +93,10 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
 FEAT-012 (Book state) surfaces in the content pane — a UI hosting
 relationship, recorded as a note only, not a build-order dependency.
+**Extended 2026-08-10:** the navigator also hosts the author's own
+**chats list** — every navigator entry now renders its list in the
+content pane, and only a picked chat lands in the chat pane (UC-081,
+UC-090). Still a hosting relationship, not a dependency edge.
 
 **Note (round 7, not a dependency edge):** FEAT-013 *consumes* FEAT-019's
 system prompts when present but does not require them — an empty prompt
