@@ -34,6 +34,12 @@ The `.gitignore` and `start.ps1` entries in the plan's Source files carry no sig
 - Global-state safety: an autouse fixture snapshots/restores the handler lists, levels and `propagate` flags of the root, `uvicorn` and `uvicorn.error` loggers plus the `aiosqlite`/`httpx`/`httpcore` levels; handlers are flushed, detached and closed before any file content assertion or `tmp_path` teardown.
 - Coverage: DoD-1 ✓, DoD-2 ✓, DoD-3 ✓, DoD-4 ✓, DoD-5 ✓, DoD-6 ✓ (two cases), DoD-7 [manual/live, no test], DoD-8 [manual/live, no test], DoD-9 [manual/live, no test]
 
+### Test-fault repair (2026-08-10)
+
+- `backend/tests/test_logging_config.py::test_settings_logging_defaults_when_unset__DoD6` — re-bound to a fully isolated environment: `Settings(_env_file=None)` in addition to the existing `monkeypatch.delenv` of both aliases. Assertions (`log_dir is None`, `log_backup_count == 10`) are unchanged.
+- Why: `Settings.model_config` declares `env_file=".env.local"`, which pydantic-settings reads as a source independent of `os.environ`. `monkeypatch.delenv` only mutates `os.environ`, so a developer's `backend/.env.local` (pytest runs with cwd `backend/`) setting `BOOKWRITER_LOG_DIR=../logs` reached `Settings()` and the case failed machine-dependently. `_env_file=None` disables that source, so the declared field defaults are the only remaining input — which is what DoD-6's "when unset" clause means. An inline comment in the test records this so it is not simplified away.
+- No source file changed; the field declarations are correct per the plan's Interface intent. The sibling case `test_settings_read_logging_env_vars__DoD6` needs no repair: process env vars outrank the dotenv source in pydantic-settings, so its `setenv` values win regardless of `backend/.env.local`.
+
 ## Notes & Issues
 
 - `backend/tests/conftest.py` needed no change: with `BOOKWRITER_LOG_DIR` unset the suite stays console-only. `pytest --collect-only -q` collects 1290 tests with zero errors after the change.

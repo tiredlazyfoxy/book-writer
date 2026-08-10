@@ -269,12 +269,19 @@ def test_settings_read_logging_env_vars__DoD6(monkeypatch, tmp_path):
     assert settings.log_backup_count == 3
 
 
-# DoD-6: Settings defaults to None / 10 when the logging env vars are unset.
+# DoD-6: Settings defaults to None / 10 when nothing sets the logging values.
 def test_settings_logging_defaults_when_unset__DoD6(monkeypatch):
     monkeypatch.delenv("BOOKWRITER_LOG_DIR", raising=False)
     monkeypatch.delenv("BOOKWRITER_LOG_BACKUP_COUNT", raising=False)
 
-    settings = Settings()
+    # `Settings.model_config` declares `env_file=".env.local"`, which
+    # pydantic-settings reads as a source *independent* of `os.environ`:
+    # `monkeypatch.delenv` cannot reach it. pytest runs with cwd `backend/`, so a
+    # developer's `backend/.env.local` setting BOOKWRITER_LOG_DIR would otherwise
+    # decide this case. `_env_file=None` disables that source, leaving the
+    # declared field defaults as the only remaining input — which is exactly what
+    # DoD-6 is about. Do not "simplify" this argument away.
+    settings = Settings(_env_file=None)
 
     assert settings.log_dir is None, (
         "log_dir must default to None so the file sink stays off"
