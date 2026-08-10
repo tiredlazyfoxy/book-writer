@@ -92,6 +92,14 @@ LLM communication goes exclusively through the `llm-client` dependency, imported
 
 **Deployment requirement — llama.cpp must run with `--reasoning-format none`.** Assistant thinking is visible only when the server inlines reasoning into `content`; the streaming tool loop in `llm-client` never reads `reasoning_content`, so out-of-band reasoning is discarded inside the library. A server without the flag **degrades silently to content-only** — no error, no log, just a missing feature. Full reasoning and the consequence for `services/chat_turn.py`: `backend/features.md` → "Deployment requirement".
 
+## Schema evolution — the in-code additive-column seam
+
+There is **no Alembic**. The project's in-code migration mechanism is the **additive-column seam** in `db/engine.py`: a module-level declaration table of `(table, column)` pairs applied inside `init_db()`. It is **additive only**, **idempotent by introspection** (a column already present emits no DDL), and **nullable-only** — all SQLite permits on `ADD COLUMN`. Its cross-cutting rule, which is why it is named here rather than only in the area file:
+
+> **A new column on an existing table requires a seam entry in the same change — exactly as it requires an import/export codec update.** Both are obligations of adding a column, not follow-ups.
+
+`SQLModel.metadata.create_all` creates missing **tables** and never alters one that exists, so a change that skips the seam works on a fresh database and breaks every write to that table on an existing one — which is how it was found (feature `024.chat-agent-loop`). The seam runs where `init_db()` is called, **never at application startup**, and whether reconciliation should ever run at startup is an **open question**. Full treatment, including that question's trade-off and the complementary admin schema-sync path: `backend/persistence.md` → "The additive-column seam".
+
 ## Logging
 
 - Python standard `logging`, default output to console.

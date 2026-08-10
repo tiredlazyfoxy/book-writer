@@ -109,3 +109,37 @@ changes.
   `sampling_params` at the service layer rather than in the model). Possible impact: state the
   tolerance rule once in `backend/persistence.md` → "JSON-in-TEXT gated by a Pydantic model", so
   the next instance does not have to rediscover where it belongs.
+
+---
+Status: Applied 2026-08-10
+Applied items: 13
+Rejected items: 3 (notes below)
+
+**Architecture files updated for this feature:** `docs/architecture/assistant-runtime.md` (both
+seeding reversals — the chapter tools and the five close tools, each with its owner and the
+accepted risk; tool gating case 1 and its decision history; the frame vocabulary widened to seven;
+a new "Tool-call visibility" subsection realizing UC-102 / US-120),
+`docs/architecture/domain-chat.md` (`ChatMessage.tool_trace` and UC-102 / US-120 in the header),
+`docs/architecture/domain-continuity.md` (the deferred-ids paragraph — the close tools are seeded
+and reachable, so "deferred" now means unexercised), `docs/architecture/backend/persistence.md`
+(the "run at startup" correction, the additive-column seam as a non-optional obligation with its
+mechanism, its two firing paths and the open startup question, and `tool_trace` as the third
+JSON-in-TEXT instance with the tolerance rule), `docs/architecture/backend.md` (the seam as the
+project's in-code migration mechanism, pointing at the area file),
+`docs/architecture/system-overview.md` (the inverted `/chats` claim, shared with 023),
+`docs/architecture/quick-reference.md` (the two new frames and their DTOs, `ToolTraceEntry` /
+`ToolTrace`, `ChatMessageResponse.tool_trace`, the `ChatMessage.tool_trace` column with its seam
+note, and the three now-false "shipped unreachable" entries) and `docs/architecture/CLAUDE.md`
+(the frame count).
+
+**Not applied, and why:**
+
+- **The stale source docstrings** in `services/tools.py`, `chapter_tools.py` and `close_tools.py`.
+  Real and now wrong, but they are **source edits** — outside `/architect`'s write scope. The
+  orchestrator is carrying them as a follow-up.
+- **The observation that a DTO's mapper module belongs in a plan's Source areas by default.** A
+  `docs/plans/` contract lesson, not architecture.
+- **The cross-cutting delivery-status note addressed to `docs/product/`.** **Discharged by
+  `/product-spec` on 2026-08-10** — product now records UC-047 / UC-064 / UC-065 / UC-080 as
+  reachable-but-unrun. Nothing was written to `docs/product/`; `domain-continuity.md` was aligned
+  to the amended wording instead.

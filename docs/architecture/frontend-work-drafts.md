@@ -59,9 +59,9 @@ This is a **sanctioned exception** to `frontend.md`'s "URL query params are the 
 
 **Feature 010 shipped it as a pure module with no writer.** Nothing imported it but `subject.ts`'s types until feature 013's codex entry page became its first caller. That gap was intentional — the buffer's shape had to be frozen before an editable subject existed, so the first subject would adopt it rather than negotiate it.
 
-## The module tier — five members
+## The module tier — six members
 
-`src/work/` now holds **five** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
+`src/work/` now holds **six** module-level modules beside each other, all plain functions, none of them reactive stores, all of them outliving every page-state instance:
 
 | Module | Holds | Persisted? |
 |---|---|---|
@@ -70,8 +70,13 @@ This is a **sanctioned exception** to `frontend.md`'s "URL query params are the 
 | `contentSubject.ts` | the current content-pane subject + its apply-draft callback | in memory only |
 | `chapterUndo.ts` | assistant-write undo snapshots per `(book, chapter)`, capped at 20 | **in memory only** |
 | `closeTurn.ts` | the registered close-turn controller + the active close turn's `(book, chapter)` | **in memory only** |
+| `chatPaneController.ts` | the registered chat-pane controller — the shell's open-a-chat entry point, called by the chats list page without touching pane state or the router | **in memory only** |
 
-Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a sixth is added on purpose rather than by precedent.
+Each needed the same explicit sanction, because each is an exception to "state lives in a `<Page>State`". They are recorded together so a seventh is added on purpose rather than by precedent.
+
+**The sixth is the first member that is neither draft- nor subject-related (feature `023.chat-ux-revision`).** `chatPaneController.ts` holds no content and no pointer to content: it is a **pane-control seam**, registered by `WorkspaceShell` and called by `ChatsListPage` to open a picked chat in the chat pane **with no route change**. It follows `closeTurn.ts`'s rules unchanged — newest registration wins, unregistration is identity-guarded so a superseded owner's late unmount cannot clear a live registration, and a request with nothing registered is a **no-throw no-op that reports it went unanswered** rather than an error. Its one addition to the shape is that the request does **two** things, not one: it moves the pane's active-chat pointer **and** loads that chat's transcript, because moving the pointer alone would leave the previous conversation on screen under the new chat's header (`frontend-workspace.md` → Chat pane).
+
+So this tier is now **module-level state and seams beside the pages**, not only the draft tier — the name to use when deciding whether a seventh member belongs here.
 
 ### The fourth member, sanctioned on purpose (feature `015.chapter-writing-free-mode`)
 

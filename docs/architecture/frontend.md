@@ -124,10 +124,12 @@ frontend/
       main.tsx, App.tsx, routes.tsx
       workGate.ts         # auth-only entry gate, run before createRoot
       subject.ts          # the content-pane subject model + editability table
-      restoreBuffer.ts    # device-local draft buffer     ─┐
-      activeChat.ts       # per-book active-chat pointer   │
-      contentSubject.ts   # canvas + selection registry    ├─ module tier
-      chapterUndo.ts      # assistant-write undo snapshots ─┘
+      restoreBuffer.ts      # device-local draft buffer      ─┐
+      activeChat.ts         # per-book active-chat pointer    │
+      contentSubject.ts     # canvas + selection registry     │
+      chapterUndo.ts        # assistant-write undo snapshots  ├─ module tier
+      closeTurn.ts          # close-turn controller + active  │
+      chatPaneController.ts # open a chat in the chat pane   ─┘
       pages/              # flat: page component + adjacent state file
       components/shell/   # navigator, workspace shell, chat-pane slot
       components/chat/    # the chat pane (feature 011)
@@ -137,7 +139,7 @@ frontend/
       pages/              # table of contents, chapter, not-found — each with its state file
 ```
 
-**`src/work/` is real** as of feature 010, and its four root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts`, `chapterUndo.ts` — added by features 010, 011, 013 and 015) form a state tier of their own, documented in `frontend-work-drafts.md`.
+**`src/work/` is real** as of feature 010, and its **six** root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts`, `chapterUndo.ts`, `closeTurn.ts`, `chatPaneController.ts` — added by features 010, 011, 013, 015, 016 and 023) form a state tier of their own, documented in `frontend-work-drafts.md`.
 
 **`src/read/` is a built SPA** as of feature `022.reader-mode`: an **auth-only gate** run before `createRoot` (a structural mirror of `workGate.ts`), a `<BrowserRouter basename="/read">` in `App.tsx`, and a three-route table — table of contents, one chapter read-only, and a terminal not-found catch-all — over three pages in `pages/`. It replaced the feature-010 stub, which was a table-of-contents placeholder with no router and no gate. Routes, the gate's reasoning and the no-editor property are in `frontend-workspace.md` → Reader.
 
@@ -157,6 +159,17 @@ frontend/
 - Nav is now **`Users | LLM Servers | Database | Assistant Modes | Sub-agents`**, still under the minimal local Admin layout; the shared `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred.
 
 The Mantine inventory grew with it: the mode editor introduces the repo's **first `<Textarea>`**, and the first use of the **`ScrollArea.Autosize` + `Checkbox` multi-select idiom** outside `components/llm-servers/ModelsModal.tsx`. Both editors reuse that idiom for tool and mode/sub-agent pickers rather than reaching for a new component, because a checkbox list inside a bounded scroll area is already the repo's answer to "pick a subset of a catalogue whose size is unknown."
+
+**`Popover` — first use in the repo (feature `023.chat-ux-revision`)**, for the chat pane's model and settings controls. Beside the existing `Menu`: use **`Menu.Item` for a simple action**, **`Popover` when the content does not fit a menu item** — a `NumberInput`, a `Select`.
+
+**A controlled `Popover`** (an `opened` boolean passed in) deliberately does **not** attach its own toggle to the target. Its click-outside handler treats **both target and dropdown as "inside"**, so the target's own click handler owns the toggle with no double-fire, and dismissal — click-outside, Escape — comes back through **`onChange(false)`**, never through a close callback alone. Bind both or the popover becomes unclosable in one of the two directions.
+
+**The icon-in-input recipe (feature `023`'s Send/Stop)** is the repo's first `rightSection` use anywhere, and four facts each cost real time:
+
+1. **`rightSectionPointerEvents` defaults to `"none"`.** A control placed there renders correctly and is **completely dead to the pointer** — and jsdom does not hit-test, so **no `fireEvent`-based test can catch it**. Set it to `"all"`.
+2. **The section is absolutely positioned across the input's full height with centred alignment**, so it **re-centres as an autosizing textarea grows**. Corner anchoring needs an explicit alignment override through `rightSectionProps`.
+3. **The default section width derives from the input-height variable**, which an autosizing `Textarea` has no fixed value for. An explicit width is what makes both the slot and the input's own text padding deterministic.
+4. **Mantine's disabled-input styling targets the input element, not its sections.** That is exactly what lets **Stop stay live and undimmed inside a textarea that is `disabled` mid-stream** — mid-stream abort depends on it, so do not "fix" it by disabling the wrapper.
 
 ## MobX hard rules
 
@@ -267,7 +280,13 @@ The commit-and-reload therefore stays in the state layer and the URL write stays
 - `WorkspaceShell` **owns** the single `ChatPaneState` (`useState(() => new ChatPaneState(…))`) and starts its load inside the **existing** mount `useEffect` — no second effect was added.
 - It passes **the instance** down to `ChatPane` (through `ChatPaneSlot`), and passes `WorkNavigator` a **zero-arg `onShowChatList` handler** rather than the state — the navigator needs to trigger, not to read.
 - **No React context.** The slice travels explicitly down the tree, which is why there is exactly one owner and the ownership is visible at the call site.
-- `ChatPane` holds only an **ephemeral `useState` boolean** for its new-chat form (the `BookshelfPage` `createOpen` precedent) and runs **no effect** — a child that receives a state instance does not also acquire a lifecycle.
+- `ChatPane` runs **no effect** — a child that receives a state instance does not also acquire a lifecycle.
+
+**Established idiom — a page reaches shell-owned state through a module-level register/unregister module, never through React context.** Context is banned outright, a cross-page callback would make the shell the owner of something neither side owns, and a custom `useX` hook is forbidden too; a module of plain functions is what is left. Three independent features now converge on it — the canvas/selection registry (`contentSubject.ts`, 013/015), the close-turn controller (`closeTurn.ts`, 016) and **`chatPaneController.ts` (023**, by which the chats list page opens a chat in the pane without a route change**)** — so it is an idiom, not three one-offs. The shape:
+
+> the shell **registers** its controller in its **existing** mount effect and **unregisters** with an identity guard on unmount (a late unmount from a superseded owner is a no-op); the caller gets a **no-throw request function that reports whether anyone was listening**, because the pane may legitimately not be mounted yet.
+
+The sanctions for each member live with the module tier in `frontend-work-drafts.md`.
 
 ### Forms
 
@@ -321,7 +340,7 @@ Streaming endpoints use `streamPost()` in `src/api/sse.ts`: a `fetch`-based read
 
 **The terminal payload needs a reload.** `streamPost` calls `onDone()` with **no argument**, so the `done` frame's persisted assistant-message DTO is unreachable through it. The send/retry path therefore obtains the stored message by **reloading the chat once via `getChat`** on `done` and swapping `messages` atomically, which makes the in-flight bubble disappear with no duplicate or orphan. If a future streaming surface needs the terminal payload without a reload, `streamPost`'s `onDone` signature has to forward the parsed `done` data — a frozen-signature change, not a local workaround.
 
-The frame vocabulary itself is the assistant runtime's, not this layer's: `thinking` / `delta` / `done` / `error` / `canvas`, documented in `assistant-runtime.md`. `sse.ts` carries named handling for the frames it was written against and a **generic event branch** beside it, which is why feature 013 could add `canvas` in the resource module (`api/chats.ts`) **without opening `sse.ts` at all**. Keep new frames on that path: the reader is transport, and a frame name is not.
+The frame vocabulary itself is the assistant runtime's, not this layer's: `thinking` / `delta` / `done` / `error` / `canvas` / `tool_call` / `tool_result` (the last two from feature `024`), documented in `assistant-runtime.md`. `sse.ts` carries named handling for the frames it was written against and a **generic event branch** beside it, which is why feature 013 could add `canvas` in the resource module (`api/chats.ts`) **without opening `sse.ts` at all**. Keep new frames on that path: the reader is transport, and a frame name is not.
 
 **Markdown rendering.** Feature 011 is also the repo's **first use of `react-markdown`** — assistant message content only (user text renders plain), with **no plugins configured**, because none were needed. That no-plugin default is the baseline for future markdown surfaces; adding a plugin is a decision to record, not a default to inherit.
 

@@ -76,19 +76,21 @@ The codex and continuity routes here are **read-only mirrors**. All *management*
 | `/work/:bookId/codex/:id` | one codex entry |
 | `/work/:bookId/variants` | variants list |
 | `/work/:bookId/variants/:chapterId` | one chapter's variants and revisions |
-| `/work/:bookId/chats` | **redirect only** — the chat list lives in the chat pane; see below |
+| `/work/:bookId/chats` | the book's **chats list** — an ordinary content-pane page (feature `023`), active and archived; picking a row opens that chat in the **chat pane** with no route change |
 
 **`codex/new` exists because a blank entry has no id (feature 013).** UC-076 requires a blank entry of a chosen kind to be openable *before any row exists*, and `/codex/:id` cannot express "no id yet". The **kind rides in a query param** rather than in the path because it is view state chosen at navigation time, not an identifier; the route stays deep-linkable either way. It is declared **ahead of** `codex/:id` so the static segment wins.
 
 **The chat id is not in the URL.** The chat pane resolves its own active chat, per book, and does not participate in routing at all.
 
-**`/work/:bookId/chats` is a redirect — resolving this document's own contradiction (feature 011).** The route table used to read as though the chat *list* rendered in the content pane, while the navigator section below says Chats "does not render into the content pane". Two sentences of the same document disagreed. **Product settles it**: US-095.AC-1 and UC-081 step 1 both say "the chat pane's list". As shipped:
+**`/work/:bookId/chats` is a real page — the second and final resolution of this document's own contradiction (feature 011, then feature `023.chat-ux-revision`).** The route table once read as though the chat *list* rendered in the content pane while the navigator section below said Chats "does not render into the content pane"; two sentences of the same document disagreed.
 
-- the **list lives in the chat pane**;
-- the **Chats navigator entry is a control over pane state, not a router link** — it uses the `paneTarget: "chat"` discriminator feature 010 already froze on `WorkNavigator`'s items, and renders as a `<button>` that reveals the list without navigating;
-- **`/work/:bookId/chats` survives only as a redirect**, so the deep link this document documented neither 404s nor renders a chat surface in the content pane.
+**Feature 011 resolved it toward the pane**, citing US-095.AC-1 and UC-081 step 1 — which at that time both said "the chat pane's list". As shipped by 011: the list lived in the chat pane, the Chats navigator entry was a **pane control** (`paneTarget: "chat"`, the discriminator feature 010 froze on `WorkNavigator`'s items) rendering as a `<button>` rather than a link, and `/work/:bookId/chats` survived only as a redirect.
 
-Recorded with its product basis so the next reader does not have to re-adjudicate it.
+**Feature `023.chat-ux-revision` inverted it.** As shipped now: the list is **its own content-pane page** (`ChatsListPage`), the **Chats navigator entry is an ordinary router link** — its `paneTarget` is `"content"` like every other entry — and a **picked** chat is opened in the chat pane through a **module-level controller registry**, with no route change and still no chat id in the URL.
+
+**`docs/product/` was amended to match on 2026-08-10** (UC-081, US-095.AC-1, US-105.AC-3/AC-5). Say the sequence plainly rather than smoothing it: 023 was built on 2026-08-08 **knowing it contradicted a delivered acceptance criterion** — the author chose to build now and reconcile after — so between 2026-08-08 and 2026-08-10 the code was deliberately ahead of the spec. The reconciliation was owed, and it has been paid.
+
+**Why the inversion is the better shape, not merely the newer one.** Chats was the navigator's **only** entry that was a pane control rather than a link, and that exception is exactly what produced the contradiction in the first place. Removing it makes the navigator uniform — every entry is a link to a content-pane page — and leaves the chat pane with one job: showing the one conversation that is open.
 
 **Why routes and not query params — the remount collision is not real.** The obvious objection is that a subject route change would remount the page and destroy the chat pane, breaking UC-083's independence. It does not, because **chats are server-persisted per book** (`domain-chat.md`): there is no in-memory conversation to lose. On mount the chat pane re-resolves its active chat from a stored active-chat id for that book, falling back to the **most recent chat by timestamp** when there is none. A remount costs a reload, not a conversation.
 
@@ -135,13 +137,13 @@ Three regions:
 ┌──────────────┬────────────────────────────┬─────────────────────┐
 │  Navigator   │       Content pane         │     Chat pane       │
 │              │       <Outlet/>            │                     │
-│ Book state   │   a LIST  ── or ──  an     │  list · settings    │
+│ Book state   │   a LIST  ── or ──  an     │  header · popovers  │
 │ Characters   │                    ITEM    │  transcript         │
 │ Locations    │   (codex: realized)        │  thinking block     │
-│ Facts        │                            │  composer           │
-│ Chapters     │   draft-until-saved        │                     │
+│ Facts        │                            │  tool-call trace    │
+│ Chapters     │   draft-until-saved        │  composer           │
 │ Variants     │   restore buffer per item  │                     │
-│ Chats ───────┼────────────────────────────►  chats open HERE    │
+│ Chats ───────┼──► the chats LIST ─pick──► │  the picked chat    │
 └──────────────┴────────────────────────────┴─────────────────────┘
 ```
 
@@ -174,7 +176,7 @@ An in-code comment on `AdminShell` asserts a repo-wide "no `<Outlet/>` anywhere"
 - **Characters / Locations / Facts** are the one `CodexEntry` table filtered by `kind` — a fixed taxonomy, not three entities.
 - **Chapters** is read/write prose; Book state is the continuity picture. Product records the overlap as accepted and deliberate, not duplication.
 - **Variants** is an addition to the product-final list — see "Divergence" below.
-- **Chats** is the one entry that does **not** render into the content pane: a picked chat opens in the **chat pane** (UC-090 step 5, US-105.AC-3). It is a pane control, not a router link — see the route map above.
+- **Chats** renders its **list** into the content pane like every other entry (UC-090 step 2), and only a **picked** chat opens in the **chat pane** (UC-090 step 5, US-105.AC-5). It is an **ordinary router link** — feature `023.chat-ux-revision` removed the pane-control exception, and the route map above carries the decision history.
 
 #### What each section actually shows today
 
@@ -184,7 +186,7 @@ The navigator was built whole at feature 010 with **one** section carrying data 
 |---|---|
 | Book state | **has data** — the book's own fields and members (feature 010), the caller's own system prompt (feature 021), and the live state notes plus per-chapter continuity (feature `016`) |
 | Characters / Locations / Facts | **has data** (feature 013) |
-| Chats | **has data** (feature 011), in the chat pane |
+| Chats | **has data** — the list is a content-pane page (feature `023`); a picked chat opens in the chat pane (feature 011) |
 | Chapters | **has data** (features `014`, `015`, `016`) — the ordered skeleton with add / remove / reorder, the sketch editor, the caller's own chapter prompt, the `open` chapter's body editor with its state transitions, and the close procedure's surfaces |
 | Variants | labelled empty state — owner `018.chapter-history-variants` |
 
@@ -280,23 +282,51 @@ Three additions to the same chapter item page, all reusing surfaces that already
 
 **The settings-side mirror was deliberately not built.** The Shell's `/books/:bookId/continuity` route stays unbuilt: the working-page surfaces satisfy UC-051 and UC-089 on their own, and this document's one-editing-surface rule already makes the Shell copy a **read-only convenience** rather than a requirement. Building it would have doubled the feature's surface area for a view nobody is blocked on. It remains designed — see the Shell route map above — and unbuilt.
 
-### Chat pane (feature 011)
+### Chat pane (feature 011, reshaped by feature `023.chat-ux-revision`)
 
 The slot is no longer empty. Feature 010's `ChatPaneSlot` placeholder is gone — the slot is now a one-line adapter onto the real pane, and the pane's parts live in `src/work/components/chat/`:
 
 | Part | Role |
 |---|---|
-| `ChatPane.tsx` | the pane itself — header, controls, and which sub-surface is showing |
-| `ChatList.tsx` | the book's chats, with the active marker, per-row archive/restore and an archived toggle |
-| `ChatSettingsPanel.tsx` | per-chat model and sampling, shared by the new-chat form and the settings view |
+| `ChatPane.tsx` | the pane itself — header, the model and settings **popovers**, and the "+" that creates a chat |
+| `ChatSettingsPanel.tsx` | per-chat model and sampling, rendered inside the settings popover |
 | `MessageList.tsx` | the transcript, plus the in-flight bubble while a turn streams |
 | `ThinkingBlock.tsx` | the collapsible reasoning region |
-| `Composer.tsx` | the prompt input with send / stop and the retry banner |
+| `ToolCallTrace.tsx` | the turn's tool calls, per message (feature `024`) |
+| `Composer.tsx` | the prompt input with its in-input send / stop control and the retry banner |
 | `chatPaneState.ts` | the pane's single state class |
 
-**One state instance, owned by the shell.** `WorkspaceShell` owns the `ChatPaneState`, starts its load in its existing mount effect, and passes the instance down; the navigator gets a zero-arg handler, not the state. The full pattern and its reasoning are in `frontend.md` → Components, because it is a general rule with a worked example here rather than a workspace-specific arrangement.
+**`ChatList.tsx` left this table at feature `023`.** It belongs to the chats list page now (`pages/ChatsListPage.tsx` + `chatsListPageState.ts`) — the pane's own list, rendered in the content pane like every other list. **There is no in-pane chat list, no inline new-chat form, and no "Save settings" button anywhere in the tree**; each of the facts below follows from one of those three removals.
 
-**The pane is a client of the assistant, not its design.** Prompt composition, the tool loop, mode gating and the five-frame SSE vocabulary (`thinking` / `delta` / `done` / `error` / `canvas`) are in `assistant-runtime.md`. What this document fixes is that the pane exists, that chats open in it, and that a chat is independent of the content-pane subject.
+**A "+" creates a chat instantly, with no form.** The new chat inherits the active chat's model pair, or the first available option when there is none, so the author never fills a form to start typing. It is **refused with an author-facing message when no model is available at all** — UC-053's exception flow (US-056.AC-4/AC-5) — because a chat with no model is a chat that cannot take a turn.
+
+**The pane controller seam.** `WorkspaceShell` registers a **module-level controller** (`src/work/chatPaneController.ts`) so the chats list page can open a chat in the pane **without a route change**; the page never touches `ChatPaneState`. The controller **moves the active-chat pointer *and* loads that chat's transcript** — two calls, not one. The plan sketched it as a single `pickChat`, and pointer-only would leave the previous conversation on screen under the new chat's header; the two-call shape is the contract, so the sketch is not later read as authoritative. The module tier it joins is `frontend-work-drafts.md`'s.
+
+**One `openedPanel` discriminator drives both header popovers.** The pane holds `"model" | "settings" | null`, so opening one closes the other **by construction** rather than by a handler that remembers to close its sibling — and an accepted send clears it.
+
+**Settings are flushed before the turn stream opens.** A dirty settings draft is persisted first; a **failed flush aborts the send** with an author-facing error and opens **no** stream. The reason is not client tidiness: the backend's turn preparation reads the chat's **stored** model pair (`assistant-runtime.md`), so client and server must agree *before* the turn starts, or the turn runs on a model the author did not pick.
+
+**A consequence worth stating plainly.** With the Save-settings button gone, that send-time flush is **the only path in the whole app that persists a model change**. A model or creativity change the author makes and never follows with a message is **lost on reload** — design-note D8's accepted trade-off, and an **open `_TBD:` on UC-081** in `docs/product/` as of 2026-08-10. The visible symptom is that the header's model label lags the author's pick until a message is sent; that is **feedback round 3 / F5, open and unbuilt as of 2026-08-10**. No decision is recorded here, deliberately — the as-built behaviour above and the open question are the whole of it.
+
+**The pane's vertical contract, stated because feature 023's feedback round 1 found it broken.** The aside is fixed-height, the pane root fills it, the **transcript is the single growing child** (`flex: 1` **plus `minHeight: 0`**), and the composer is **non-shrinking**. The `minHeight: 0` is **required, not defensive**: Mantine's `AppShell.Aside` is already a flex column, so the pane root is already a flex item whose automatic minimum would otherwise be its own content height. Provenance, honestly: the 320px transcript cap and the missing chain were **011-era**, hidden by the bulk that 023 removed; 023 owns the repair because it owns the pane's current shape. A pane change that breaks this chain breaks it silently — jsdom has no layout engine, so no test will catch it.
+
+**The composer's send control is an icon inside the input's bottom-right corner**, with Send and Stop swapping in **one slot** (feedback round 2). 011's description of a Send `Button` in a row below the textarea is stale. The accessible names `Send` / `Stop` are the only handle on an icon-only control, which makes them a **test contract, not decoration**. The Mantine mechanics are in `frontend.md` → Mantine inventory.
+
+**Chats are titled automatically** from their own content (UC-101, US-119) — the trigger and the swallow-on-failure policy are `domain-chat.md`'s and are not duplicated here. **The transcript shows the assistant's tool calls** (UC-102, US-120) — the wrapper that produces them is `assistant-runtime.md`'s.
+
+**One state instance, owned by the shell.** `WorkspaceShell` owns the `ChatPaneState`, starts its load in its existing mount effect, and passes the instance down; since `023` the navigator receives **nothing at all** for chats — its entry is a link — and the only cross-component seam left is the controller registration above. The full pattern and its reasoning are in `frontend.md` → Components, because it is a general rule with a worked example here rather than a workspace-specific arrangement.
+
+**The pane is a client of the assistant, not its design.** Prompt composition, the tool loop, mode gating and the **seven-frame** SSE vocabulary (`thinking` / `delta` / `done` / `error` / `canvas` / `tool_call` / `tool_result`) are in `assistant-runtime.md`. What this document fixes is that the pane exists, that a picked chat opens in it, and that a chat is independent of the content-pane subject.
+
+#### Three known defects and one known gap
+
+Recorded once rather than rediscovered, following `assistant-runtime.md`'s precedent:
+
+1. **An unresolvable saved model option silently clears the chat's model pair.** The settings save resolves the draft's chosen option against the loaded options and falls back to a **null pair** when nothing matches — so when a chat's stored pair names a server or model that is no longer offered (server deactivated, model removed), a temperature-only edit reads as dirty and the flush writes an **empty** pair, clearing the chat's own model immediately before the turn that depends on it. **Pre-existing 011 behaviour**: 023's dirty-check closed the unseeded-draft door but not this one, so 023 added a **second route to the defect, not the defect**. Worth hardening — an unresolvable option should arguably leave the stored pair alone.
+2. **An archived chat picked from the list opens an empty pane.** The pane loads only non-archived chats while the list page loads both, so an archived pick points the active-chat id at a chat the pane has no row for. Out of scope in 023, and **`docs/product/` now records it as a `_TBD:` on UC-081** — restore-only archived view, or a pane that fetches any picked chat.
+3. **The settings popover surfaces no temperature validation message.** The pane's error computed still derives its temperature message from the *new-chat* draft, while its only remaining consumer edits the *settings* draft. Pre-existing 011 behaviour, deliberately left alone.
+
+**Gap: the transcript does not auto-scroll to the newest message**, and it is now conspicuous — before the flex repair the region was capped and rarely the thing that scrolled; now it fills the pane and a streaming turn writes below the fold with no follow. Deliberately out of scope for 023 (new behaviour, not a repair). `frontend.md` already sanctions the mechanism: **one `autorun` in the pane-level mount effect**, never a `useEffect` in the transcript leaf.
 
 **`ChatPaneState` holds no book id, and pane-level predicates must be written accordingly (feature `016`).** The shell remounts the pane per book (`key={bookId}`), so the pane **is** book-scoped — by remount, not by a stored value. A predicate phrased as *"does X's book match the pane's"* therefore has nothing to compare against and cannot be implemented; the correct phrasing for anything the pane must react to is **"is X active at all"**. Feature `016`'s composer read-only rule is written that way for exactly this reason, and the next cross-pane signal should be too. This is the same shape as `ChatPaneState` holding no subject field and no selection field (`frontend-work-drafts.md`): the pane reads module state at the moment it needs it, and mirrors nothing.
 

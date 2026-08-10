@@ -1,6 +1,6 @@
 # Domain — Chat and ChatMessage (entities only)
 
-**Realizes:** FEAT-013 **entities only** — UC-053, UC-081, UC-082; US-061, US-095, US-096. The runtime that uses these rows is `assistant-runtime.md`.
+**Realizes:** FEAT-013 **entities only** — UC-053, UC-081, UC-082, **UC-101**, **UC-102**; US-061, US-095, US-096, **US-119**, **US-120**. The runtime that uses these rows is `assistant-runtime.md`.
 
 Part of the book-domain model. **Index and cross-cutting conventions: `domain-model.md`.** Related: `frontend-workspace.md` (the chat pane's slot), `frontend-work-drafts.md` (the restore buffer and the canvas target registry), `retrieval.md` (what the assistant searches), **`assistant-config.md`** (the FEAT-020 configuration model) and **`assistant-runtime.md`** (the runtime that composes prompts, gates tools, drives the tool loop, delegates, and streams frames).
 
@@ -17,7 +17,7 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 | `id` | snowflake PK |
 | `book_id` | FK → `Book.id` — chats are per book |
 | `author_id` | FK → `User.id` — **private to that author**, including from the owner (US-061.AC-1) |
-| `title` | display label for the picker |
+| `title` | display label for the picker — **derived from the chat's own content, not typed by the author** (UC-101; see "Background chat titling" below) |
 | `llm_server_id` | **nullable** FK → `LlmServer.id` — the author's model choice for this chat |
 | `model_name` | **nullable** string — the model on that server; **the pair moves together exactly as `SubAgent`'s does** (both null or both set; a half-set state is refused) |
 | `sampling_params` | **non-nullable** TEXT holding a JSON object, gated by a Pydantic `ChatSamplingParams` |
@@ -36,7 +36,22 @@ Part of the book-domain model. **Index and cross-cutting conventions: `domain-mo
 | `content` | the message body |
 | `reasoning` | **nullable** — the model's thinking for this message, when the server surfaced any |
 | `position` | non-null `int` — the message's order within its chat, an explicit ordinal alongside `created_at` |
+| `tool_trace` | **nullable** — the ordered tool-call trace for this message, when the turn made any tool calls (feature `024`, UC-102 / US-120). TEXT holding JSON, gated by a Pydantic `ToolTrace` / `ToolTraceEntry`, the same pattern `Chat.sampling_params` uses |
 | `created_at` | timestamp |
+
+`tool_trace` is the **third** instance of the sanctioned JSON-in-TEXT pattern, after `LlmServer.enabled_models` and `Chat.sampling_params` — `backend/persistence.md` → "JSON-in-TEXT gated by a Pydantic model" carries the sanctioning, and records the one way this instance differs (its read tolerates an unparseable stored value). The trace is persisted **onto the assistant message** rather than held per session, so it survives a reload and belongs to the answer it explains.
+
+## Background chat titling (feature `023.chat-ux-revision`)
+
+**Realizes:** UC-101, US-119.
+
+A chat's `title` is produced by a one-shot model call over the chat's own transcript, through `POST /{book_id}/chats/{chat_id}/title`. It sits **outside the turn loop** — it is a property of this field, not a step of a turn — which is why it lives here and not in `assistant-runtime.md`.
+
+- **The trigger is a derived count, with no new column.** Titling runs when the chat's user-message count is **exactly 1** and **exactly 5** — not `>=`. Exactly, so a title stops moving under the author once the chat is established, and so **no "has been titled" flag has to be stored and kept in step** with a transcript that can be re-read at any time. The count is a `COUNT` query, never a transcript load.
+- **Failure is swallowed.** Any failure, and a blank result, leaves the existing title intact and raises nothing. A titling failure must never surface as a turn or request failure — it mirrors the close-turn finalize hook's swallow policy (`assistant-runtime.md`).
+- **It is bound to the chat's own configured model pair.** There is **no utility/small-model designation in the system and none was added** — stated explicitly, because "a cheap model for cheap calls" is the obvious thing a reader assumes exists.
+- **It is the repo's first non-streaming `llm` client `.chat()` call site.** Every prior call site uses `chat_with_tools` or `embed_batch`. The client's `chat()` takes its whole request as **one positional message list**, so the titler carries its instruction as a **trailing synthetic user turn** rather than as a `system=` layer — which keeps the call one positional argument and **leaves the chat's persisted transcript untouched** (the synthetic turn is never stored). Copy this shape for the next one-shot, non-streaming, non-persisted model call.
+- **The endpoint is policy-owning**: its entire job may be to do nothing, and it answers `{title, changed: false}` when the trigger does not fire. Nothing else in the route inventory has that shape, so the caller must not read a `200` as "a title was written".
 
 ## The structural facts worth stating
 

@@ -108,7 +108,7 @@ Only the composition of these named prompts is in scope here. Assembling retriev
 
 The settled rule is **three cases, not two**:
 
-1. **A mode-bearing subject** gets **exactly its `mode_tool` rows.** Zero rows is an **empty allowlist**, not the whole registry (`assistant-config.md` carries the reasoning). A tool not selected for the mode is never built into the definitions, so it is unavailable to the model in that mode (US-111.AC-2).
+1. **A mode-bearing subject** gets **exactly its `mode_tool` rows.** Zero rows is an **empty allowlist**, not the whole registry (`assistant-config.md` carries the reasoning). A tool not selected for the mode is never built into the definitions, so it is unavailable to the model in that mode (US-111.AC-2). **The rule is unchanged by feature `024`; the starting state is not** — the five modes now **seed with a default tool set**, so the codex modes (`edit-character` / `edit-location` / `edit-fact`) resolve by default to `web_search`, `codex_search`, `codex_read_entry` and `write_codex_draft` rather than to nothing. A mode an administrator has since edited down to zero rows still gets an empty allowlist.
 2. **A subject with no mode** — book state, any list, the chats view, or no subject at all — gets a code-defined **`BASE_TOOL_NAMES`**, holding `web_search` as shipped.
 3. `services/tools.py:resolve_tools`'s **`None ⇒ whole registry` branch is no longer reached by the turn.** Feature `011.chat-panel` opened that seam; feature `013.codex` closed it.
 
@@ -116,7 +116,7 @@ The settled rule is **three cases, not two**:
 
 **Mechanics.** Read the mode's `mode_tool` rows → resolve each `tool_name` against `TOOL_REGISTRY` → build the OpenAI tool definitions with `pydantic_to_openai_tool(name, description, args_schema)` and a name→callable map (context-bearing tools bound from the turn's `ToolContext` — `assistant-config.md`). A selected name with **no registry entry is skipped and logged**: the code catalogue is the source of truth and a selection is only an allow-mark. Allowlist resolution deliberately does *not* filter against the registry itself, so the skip-and-log rule lives in exactly one place.
 
-**Decision history, two lines.** Feature `011.chat-panel` shipped an interim rule where **a null mode allowed the whole `TOOL_REGISTRY`**, because no mode-bearing subject existed yet — a deliberate temporary widening of an allowlist, recorded as a seam rather than discovered later as a hole. Feature `012.assistant-config-editor` explicitly left the seam in place and named `013.codex` as its owner; `013.codex` closed it as above.
+**Decision history, three lines.** Feature `011.chat-panel` shipped an interim rule where **a null mode allowed the whole `TOOL_REGISTRY`**, because no mode-bearing subject existed yet — a deliberate temporary widening of an allowlist, recorded as a seam rather than discovered later as a hole. Feature `012.assistant-config-editor` explicitly left the seam in place and named `013.codex` as its owner; `013.codex` closed it as above. **Feature `024.chat-agent-loop` ends the history not with the empty allowlist but with seeded defaults** — every mode starts with a tool set and a system prompt, and an administrator edits *down* from there rather than *up* from nothing.
 
 ## The tool / function-call protocol — built on `chat_with_tools`
 
@@ -197,7 +197,14 @@ Verified during `011.chat-panel`. These are dependency facts that silently chang
 
 ## The SSE frame vocabulary
 
-Five named frames as shipped: **`thinking`, `delta`, `done`, `error`** (`011.chat-panel`) and **`canvas`** (`013.codex`). The first four were chosen to match what the frontend's `api/sse.ts` already special-cases, so the first streaming surface in the repo needed no transport work.
+Seven named frames as shipped: **`thinking`, `delta`, `done`, `error`** (`011.chat-panel`), **`canvas`** (`013.codex`), and **`tool_call` / `tool_result`** (`024.chat-agent-loop`). The first four were chosen to match what the frontend's `api/sse.ts` already special-cases, so the first streaming surface in the repo needed no transport work.
+
+`tool_call` carries `ToolCallFrame(tool_name, arguments)` and `tool_result` carries `ToolResultFrame(tool_name, result, ok)`. Two properties are worth stating:
+
+- **They are emitted generically, by a wrapper around every bound tool** — not by individual tools calling the emit function for themselves, which is how `canvas` works. A tool added later therefore gets visibility **for free**, and cannot forget to.
+- **Tool arguments arrive whole, not streamed** — the same accepted-whole property `canvas` already has, and for the same reason: the loop hands a tool its arguments only after the model has finished emitting them.
+
+The standing two-seam warning below applied again here. **Both new frames needed their own client-side narrowing functions**, each dropping a malformed payload **whole** rather than forwarding a half-built frame.
 
 `canvas` carries `CanvasFrame(subject_kind, subject_id, field, op, text)`. Two properties make it safe to add:
 
@@ -213,7 +220,18 @@ Five named frames as shipped: **`thinking`, `delta`, `done`, `error`** (`011.cha
 
 The narrowing **silently drops any field nobody added to it**, and it is invisible to page-level specs, which deliver frames by calling the real dispatcher rather than by crossing the wire. `015`'s `op` discriminator was lost exactly there and no automated criterion could see it. Treat the narrowing as part of the frame's declaration, not as transport.
 
-**This vocabulary is deliberately narrow — a floor, not the design.** Feature `011.chat-panel` recorded its four frames as exactly that; feature `013.codex` was the first widening and feature `015.chapter-writing-free-mode` the second. **Token-level streaming is still undesigned.** A shipped frame set tends to be read as the protocol; it is not.
+**This vocabulary is deliberately narrow — a floor, not the design.** Feature `011.chat-panel` recorded its four frames as exactly that; `013.codex` was the first widening, `015.chapter-writing-free-mode` the second (a field on an existing frame) and `024.chat-agent-loop` the third. **Token-level streaming is still undesigned.** A shipped frame set tends to be read as the protocol; it is not.
+
+## Tool-call visibility (feature `024.chat-agent-loop`)
+
+**Realizes:** UC-102, US-120 — the author sees what the assistant did during a turn.
+
+Every entry of a turn's tool map is **wrapped once, uniformly**, in `services/chat_turn.py`, closing over the turn's frame emitter and a per-turn trace list. The wrapper emits `tool_call` before the call and `tool_result` after it, and appends the same pair to the trace.
+
+- **`chat_with_tools` itself is unmodified and unforked.** This is the **third** time the built-in loop survived a feature that looked like it would force a manual driver, and it survived for the same reason as the two canvas features: the wrapper reaches the wire through **the queue the turn already pumps**, so nothing needs per-step visibility *from the loop*.
+- **BookWriter has exactly one `chat_with_tools` call site**, so the wrapper is written **once**. (The reference project this pattern generalizes from duplicated it three times — one wrapper per call site — which is the cost of not having that single seam.)
+- **The wrapper never raises.** A raising tool becomes an **error-string result with `ok=false`**; a **failed frame emission is swallowed**, and the tool's real result still reaches the model, the trace and the caller. A lost visibility frame must never rewrite what the assistant was told a tool returned. Note the tension the implementation had to resolve: "convert any exception to an error result" and "never let a failed frame emission abort the tool call" **contradict each other if read distributively**, and the invariant that wins is the dominant one — *a tool never raises*, and a visibility failure is not a tool failure.
+- **The assembled trace is persisted onto the assistant message** (`ChatMessage.tool_trace`, `domain-chat.md`), so the record survives a reload and belongs to the **answer** rather than to the session.
 
 ## The shared-canvas write for codex, as built
 
@@ -248,7 +266,9 @@ The frontend half — the module-level canvas target registry, and the restore b
 
 **Accepted limitation, stated plainly: the assistant reads the *saved* body, not the author's draft.** The draft is device-local and never leaves the browser until the author saves (US-107.AC-4), so after unsaved edits the model's view of the chapter is stale. This is a consequence of draft-until-saved, not a gap in the protocol.
 
-**The tools ship unreachable, by design.** **No `mode_tool` rows were seeded**, so a registered chapter tool is invisible to every turn until an admin selects it for the `write-chapter` mode in the FEAT-020 editor. On a fresh install the chapter editor works and the assistant cannot write into it until then. This is the same stance `013.codex` took for the codex tools; changing it would be a **FEAT-020 default-policy decision**, and it would point the default in the unsafe direction the empty-allowlist rule exists to avoid.
+**The tools are seeded by default (feature `024.chat-agent-loop`, reversing the previous stance).** `write-chapter`'s four chapter tools now come with `mode_tool` rows on a fresh install, so **the assistant can write into the chapter editor with no administrator configuration at all**. This document previously recorded the opposite — no rows seeded, and changing that described as a FEAT-020 default-policy decision pointing the default "in the unsafe direction". That decision was **made, by the author, explicitly** (design-note D4); it is a decision with an owner, not an inferred default.
+
+**The empty-allowlist *rule* is unchanged — only the seeded starting state moved.** A mode an administrator edits down to zero tools still resolves to zero tools, and registration alone still grants nothing. What changed is where a fresh install starts, not how gating works.
 
 ## The close-chapter procedure, as built
 
@@ -278,7 +298,7 @@ The refusal chain runs in a fixed order: a **non-chapter subject**, a chapter **
 | `error` | yes | the run ended; a failed run must still return the chapter to `open` rather than strand it in `closing` |
 | client disconnect / abort | **no** | the generator never reaches the step — the explicit `POST …/close/cancel` is that path's exit |
 
-**The five-frame vocabulary is unchanged** — no frame was added, none changed shape. What changed is what happens *between* the loop and the last frame, which is precisely the thing a reader will infer wrongly from the frame list alone.
+**Feature `016` changed the frame vocabulary not at all** — it added no frame and reshaped none (the two that exist beyond `011`/`013`'s five are `024`'s). What changed is what happens *between* the loop and the last frame, which is precisely the thing a reader will infer wrongly from the frame list alone.
 
 ### A per-subject mode is not a claim of ownership
 
@@ -290,13 +310,13 @@ Concretely: while an owner's chapter sits in `closing`, a **co-author's own chat
 
 The finalize call site is consequently gated on the caller holding **`Capability.set_chapter_state`** — the same capability that gated the close request itself — and the close *tools* carry the identical gate as the fourth link of their refusal chain. **Two layers, one rule**, with no new state and no run-ownership token to keep in step. Feature `016`'s own risk list named this hazard for the tools only; the same hazard exists one layer up, which is why it is written here as a rule rather than there as a fix.
 
-### The tools ship registered but unreachable — and the feature is inert without them
+### The five tools are seeded — the close procedure is live on a fresh install
 
-**No `mode_tool` rows were seeded**, matching the precedent `013.codex` set and `015` followed.
+**Reversed by feature `024.chat-agent-loop`.** This section previously read "the tools ship registered but unreachable, and the feature is inert without them": no `mode_tool` rows were seeded, so feature `016` was delivered but **inert until an administrator assigned the five tools to the `close-chapter` mode**. The consequence was sharper here than for the chapter canvas tools — an unassigned close tool meant the procedure **could not execute at all**, because a turn with no tools drafts nothing and `finalize_close_turn` then returns the chapter to `open` every single time.
 
-**The consequence is sharper here than it was there.** For the chapter canvas tools, an unassigned tool meant the assistant could not write into the editor; everything else still worked. For these five, an unassigned tool means the **close procedure cannot execute at all** — a turn with no tools drafts nothing, so `finalize_close_turn` finds no artifacts and returns the chapter to `open` every single time.
+**All five are now seeded by default**, so feature `016`'s close procedure runs on an installation nobody has configured.
 
-**So feature `016` is delivered but inert until an administrator assigns the five tools to the `close-chapter` mode** in the FEAT-020 editor (`assistant-config.md`). That is a configuration act, not code, and the stance is deliberate: seeding rows would be a FEAT-020 **default-policy** decision, and it would point the default in the unsafe direction the empty-allowlist rule exists to avoid. Product recorded the matching build-order edge; this is the architectural reason behind it.
+**The accepted risk, stated plainly: a model-driven close run now writes real artifacts on a fresh install.** It drafts a summary and a note changeset, may replace the book's live note set, may raise flags, and may end with the chapter `closed`. The previous stance — that seeding would point the default in the unsafe direction the empty-allowlist rule exists to avoid — was **reversed deliberately** (design-note D4, the author's decision), and the counterweight is the reason: **a feature that is inert by default is also a feature nobody discovers is broken.** Sixteen shipped and was exercised by nobody until the seed landed. The domain rules that bound what a run may write are unchanged and live in `domain-continuity.md`.
 
 ## Out of scope — still deferred
 

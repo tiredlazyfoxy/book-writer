@@ -158,3 +158,37 @@ the architect at finalization, not by the coder.
   one slot. Possible impact: wherever `frontend-workspace.md` describes the chat pane's composer
   parts, describe the control as in-input and note that the accessible names (`Send` / `Stop`) are
   the only handle on it, since an icon control renders no text.
+
+---
+Status: Applied 2026-08-10
+Applied items: 8
+Rejected items: 2 (notes below)
+
+**Architecture files updated for this feature:** `docs/architecture/frontend-workspace.md` (the
+`/chats` route row; the redirect-resolution block rewritten as two-stage decision history; the
+navigator bullet, region diagram and section table; the chat pane section rebuilt — parts table,
+instant create, the controller seam as pointer **and** transcript, the `openedPanel` discriminator,
+the settings flush before send, the vertical contract, the in-input send control, and the three
+known defects plus the auto-scroll gap), `docs/architecture/domain-chat.md` (background chat
+titling, and UC-101 / US-119 added to the header), `docs/architecture/frontend.md` (the
+register/unregister idiom generalized; `Popover`, controlled-popover and icon-in-input added to the
+Mantine inventory), `docs/architecture/frontend-work-drafts.md` (the module tier's sixth member),
+`docs/architecture/system-overview.md` (the `/chats` row and bullet),
+`docs/architecture/quick-reference.md` (the titling endpoint, `ChatTitleResponse`, the module tier
+count) and `docs/architecture/CLAUDE.md` (the "Covered now" paragraph).
+
+**Not applied, and why:**
+
+- **The `docs/product/` item** (US-095.AC-1 / US-105.AC-3 / UC-081). **Discharged by `/product-spec`
+  on 2026-08-10** — product now describes the content-pane list. `docs/product/` is read-only to
+  `/architect` and nothing was written to it; the architecture docs were aligned to the amended
+  wording instead.
+- **The observation that feedback F3 supersedes this plan's `## Interface` text and design-note
+  D9.** That is a `docs/plans/` correction, and `docs/plans/` is read-only to `/architect` apart
+  from this footer.
+
+**Recorded as open, not decided: feedback round 3 / F5.** The chat pane section records the
+as-built behaviour — the send-time flush is the only path that persists a model change, so an
+unsent model or creativity change is lost on reload, and the header label lags the pick — and
+records it as an open question (`docs/product/` carries the matching `_TBD:` on UC-081). **No
+decision was written and neither candidate fix is described**, because F5 is `STATUS: TBD`.
