@@ -931,10 +931,19 @@ async def test_no_path_in_any_of_the_four_tools_raises__DoD11(db: DbConfig):
 
 # 024/context.md -> "Default per-mode tool selections" (authoritative): the set
 # `write-chapter` is seeded with on a fresh database.
+#
+# Widened by fast/007.codex-create-from-chat, whose DoD-8 adds `create_codex_entry`
+# to `DEFAULT_MODE_TOOL_NAMES` for `edit-character` / `edit-location` / `edit-fact`
+# / `write-chapter` (and NOT `close-chapter`). The widening is two-part: this
+# expected membership gains the new name, and the expected count therefore rises
+# from seven to eight -- the `len(...)` assertion below is derived from this set,
+# so it moves with it and still pins the seeded rows as a CLOSED set with no
+# duplicates. It stays an exact-set assertion, never a "contains" check.
 WRITE_CHAPTER_DEFAULT_TOOLS = {
     "web_search",
     "codex_search",
     "codex_read_entry",
+    "create_codex_entry",  # fast/007 DoD-8
     "read_chapter_text",
     "set_chapter_text",
     "update_selection",

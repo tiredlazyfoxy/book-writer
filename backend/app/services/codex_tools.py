@@ -76,6 +76,48 @@ it applies no threshold), plus two of its own:
    from the turn's own values rather than trusting the client, and adds the
    collaboration-mode nuance that file's line-141 note defers to this feature
    (``context.md`` decision 3).
+
+**fast/007** — the module gains :func:`create_codex_entry`, the **first bound
+tool in the system that writes a row to the database**. Point 5 above (and the
+"``services/codex.py`` is deliberately not imported" paragraph) held for the
+canvas write and still holds for it; it does **not** hold for this one, by an
+owned decision (``fast/007`` D1/D4). Four things follow, and none of them is
+re-derived in the tool:
+
+- **One write path.** The tool calls ``services/codex.py:create_entry(access,
+  user, req)`` — the same function ``POST /books/{id}/codex`` calls — so the
+  capability check, the proposal-mode refusal, the fact-has-no-name rule
+  (US-078.AC-2) and the vector indexing have exactly one implementation (D4).
+  This is why ``codex_service`` **is** imported here while the read tool still
+  refuses to import it: a read fork is a formatting choice, a write fork is two
+  copies of the rules. ``services/codex.py`` imports neither this module nor
+  ``services/tools.py``, so the edge is acyclic in the same direction
+  ``chat_turn`` → ``codex`` already runs.
+- **The acting user is fetched, not carried.** ``ToolContext`` holds
+  ``access.user_id: int`` and ``create_entry`` wants the ``User`` row, so the
+  tool reads it through ``db/users.get_by_id`` — the caller is the chat's own
+  author by construction. ``ToolContext.access`` is ``BookAccess | None``, and
+  ``None`` is a refusal string, never an ``AttributeError``.
+- **It is book-scoped, not subject-scoped** (D7). :func:`_refuse_write`'s chain
+  is deliberately **not** reused: its first link refuses a subject that is not a
+  codex entry, and running while the author has a *chapter* open is the entire
+  point. The scope filter is ``ToolContext.book_id``, which is the same hard
+  cross-book boundary the search and read tools rely on.
+- **Two backstops bound the damage** (D5), because the "only when the author
+  asked" guard is prompt-level and archiving is not built: a per-turn creation
+  cap (:data:`MAX_CODEX_CREATES_PER_TURN`, counted on the turn's own
+  ``ToolContext``) and a duplicate-name refusal for ``character`` / ``location``.
+  A ``fact`` is never checked for duplication — it has no name, and comparing
+  bodies is not a duplicate test.
+
+Constraint 3 above (**never raises**) binds this tool hardest, since it is the
+one that can raise a *domain* error: ``CodexError``,
+``authz.BookAuthorizationError`` and anything escaping the db layer all become
+strings.
+
+Skeleton (fast/007): :class:`CreateCodexEntryArgs`, :func:`create_codex_entry`,
+:func:`bind_create_codex_entry` and the ``_CREATE_*`` constants are frozen; the
+tool's body is UNIMPLEMENTED.
 """
 
 import functools
@@ -85,11 +127,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from app.db import codex_entries, vector
+from app.db import codex_entries, users, vector
 from app.models.book import CollaborationMode
 from app.models.codex_entry import CodexEntry, CodexKind
 from app.models.schemas.chats import CanvasField, CanvasFrame
+from app.models.schemas.codex import CreateCodexEntryRequest
 from app.services import authz, embedding
+from app.services import codex as codex_service
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard, see module docstring
     from app.services.assistant_runtime import ResolvedSubject
@@ -179,6 +223,62 @@ _CANVAS_WRITTEN_MESSAGE = (
     "Draft {field} placed in the codex entry the author has open. Nothing is "
     "saved: the author reads it, edits it and decides whether to keep it."
 )
+
+
+# How many codex entries :func:`create_codex_entry` may create in ONE turn
+# (fast/007 D5). A **damage bound**, not a rate limit: the "only when the author
+# asked" guard is prompt-level, so the model decides whether it was asked, and
+# ``017.codex-archive-restore`` is unbuilt — an entry the model invents can be
+# edited but never removed. Three is "the author asked for a handful of related
+# entries" and not "a run nobody is watching minted a codex". Counted on the
+# turn's own ``ToolContext.codex_creates_this_turn``, which
+# ``chat_turn.run_turn`` builds once per turn, so the scope is exactly a turn.
+MAX_CODEX_CREATES_PER_TURN = 3
+
+
+# ``create_codex_entry``'s strings (fast/007). Same reasoning as every constant
+# above — the never-raise contract makes them the only signal the model gets —
+# with the same refusal/error split the canvas write uses: a **refusal**
+# ("Codex entry refused: …") is a verdict that will read the same on every retry
+# and tells the model what to do instead, an **error** ("Codex entry error: …")
+# is a failure it may reasonably report to the author. The confirmation names
+# what was created — id, kind and name — because this tool, alone among the
+# codex tools, has actually changed the book, and that string is what feature
+# ``024``'s trace persists into ``ChatMessage.tool_trace`` as the author's audit
+# trail (D8: no new SSE frame exists, so the result string IS the receipt).
+_CREATE_CAP_MESSAGE = (
+    "Codex entry refused: {cap} codex entries have already been created in this "
+    "turn, which is the limit. Tell the author what else you would add and let "
+    "them ask for it."
+)
+_CREATE_DUPLICATE_NAME_MESSAGE = (
+    "Codex entry refused: this book already has a {kind} named \"{name}\" "
+    "(entry_id={entry_id}). Read that entry and tell the author what would need "
+    "to change in it, rather than creating a second one."
+)
+_CREATE_NO_IDENTITY_MESSAGE = (
+    "Codex entry error: this turn carries no author identity, so nothing can be "
+    "written to the codex. Ask the author to create the entry from the codex "
+    "page."
+)
+_CREATE_NOT_PERMITTED_MESSAGE = (
+    "Codex entry refused: this account may not add entries to this book's codex."
+)
+# ``CodexError.message`` is already model-facing prose written for exactly this
+# purpose (the proposal-mode refusal names FEAT-010; the name rules say what is
+# wrong with the name), so it is carried through verbatim rather than restated.
+_CREATE_REFUSED_MESSAGE = "Codex entry refused: {reason}"
+_CREATE_FAILED_MESSAGE = (
+    "Codex entry error: the entry could not be created. Nothing was saved."
+)
+_CREATED_MESSAGE = (
+    "Created codex entry: entry_id={entry_id} | kind={kind}{name_segment}\n"
+    "It is saved in this book's codex — the author can find, edit or correct it "
+    "on the codex page."
+)
+# The name half of the confirmation, omitted whole when the entry has no name —
+# a fact has none (US-078.AC-2), the same rule ``_entry_header`` follows.
+_CREATED_NAME_SEGMENT = " | name={name}"
 
 
 # The inverse of ``services/assistant_runtime.py:_CODEX_KIND_MODES`` — a blank
@@ -284,6 +384,51 @@ class WriteCodexDraftArgs(BaseModel):
     text: str = Field(
         description=(
             "The complete text to place in that part of the entry's draft."
+        )
+    )
+
+
+# Arguments for ``create_codex_entry`` (fast/007). The same two rules as every
+# schema above — the field names are the JSON-schema property names AND the bound
+# callable's only free parameters — plus three shaping decisions:
+#
+# - the three fields **mirror**
+#   ``models/schemas/codex.py:CreateCodexEntryRequest`` (``kind`` / ``name`` /
+#   ``body``) one for one, because the tool builds exactly that request and hands
+#   it to ``services/codex.py:create_entry`` (D4). A field this schema does not
+#   have is a field the model cannot set;
+# - ``kind`` is the shared :class:`~app.models.codex_entry.CodexKind` enum, never
+#   a free string and never a second vocabulary — the same "map across by wire
+#   value" rule ``WriteCodexDraftArgs.field`` follows by reusing ``CanvasField``,
+#   so an unrecognised kind is refused by the schema instead of reaching the
+#   table;
+# - **there is deliberately no book field and no subject field.** The book comes
+#   off ``ToolContext.book_id`` (the hard cross-book filter, D7) and there is no
+#   subject to name: this tool creates an entry that does not exist yet, which is
+#   precisely why it can run while the author has a chapter open.
+class CreateCodexEntryArgs(BaseModel):
+    """Arguments for creating and saving a new entry in this book's codex.
+
+    Only ever use these to record something the author has **directly asked**
+    you to add to the codex. The entry is saved as soon as the call returns.
+    """
+
+    kind: CodexKind = Field(
+        description=(
+            "What the entry is: 'character' for a person, 'location' for a "
+            "place, 'fact' for anything else the book establishes."
+        )
+    )
+    name: str | None = Field(
+        default=None,
+        description=(
+            "The entry's name. Required for a character or a location; leave it "
+            "out entirely for a fact, which has no name."
+        ),
+    )
+    body: str = Field(
+        description=(
+            "The entry's content, written whole — this is what gets saved."
         )
     )
 
@@ -727,6 +872,181 @@ async def write_codex_draft(
         return _CANVAS_FAILED_MESSAGE
 
 
+async def create_codex_entry(
+    context: "ToolContext",
+    kind: CodexKind,
+    body: str,
+    name: str | None = None,
+) -> str:
+    """Create and **save** one codex entry in the turn's book (fast/007).
+
+    ``context`` is bound at build time by :func:`bind_create_codex_entry`,
+    leaving ``kind`` / ``body`` / ``name`` — exactly
+    :class:`CreateCodexEntryArgs`' fields — as the model-supplied arguments.
+    (The required fields lead and the optional ``name`` trails only because
+    Python forbids a non-defaulted parameter after a defaulted one; the ``llm``
+    client dispatches ``func(**kwargs)``, so the order is not part of the
+    contract — the *set of names* is.)
+
+    **This is the first bound tool that writes to the database.** Every other
+    write in the tool layer is a canvas SSE frame or an in-memory
+    ``ToolContext`` mutation; here a row lands in ``codex_entries`` and is
+    indexed, immediately and with no author confirmation (D1 — the guard is the
+    tool description plus mode gating, and the author owns that trade).
+
+    **The book is never an argument.** It comes off ``context.book_id``, so the
+    model cannot create an entry in another book. The turn's *subject* is not
+    consulted at all: unlike every other codex tool this one is book-scoped
+    (D7), which is what lets it run while the author has a chapter open.
+
+    Order of work, and it is load-bearing — the cheap refusals must precede the
+    write, so a refused call costs no row, no embedding and no index write:
+
+    1. **the per-turn cap** — refuse when ``context.codex_creates_this_turn``
+       has already reached :data:`MAX_CODEX_CREATES_PER_TURN`;
+    2. **the duplicate-name check**, for ``character`` / ``location`` **only** —
+       scan ``codex_entries.list_by_book(context.book_id, kind=kind,
+       include_archived=True, needle=name)`` and decide the match with an exact
+       ``.strip().lower()`` comparison on each row's ``name``. The ``needle`` is
+       a case-insensitive **substring** match over name *or* body, so it narrows
+       the scan but cannot decide it. Archived rows count: recreating a name
+       that exists but is hidden is the more confusing outcome. A ``fact`` is
+       never checked — it has no name, and comparing bodies is not a duplicate
+       test;
+    3. **resolve the acting user** — ``context.access`` is
+       ``BookAccess | None``, so a context with none is a refusal string; the
+       ``User`` row comes from ``db/users.get_by_id(context.access.user_id)``,
+       the chat's own author by construction (D4);
+    4. **delegate to** ``services/codex.py:create_entry(access, user, req)`` with
+       a :class:`~app.models.schemas.codex.CreateCodexEntryRequest` built from
+       the three arguments. The capability check
+       (``Capability.edit_codex_entry``), the proposal-mode refusal, the
+       fact-has-no-name rule (US-078.AC-2) and the vector indexing are **its**
+       rules and are not restated here;
+    5. **increment** ``context.codex_creates_this_turn`` — after the write
+       succeeded, so a refused or failed attempt does not consume the budget;
+    6. **format the confirmation**, naming the kind, the name (omitted for a
+       fact) and the id.
+
+    **It never raises.** ``CodexError`` (the proposal-mode and name refusals),
+    ``authz.BookAuthorizationError`` (the capability check) and anything
+    escaping the db layer each become an informative string, because a raising
+    tool is wrapped as ``RuntimeError`` by the ``llm`` client and aborts the
+    parent's whole loop with the error never reaching the model. Feature
+    ``024``'s trace wrapper carries the same backstop; this tool does not rely
+    on it.
+    """
+    # The outer never-raise guard (``write_codex_draft``'s shape, and
+    # ``subagent_delegation.py:run_delegation``'s before it): a failure mode
+    # nobody enumerated — a malformed context, a db layer that threw, a request
+    # the schema rejects — must still come back as a string, because a raising
+    # tool is wrapped as ``RuntimeError`` by the ``llm`` client and aborts the
+    # parent's whole loop. ``Exception`` is deliberately broad;
+    # ``asyncio.CancelledError`` is a ``BaseException`` and still propagates, so
+    # a cancelled turn is not swallowed.
+    try:
+        # 1. The per-turn cap, FIRST — it is the cheapest refusal and the one
+        #    that must hold even when everything else about the call is valid.
+        if context.codex_creates_this_turn >= MAX_CODEX_CREATES_PER_TURN:
+            return _CREATE_CAP_MESSAGE.format(cap=MAX_CODEX_CREATES_PER_TURN)
+
+        # The schema types ``kind`` as ``CodexKind``, but the ``llm`` client
+        # dispatches decoded JSON as ``func(**kwargs)`` and validates only the
+        # parameter *names*, so the wire value can arrive as a plain string.
+        # Normalized once, here, and used as the enum from then on — the same
+        # "map across by wire value" rule the rest of the module follows.
+        entry_kind = kind if isinstance(kind, CodexKind) else CodexKind(str(kind))
+
+        # 2. The duplicate-name check, for ``character`` / ``location`` only. A
+        #    ``fact`` is never checked: it has no name (US-078.AC-2) and
+        #    comparing bodies is not a duplicate test. A blank name is not
+        #    checked either — there is nothing to compare, and ``create_entry``
+        #    is the one place that refuses it.
+        requested_name = (name or "").strip()
+        if entry_kind is not CodexKind.fact and requested_name:
+            # ``needle`` NARROWS the scan and cannot decide it: it is a
+            # case-insensitive substring match over name **or** body, so it
+            # would call "Ash" a match for an entry whose body mentions ashes.
+            # Archived rows are included on purpose — recreating a name that
+            # exists but is hidden is the more confusing outcome (D5).
+            existing = await codex_entries.list_by_book(
+                context.book_id,
+                kind=entry_kind,
+                include_archived=True,
+                needle=requested_name,
+            )
+            for row in existing:
+                # The decision: the WHOLE name, trimmed and case-insensitive.
+                if (row.name or "").strip().casefold() == requested_name.casefold():
+                    return _CREATE_DUPLICATE_NAME_MESSAGE.format(
+                        kind=_kind_text(row),
+                        name=(row.name or "").strip(),
+                        entry_id=row.id,
+                    )
+
+        # 3. Resolve the acting user. ``ToolContext.access`` is
+        #    ``BookAccess | None`` and carries ``user_id``, not the row
+        #    ``create_entry`` wants; a context with no access — or an id with no
+        #    user behind it — is a returned string, never an ``AttributeError``.
+        access = context.access
+        if access is None:
+            return _CREATE_NO_IDENTITY_MESSAGE
+        user = await users.get_by_id(access.user_id)
+        if user is None:
+            return _CREATE_NO_IDENTITY_MESSAGE
+
+        # 4. The single write path (D4). The capability check, the
+        #    proposal-mode refusal, the fact-has-no-name rule and the vector
+        #    indexing are ITS rules; both of its typed refusals are turned into
+        #    strings here rather than restated. The book is ``access.book_id``,
+        #    which ``run_turn`` resolved from the same turn as
+        #    ``context.book_id`` — the model never names a book.
+        try:
+            created = await codex_service.create_entry(
+                access,
+                user,
+                CreateCodexEntryRequest(kind=entry_kind, name=name, body=body),
+            )
+        except codex_service.CodexError as err:
+            # ``CodexError.message`` is already model-facing prose written for
+            # exactly this purpose, so it is carried through verbatim; the
+            # reason value is only a fallback for a message nobody wrote.
+            return _CREATE_REFUSED_MESSAGE.format(
+                reason=err.message.strip() or err.reason.value
+            )
+        except authz.BookAuthorizationError:
+            # A reader or a non-member. Refused as a string like everything
+            # else — an exception here would abort the turn.
+            return _CREATE_NOT_PERMITTED_MESSAGE
+
+        # 5. The budget is spent only by a creation that actually happened: a
+        #    refused or failed attempt above leaves it untouched.
+        context.codex_creates_this_turn += 1
+
+        # 6. The confirmation names what was created — kind, name and id —
+        #    because no SSE frame exists for this write (D8): this string IS the
+        #    receipt, and feature ``024`` persists it into
+        #    ``ChatMessage.tool_trace`` as the author's audit trail. The name
+        #    segment is omitted whole for a fact, which has none.
+        created_name = (created.name or "").strip()
+        return _CREATED_MESSAGE.format(
+            entry_id=created.id,
+            kind=str(getattr(created.kind, "value", created.kind)),
+            name_segment=(
+                _CREATED_NAME_SEGMENT.format(name=created_name)
+                if created_name
+                else ""
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "create_codex_entry: the entry could not be created for book %s",
+            getattr(context, "book_id", None),
+            exc_info=True,
+        )
+        return _CREATE_FAILED_MESSAGE
+
+
 def bind_codex_search(context: "ToolContext") -> Callable[..., object]:
     """Bind ``context`` into :func:`codex_search` — the ``ToolDef.binder``.
 
@@ -758,3 +1078,15 @@ def bind_write_codex_draft(context: "ToolContext") -> Callable[..., object]:
     model supplies neither, and cannot.
     """
     return functools.partial(write_codex_draft, context)
+
+
+def bind_create_codex_entry(context: "ToolContext") -> Callable[..., object]:
+    """Bind ``context`` into :func:`create_codex_entry` — the ``ToolDef.binder``.
+
+    Returns a callable whose free parameters are **exactly**
+    :class:`CreateCodexEntryArgs`' field names (``kind`` / ``body`` / ``name``).
+    Binding is also what carries the book scope, the caller's access and the
+    turn's creation counter into the tool: the model supplies none of the three,
+    and cannot.
+    """
+    return functools.partial(create_codex_entry, context)

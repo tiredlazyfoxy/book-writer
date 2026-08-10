@@ -26,6 +26,12 @@ Expected values come from the SPEC ONLY:
       "a mode with **any** existing row ... is left untouched", which is exactly
       what makes a deliberate removal survive.
 
+Widened by fast/007.codex-create-from-chat for its DoD-8 ONLY: the default tool
+sets now also carry `create_codex_entry` in `edit-character`, `edit-location`,
+`edit-fact` and `write-chapter`, and must NOT carry it in `close-chapter`
+(`fast/007/plan.md` -> Interface intent -> "Seeded defaults" and DoD-8). Every
+other assertion here is feature 024's, unchanged.
+
 The `system_prompt` WORDING is deliberately not tested (`plan.md` -> Test plan ->
 "Not tested"); only its non-blankness, which DoD-4 names.
 
@@ -43,7 +49,20 @@ from app.models.mode_tool import ModeTool
 
 # --- context.md -> "Default per-mode tool selections" (authoritative) --------
 
-CODEX_TOOLS = ("web_search", "codex_search", "codex_read_entry", "write_codex_draft")
+# fast/007 DoD-8: the mode-gated creation tool joins the three codex-editing
+# modes and write-chapter, and is absent from close-chapter.
+CREATE_TOOL = "create_codex_entry"
+
+CREATE_TOOL_MODES = ("edit-character", "edit-location", "edit-fact", "write-chapter")
+NO_CREATE_TOOL_MODE = "close-chapter"
+
+CODEX_TOOLS = (
+    "web_search",
+    "codex_search",
+    "codex_read_entry",
+    "write_codex_draft",
+    CREATE_TOOL,
+)
 
 EXPECTED_TOOLS: dict[str, tuple[str, ...]] = {
     "edit-character": CODEX_TOOLS,
@@ -57,6 +76,7 @@ EXPECTED_TOOLS: dict[str, tuple[str, ...]] = {
         "set_chapter_text",
         "update_selection",
         "add_text",
+        CREATE_TOOL,
     ),
     "close-chapter": (
         "draft_chapter_summary",
@@ -119,6 +139,30 @@ async def test_repeated_seed_adds_no_duplicate_rows__DoD4(db: DbConfig, mode_key
 
     assert sorted(await _tool_names(mode_key)) == before
     assert len(before) == len(EXPECTED_TOOLS[mode_key])
+
+
+# ---------------------------------------------------------------------------
+# fast/007 DoD-8 -- the seeded defaults gate `create_codex_entry` by mode
+# ---------------------------------------------------------------------------
+
+
+def test_default_mode_tool_names_gate_create_codex_entry__DoD8():
+    # fast/007 DoD-8: DEFAULT_MODE_TOOL_NAMES lists `create_codex_entry` for
+    # edit-character, edit-location, edit-fact and write-chapter, and NOT for
+    # close-chapter.
+    for mode_key in CREATE_TOOL_MODES:
+        assert CREATE_TOOL in mode_tools.DEFAULT_MODE_TOOL_NAMES[mode_key]
+    assert CREATE_TOOL not in mode_tools.DEFAULT_MODE_TOOL_NAMES[NO_CREATE_TOOL_MODE]
+
+
+async def test_seeded_rows_gate_create_codex_entry_by_mode__DoD8(db: DbConfig):
+    # fast/007 DoD-8: a freshly seeded database carries a `create_codex_entry`
+    # mode_tool row for the four authoring modes and none for close-chapter.
+    await _seed()
+
+    for mode_key in CREATE_TOOL_MODES:
+        assert CREATE_TOOL in await _tool_names(mode_key)
+    assert CREATE_TOOL not in await _tool_names(NO_CREATE_TOOL_MODE)
 
 
 # ---------------------------------------------------------------------------

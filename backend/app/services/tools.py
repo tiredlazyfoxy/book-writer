@@ -67,6 +67,20 @@ reads). **No ``mode_tool`` row and no ``AssistantMode`` row is seeded anywhere**
 so the four ship *unreachable*: ``assistant_runtime.allowed_tool_names`` returns
 a mode's selections and zero rows is an empty allowlist, so registration alone
 grants nothing until an admin selects them for the ``write-chapter`` mode.
+
+Skeleton (fast/007): ``TOOL_REGISTRY`` grows **one** entry,
+``create_codex_entry`` — the first entry in the catalogue whose callable
+**writes a row to the database** rather than emitting a canvas frame or mutating
+this record. Nothing about the resolution machinery changes: it is bound like
+every codex entry before it, and :class:`ToolContext` grows one further
+**defaulted** field, the turn's codex-creation count, which that tool reads and
+writes as its per-turn cap. Strictly additive in the established way — every
+existing construction keeps binding and every existing binding behaves
+identically — so ``services/chat_turn.py`` needs no change and is not in this
+feature's scope. Unlike ``015``/``016``, this feature **does** seed the tool into
+``db/mode_tools.py:DEFAULT_MODE_TOOL_NAMES`` for the four authoring modes, which
+reaches fresh installs only; on an already-seeded database an administrator adds
+it through the assistant-config editor (``fast/007`` D2/D3).
 """
 
 import logging
@@ -104,9 +118,11 @@ from app.services.close_tools import (
 from app.services.codex_tools import (
     CodexEntryReadArgs,
     CodexSearchArgs,
+    CreateCodexEntryArgs,
     WriteCodexDraftArgs,
     bind_codex_read_entry,
     bind_codex_search,
+    bind_create_codex_entry,
     bind_write_codex_draft,
 )
 from app.services.web_search import web_search
@@ -183,14 +199,28 @@ class ToolContext:
       ``None`` means ``propose_active_notes`` was **never called**, and routes
       the run to the wipe branch; ``""`` is a legitimate proposal and does not.
       The two are never conflated.
+    - ``codex_creates_this_turn`` — how many codex entries
+      ``services/codex_tools.py:create_codex_entry`` has already **saved** during
+      this turn (fast/007 D5). The second field a tool writes rather than reads,
+      under exactly the discipline ``active_notes_proposal`` established, and it
+      lives here for the same structural reason: ``chat_turn.run_turn``
+      constructs one ``ToolContext`` per turn, so a counter on this record is
+      scoped to a turn by construction rather than by a check somebody has to
+      remember to reset. It is the damage bound behind a guard that is otherwise
+      prompt-level — the model decides whether the author asked for an entry, so
+      something has to decide how many times it may be wrong before the turn
+      stops writing (``codex_tools.MAX_CODEX_CREATES_PER_TURN``). It counts
+      **successful** creations only: a refused or failed attempt leaves the
+      budget untouched. ``0`` is a fresh turn, and every context built outside a
+      turn starts there too.
 
     **This record was ``frozen=True`` through 015 and is not any more** (016).
     Nothing hashes a ``ToolContext`` or uses one as a dict key, and no
-    construction site changes; the mutation is confined to the field above, while
-    every other field is still written once at build time by
+    construction site changes; the mutation is confined to the two fields noted
+    above, while every other field is still written once at build time by
     ``chat_turn.run_turn`` and only read thereafter.
 
-    All five non-``book_id`` fields **default**, so step 009's
+    All six non-``book_id`` fields **default**, so step 009's
     ``ToolContext(book_id=…)`` construction keeps binding and a caller with no
     turn to speak of (a sub-agent built without one) still gets a usable record —
     a tool that needs a field it was not given refuses with a string rather than
@@ -209,6 +239,7 @@ class ToolContext:
     emit_frame: FrameEmitter | None = None
     selection_text: str | None = None
     active_notes_proposal: str | None = None
+    codex_creates_this_turn: int = 0
 
 
 # A ``ToolDef.binder``: given the turn's context, return the callable to
@@ -299,6 +330,34 @@ TOOL_REGISTRY: list[ToolDef] = [
         ),
         args_schema=WriteCodexDraftArgs,
         binder=bind_write_codex_draft,
+    ),
+    # The codex CREATE entry (fast/007). Bound like its three neighbours, and
+    # the only entry in this catalogue whose callable saves a row: everything
+    # else here reads, searches or draws on the author's screen.
+    #
+    # **The description is the guard.** The author chose a prompt-level guard
+    # over propose-and-confirm and over arming the turn (D1), so nothing in the
+    # system verifies that the creation was commanded — the instruction below is
+    # what tells the model, and it lives here rather than only in the seeded
+    # mode prompt because a mode row is written once per installation and never
+    # updated, while this string is code and is resolved from the registry on
+    # every turn on every installation (D2). Mode gating bounds where the tool
+    # exists at all; the per-turn cap bounds how often it can be wrong.
+    ToolDef(
+        name="create_codex_entry",
+        description=(
+            "Create a new entry in this book's codex — a character, a location "
+            "or a fact — and SAVE it. Unlike the draft tools, this one writes "
+            "to the book: the entry exists the moment the call returns, and a "
+            "wrong one has to be corrected by hand afterwards. Call it ONLY "
+            "when the author has directly asked you to add an entry to the "
+            "codex. Never call it on your own initiative while writing or "
+            "discussing: if you think something deserves an entry, say so and "
+            "let the author ask. A character or a location needs a name; a fact "
+            "has none. Create one entry per call."
+        ),
+        args_schema=CreateCodexEntryArgs,
+        binder=bind_create_codex_entry,
     ),
     # The four chapter entries (015 step 010). All bound, all context-bearing,
     # none reachable until an admin selects them for the ``write-chapter`` mode:

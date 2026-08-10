@@ -29,29 +29,49 @@ from app.models.mode_tool import ModeTool
 # turn). ``close-chapter`` carries exactly the five tools
 # ``assistant-config.md`` / ``services/close_tools.py`` already name as its set —
 # no more.
+#
+# The four AUTHORING modes carry ``create_codex_entry`` (fast/007 D6): the three
+# codex modes because the author is already working on lore there and the entry
+# they ask for next is often a different one, and ``write-chapter`` because
+# asking for an entry mid-chapter is the case the feature exists for.
+# **``close-chapter`` deliberately does not.** A close run is the least
+# supervised turn in the system — it already drafts summaries, may replace the
+# live note set, may raise flags and may end with the chapter closed — and a run
+# nobody is watching minting codex entries is the runaway case the tool's
+# per-turn cap exists to bound. This reaches FRESH INSTALLS ONLY: the seeder
+# below is idempotent per mode, so an already-seeded database gets the tool only
+# when an administrator adds it in the assistant-config editor (D2/D3).
+#
+# Each tuple is in ``services/tools.py:TOOL_REGISTRY`` order, which is why
+# ``create_codex_entry`` trails ``write_codex_draft`` in the codex modes and
+# precedes the chapter tools in ``write-chapter``.
 DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
     "edit-character": (
         "web_search",
         "codex_search",
         "codex_read_entry",
         "write_codex_draft",
+        "create_codex_entry",
     ),
     "edit-location": (
         "web_search",
         "codex_search",
         "codex_read_entry",
         "write_codex_draft",
+        "create_codex_entry",
     ),
     "edit-fact": (
         "web_search",
         "codex_search",
         "codex_read_entry",
         "write_codex_draft",
+        "create_codex_entry",
     ),
     "write-chapter": (
         "web_search",
         "codex_search",
         "codex_read_entry",
+        "create_codex_entry",
         "read_chapter_text",
         "set_chapter_text",
         "update_selection",

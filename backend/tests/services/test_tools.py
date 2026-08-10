@@ -66,12 +66,18 @@ from app.services.web_search import web_search
 # registry"). Their own assertions live in tests/test_close_tools.py. As with every
 # widening above, the intent of THIS test is unchanged: the registry's contents are
 # pinned rather than open-ended, and `web_search` is still its first entry.
+#
+# Widened once more by fast/007.codex-create-from-chat, whose DoD-8 requires
+# `create_codex_entry` to be a TOOL_REGISTRY member with a binder (its own
+# assertions live in tests/services/test_codex_create_tool.py). As with every
+# widening above, this stays an EXACT-set assertion -- never a "contains" check.
 def test_registry_has_single_web_search_entry__DoD3():
     assert {t.name for t in tools.TOOL_REGISTRY} == {
         "web_search",
         "codex_search",
         "codex_read_entry",
         "write_codex_draft",
+        "create_codex_entry",  # fast/007 DoD-8
         "read_chapter_text",
         "set_chapter_text",
         "update_selection",
