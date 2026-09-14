@@ -273,4 +273,6 @@ tables. This file is exempt from the line budget.
 | US-118 | Reader browses public books they are not a member of | FEAT-007 | delivered |
 | US-119 | Author's chats carry meaningful titles without naming them | FEAT-013 | delivered |
 | US-120 | Author sees which tools the assistant used and what they returned | FEAT-013 | delivered |
+| US-121 | Author asks the assistant to create a codex entry outright | FEAT-018 | delivered |
+| US-122 | The assistant's mode follows the author's current content-pane subject | FEAT-013 | delivered |
 <!-- product-spec:end -->

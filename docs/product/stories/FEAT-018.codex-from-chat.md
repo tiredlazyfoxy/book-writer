@@ -67,4 +67,28 @@
   FEAT-013's general shared-canvas draft-until-saved rule (US-103):
   interview 2026-07-23, "Augment round 5", "the working page — two-pane,
   chat + content".
+
+### US-121 — Author asks the assistant to create a codex entry outright
+- **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-076
+- **Status:** delivered
+- **Story:** As an author, I want to ask the assistant for a new codex
+  entry and get one, so that I can build the book's lore without opening
+  a blank entry first.
+- **Acceptance criteria:**
+  - **US-121.AC-1** — Given the author directly asks the assistant to
+    create a codex entry of a given kind, when the assistant creates it,
+    then the entry exists in the book's codex with no further save step
+    by the author.
+  - **US-121.AC-2** — Given no codex entry is open in the content pane,
+    when the author asks the assistant to create one, then it is created
+    — an open entry is not a precondition of creation.
+  - **US-121.AC-3** — Given the author has not asked for an entry to be
+    created, when the assistant identifies material that could warrant
+    one, then no codex entry is created.
+- **Note:** AC-3 is enforced by the mode's seeded prompt guidance, not
+  structurally — an administrator who rewrites the prompt can weaken it.
+  Recorded rather than hidden, the same class of statement as FEAT-020's
+  "accepted with its risk stated".
+- **Source:** `[confirmed: user]` interview 2026-09-14, "augment round —
+  the assistant on a lore list"; challenge C1.
 <!-- product-spec:end -->

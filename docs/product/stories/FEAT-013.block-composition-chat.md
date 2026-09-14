@@ -440,4 +440,24 @@ renumbered.)
 - **Source:** `[confirmed: user]` interview 2026-08-10, "finalization —
   plans 023 + 024". Delivered: `docs/plans/024.chat-agent-loop/`
   (2026-08-09).
+
+### US-122 — The assistant's mode follows the author's current content-pane subject
+- **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-090
+- **Status:** delivered
+- **Story:** As an author, I want the assistant to behave according to
+  what I have open, so that its help matches what I am working on without
+  my configuring anything.
+- **Acceptance criteria:**
+  - **US-122.AC-1** — Given the author has a codex entry of a given kind
+    open, when they send a turn, then the assistant runs in that kind's
+    mode.
+  - **US-122.AC-2** — Given the author has the Characters, Locations or
+    Facts **list** open, when they send a turn, then the assistant runs
+    in the same mode as editing an entry of that kind — same system
+    prompt, same available tools.
+  - **US-122.AC-3** — Given the author changes the content-pane subject,
+    when they send their next turn, then that turn uses the new
+    subject's mode — the mode is not bound to the chat.
+- **Source:** `[confirmed: user]` interview 2026-09-14, "augment round —
+  the assistant on a lore list"; challenge C2.
 <!-- product-spec:end -->

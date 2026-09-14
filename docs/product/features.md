@@ -347,7 +347,7 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   UC-082, UC-083, UC-084, UC-085, UC-086, UC-087, UC-088, UC-090, UC-092,
   UC-101, UC-102, US-056, US-057, US-058, US-059, US-060, US-061, US-089,
   US-095, US-096, US-097, US-098, US-099, US-100, US-101, US-102, US-103,
-  US-105, US-107, US-117, US-119, US-120
+  US-105, US-107, US-117, US-119, US-120, US-122
 - **Note:** Chats are persistent and managed per author, per book — listed,
   picked, continued, and archived rather than ended (UC-081/UC-082, not
   destroyed, reversible); a chat is not bound to any one chapter, codex
@@ -405,6 +405,19 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   kept with the answer (UC-102); this is observability over
   UC-078/UC-086/UC-087/UC-055, not new capability, and it is what makes a
   tool-level refusal such as UC-076's visible instead of silent.
+  **2026-09-14 (mode follows the content-pane subject):** The assistant's
+  mode follows whatever the content pane currently holds (US-122, UC-090):
+  a codex entry of a given kind runs that kind's mode, and that kind's
+  **list** (Characters / Locations / Facts) runs the same mode as editing
+  an entry of that kind — one mode row per kind, not a list-specific twin.
+  This promotes and widens a statement `vision.md` already made at the
+  vision level ("the assistant reads context that matches what's open"),
+  whose enumeration had only ever named the two single-item cases
+  (challenge C2). Until this date the three lore lists ran with no mode at
+  all — no mode prompt, web search only — which violated the requirement
+  now stated here; recorded as a defect fix against it, not a new
+  behaviour. Fixed directly on branch `bug-fix/main-page`, backend suite
+  green — no `docs/plans/` folder owns this change.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "block composition chat" / "generation
   context"; codex round 4; interview 2026-07-23, "Augment round 5 —
@@ -414,7 +427,8 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   navigator" / "the restore buffer — unsaved per-item edits"; interview
   2026-07-24, "augment round 7", divergence 2; interview 2026-07-24,
   "FEAT-020 — sub-agent model assignment (augment round 9)"; interview
-  2026-07-30, "finalization — 021 + 014 + 015", challenge C1
+  2026-07-30, "finalization — 021 + 014 + 015", challenge C1; interview
+  2026-09-14, "augment round — the assistant on a lore list", challenge C2
 
 ### FEAT-014 — Chapter variants & fixes
 - **Purpose:** Let an owner correct a chapter after reopening while
@@ -576,8 +590,8 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   the same composition chat that composes edits.
 - **Actors:** ACT-004, ACT-005 · **Priority:** should
 - **Status:** delivered
-- **Delivered:** docs/plans/013.codex/ (2026-07-27); docs/plans/024.chat-agent-loop/ (2026-08-09)
-- **Realized by:** UC-076, UC-077, US-086, US-087, US-088
+- **Delivered:** docs/plans/013.codex/ (2026-07-27); docs/plans/024.chat-agent-loop/ (2026-08-09); docs/plans/fast/007.codex-create-from-chat/ (2026-08-10)
+- **Realized by:** UC-076, UC-077, US-086, US-087, US-088, US-121
 - **Note:** Sourced from live chapter/entry text via the shared canvas: the
   assistant fills the open codex entry directly in the content pane, as a
   draft, saved only on explicit request — same draft-until-saved path as
@@ -592,9 +606,20 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   in the conversation (UC-102). Plan `024` also made this feature
   reachable on a fresh installation by seeding the codex modes' tools
   (FEAT-020).
+  **2026-09-14 (create outright — a second path):** An author may also ask
+  the assistant to create a new codex entry directly, on direct request,
+  with no entry open in the content pane first (US-121, UC-076 alternate
+  flow) — the assistant creates it in the codex outright, no draft, no
+  separate save step. This is a **second path** into the codex alongside
+  the draft-into-an-open-entry path above, not a violation of it: the
+  draft-until-saved contract describes writes into an entry that is
+  already open. The assistant creates nothing unless the author directly
+  asks for it.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4;
   interview 2026-07-23, "Augment round 5", "the working page — two-pane,
-  chat + content"; interview 2026-07-30, "finalization — 021 + 014 + 015"
+  chat + content"; interview 2026-07-30, "finalization — 021 + 014 + 015";
+  interview 2026-09-14, "augment round — the assistant on a lore list",
+  challenge C1
 
 ### FEAT-019 — Per-author system prompts
 - **Purpose:** Standing authoring instructions that shape how the
@@ -670,8 +695,11 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   US-114
 - **Note:** Modes are a **fixed system set of five** — edit-character,
   edit-location, edit-fact, write-chapter, close-chapter — extended only
-  by the system, not at runtime; each maps to a working-page activity the
-  assistant runs "in". Per mode the admin sets: an **optional system
+  by the system, not at runtime; each maps to **one or more** working-page
+  activities the assistant runs "in" — a kind's entry and that kind's
+  list share one mode row, not a list-specific twin (corrected 2026-09-14;
+  was previously worded as one activity per mode). Per mode the admin
+  sets: an **optional system
   prompt** (empty → nothing added), the **available tools**, and the
   **accessible sub-agents**. A **sub-agent** is a delegated worker the
   admin creates freely: a **unique name**, system prompt, available
@@ -707,9 +735,15 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   only because the assistant misbehaved; the existing rule exists to
   protect an administrator's own edits, so changing it is a decision, not
   a repair (challenge C-f2324-6)._`
+  **Non-goal, 2026-09-14:** the chapters list, `planned` / `closed`
+  chapters, Book state and the chats view are deliberately **outside** the
+  mode set — not deferred, not an oversight. The user's reasoning:
+  "browsing chapters is navigation, not authoring: a book has one open
+  chapter and writing happens in it, not in the list."
 - **Source:** `[confirmed: user]` interview 2026-07-24, "FEAT-020 —
   assistant modes & sub-agents (augment round 8)"; challenges C-r8-1..
   C-r8-5; interview 2026-07-24, "FEAT-020 — sub-agent model assignment
-  (augment round 9)"
+  (augment round 9)"; interview 2026-09-14, "augment round — the
+  assistant on a lore list", challenge C4
 
 <!-- product-spec:end -->

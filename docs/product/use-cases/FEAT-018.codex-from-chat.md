@@ -13,6 +13,13 @@
   3. Author may hand-edit the draft before saving.
   4. Author saves. System adds the entry to the codex per the book's
      collaboration mode (FEAT-017).
+- **Alternate flow:** Author asks the assistant to create a new codex
+  entry of a given kind with **no entry open** in the content pane — the
+  subject is a lore list (Characters / Locations / Facts), not a blank
+  entry. Assistant creates the entry directly in the codex — no draft
+  step, no separate save request. An open entry is not a precondition of
+  this flow. `[confirmed: user]` interview 2026-09-14, "augment round —
+  the assistant on a lore list"; challenge C1.
 - **Exception flow:** LLM is unreachable or returns nothing → same as UC-056
   (composition request fails); not respecced here. Author asks the
   assistant to write a **name** into a **fact** entry → the write is
@@ -21,17 +28,26 @@
   in the conversation (UC-102) rather than passing silently.
   `[confirmed: user]` interview 2026-08-10, "finalization — plans 023 +
   024"; challenge C-f2324-7.
-- **Postconditions:** Draft exists on the shared canvas until explicitly
-  saved; nothing is added to the codex before the save request. **Revised,
-  round 5:** the draft lands directly in the open entry in the content
-  pane, not shown as a separate chat message first.
+- **Postconditions (draft path, steps 1–4):** Draft exists on the shared
+  canvas until explicitly saved; nothing is added to the codex before the
+  save request. **Revised, round 5:** the draft lands directly in the
+  open entry in the content pane, not shown as a separate chat message
+  first.
+- **Postconditions (alternate flow — immediate create):** The entry
+  exists in the codex on return — no draft, no separate save request.
+- **Amended, 2026-09-14:** the immediate-create alternate flow is a
+  second, direct-request path into the codex (US-121), not a violation of
+  the draft-path postcondition above — that postcondition describes the
+  draft path only. `[confirmed: user]` interview 2026-09-14, "augment
+  round — the assistant on a lore list"; challenge C1.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4:
   "when I'm chatting and write the block - i can ask LLM to generate the
   cahracter or rewrite/edit the character, or location or some lore fact.";
   "Shown in the chat first, saved only on explicit request. Mirrors UC-055.";
   interview 2026-07-23, "Augment round 5", "the working page — two-pane,
   chat + content": "author opens a blank character in the pane → 'write
-  character' → assistant fills it."
+  character' → assistant fills it."; interview 2026-09-14, "augment round
+  — the assistant on a lore list", challenge C1
 
 ### UC-077 — Rewrite an existing codex entry from a composition chat
 - **Feature:** FEAT-018 · **Actor:** ACT-004, ACT-005

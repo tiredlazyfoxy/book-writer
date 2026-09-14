@@ -326,6 +326,13 @@ not change.)
 - **Postconditions:** Content pane holds the selected list or item; chats
   route to the chat pane; the navigator choice does not bind the active
   chat (independence, seam S1).
+- **Postconditions (mode, 2026-09-14):** The content-pane subject also
+  determines the mode the assistant runs in on the author's next turn —
+  the Characters / Locations / Facts **lists** resolve to the same mode
+  as editing an entry of that kind. This does not bind the active chat:
+  seam S1 above is unchanged — the subject drives the assistant's *mode*,
+  never which chat is open. `[confirmed: user]` interview 2026-09-14,
+  "augment round — the assistant on a lore list"; challenge C2.
 - **Note:** The codex entries split three ways (Characters / Locations /
   Facts) is the round-4 fixed taxonomy, not a new entity. The **Variants**
   entry, added round 7 to reconcile the architecture pass, renders the
@@ -343,7 +350,9 @@ not change.)
   item." / "A chat opens in the chat pane, not the content pane."
   **Variants entry:** `[confirmed: user]` interview 2026-07-24, "augment
   round 7", divergence 2 — a chapter has revision history from the first
-  chapter written and no other entry reaches it.
+  chapter written and no other entry reaches it. **Mode postcondition:**
+  `[confirmed: user]` interview 2026-09-14, "augment round — the
+  assistant on a lore list", challenge C2.
 
 ### UC-092 — Resume unsaved content-pane edits after navigating away
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005

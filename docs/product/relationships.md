@@ -142,6 +142,10 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
   thing; a state note is what a chapter changed.
 - FEAT-018 / FEAT-013 — same shared-canvas surface, different output:
   FEAT-013 writes edits, FEAT-018 generates/rewrites codex entries.
+  **2026-09-14:** US-121's immediate-create path (creating a new codex
+  entry outright, on direct request) is **not a canvas write at all** —
+  that is the difference between FEAT-018's two paths (draft-into-an-
+  open-entry vs. immediate create), not a new overlap with FEAT-013.
 - FEAT-012 (Book state) / FEAT-008, FEAT-009 (Chapters) — **accepted,
   round 6:** both list/show chapters, but distinct purpose — Chapters is
   read/write prose, Book state is the continuity picture; not a duplicate
