@@ -33,7 +33,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runInAction } from "mobx";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ApiError } from "../../src/api/client";
 import type { ChatResponse, ChatSamplingParams, ModelOptionResponse } from "../../src/types/chats";
 import * as chatsApi from "../../src/api/chats";
@@ -412,7 +413,15 @@ describe("no model options refuses composing (011 DoD-7)", () => {
 });
 
 describe("settings are editable on the active chat (011 DoD-8)", () => {
-  it("011 DoD-8: changing the active chat's model + temperature calls update, and the pane reflects the new values", async () => {
+  // REPAIRED by fast/009.model-picker. The model half of this contract no longer runs
+  // through the settings draft: `009 plan.md` -> Interface intent replaces the header's
+  // `Popover` + `<Select>` with a single-click dropdown whose pick PATCHes the chat at
+  // once (009 DoD-3, DoD-6), while TEMPERATURE keeps its draft + flush-on-send path
+  // (009 "Out of scope"). 011 DoD-8's own claim — "the active chat's model and
+  // temperature are editable, each reaching the api, and the pane reflects the new
+  // values" — is unchanged and is re-asserted here against the new control.
+  it("011 DoD-8: changing the active chat's model (through the header model picker) + temperature calls update, and the pane reflects the new values", async () => {
+    const user = userEvent.setup();
     const state = new ChatPaneState();
     const optCurrent = makeOption("s-1", "Local Llama", "m-1");
     const optNext = makeOption("s-2", "OpenAI", "m-2");
@@ -428,12 +437,6 @@ describe("settings are editable on the active chat (011 DoD-8)", () => {
     await loadChatPane(state, BOOK_ID);
     expect(state.activeChatId).toBe("c-1");
 
-    // Edit the active chat's settings: switch model and change temperature.
-    runInAction(() => {
-      state.settingsDraft.optionKey = modelOptionKey(optNext);
-      state.settingsDraft.temperature = 1.2;
-    });
-
     vi.mocked(chatsApi.updateChat).mockImplementation(async (_bookId, _chatId, body) => ({
       ...active,
       llm_server_id: body.llm_server_id ?? active.llm_server_id,
@@ -441,15 +444,37 @@ describe("settings are editable on the active chat (011 DoD-8)", () => {
       sampling: body.sampling ?? active.sampling,
     }));
 
+    renderWithProviders(<ChatPane bookId={BOOK_ID} state={state} />);
+
+    // Switch the model through the header control: one click opens the list, the
+    // second picks. `aria-label="Model"` and the `"<server> · <model>"` row label are
+    // the 009 handle contract; the row lookup excludes the button, which renders the
+    // same label shape.
+    const modelButton = screen.getByLabelText("Model");
+    await user.click(modelButton);
+    const rows = screen
+      .queryAllByText(`${optNext.server_name} · ${optNext.model_name}`)
+      .filter((element) => !modelButton.contains(element));
+    expect(rows).toHaveLength(1);
+    await user.click(rows[0]);
+
+    // The pick reached the api with the new pair.
+    await waitFor(() => expect(vi.mocked(chatsApi.updateChat)).toHaveBeenCalledTimes(1));
+    const pickCall = vi.mocked(chatsApi.updateChat).mock.calls[0];
+    expect(pickCall[0]).toBe(BOOK_ID);
+    expect(pickCall[1]).toBe("c-1");
+    expect(pickCall[2].llm_server_id).toBe("s-2");
+    expect(pickCall[2].model_name).toBe("m-2");
+
+    // Temperature still travels through the draft + explicit flush.
+    runInAction(() => {
+      state.settingsDraft.temperature = 1.2;
+    });
     await saveChatSettings(state, BOOK_ID);
 
-    // The update carried the new model pair + temperature to the api.
-    const call = vi.mocked(chatsApi.updateChat).mock.calls[0];
-    expect(call[0]).toBe(BOOK_ID);
-    expect(call[1]).toBe("c-1");
-    expect(call[2].llm_server_id).toBe("s-2");
-    expect(call[2].model_name).toBe("m-2");
-    expect(call[2].sampling?.temperature).toBe(1.2);
+    const saveCall = vi.mocked(chatsApi.updateChat).mock.calls[1];
+    expect(saveCall[1]).toBe("c-1");
+    expect(saveCall[2].sampling?.temperature).toBe(1.2);
 
     // The pane reflects the new values on the active chat.
     expect(state.activeChat?.llm_server_id).toBe("s-2");

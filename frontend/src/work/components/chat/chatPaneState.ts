@@ -230,6 +230,18 @@ export class ChatPaneState implements CloseTurnController {
    */
   openedPanel: "model" | "settings" | null = null;
 
+  /**
+   * THE MODEL DROPDOWN'S SEARCH NEEDLE (fast/009) — the raw text typed into the
+   * `"Search models"` field inside the model combobox, `""` when nothing is typed.
+   *
+   * Two-way bound by `ChatPane`'s search input and read by
+   * {@link ChatPaneState.filteredModelOptions}. RESET TO `""` on every open and on
+   * every dismissal of the model panel, so a needle never survives a close/reopen
+   * (DoD-12). It is deliberately a plain observable next to `openedPanel` rather
+   * than a field of a draft: it is view filter text, not an edit awaiting a save.
+   */
+  modelSearch = "";
+
   newChatDraft: NewChatDraft = {
     title: "",
     optionKey: null,
@@ -525,6 +537,25 @@ export class ChatPaneState implements CloseTurnController {
     );
     if (option === undefined) return chat.model_name;
     return `${option.server_name} · ${option.model_name}`;
+  }
+
+  /**
+   * THE MODEL OPTIONS THE DROPDOWN SHOWS (fast/009) — the subset of
+   * {@link ChatPaneState.modelOptions} whose display label (the existing
+   * `"<server_name> · <model_name>"` shape) CONTAINS
+   * {@link ChatPaneState.modelSearch}, matched case-insensitively as a plain
+   * substring. An empty needle returns every option.
+   *
+   * ORDER IS `modelOptions`' OWN ORDER — no re-ranking, no fuzzy matching, no
+   * grouping (DoD-2). Pure: it filters, it does not fetch; nothing re-loads when
+   * the dropdown opens (DoD-13).
+   */
+  get filteredModelOptions(): ModelOptionResponse[] {
+    const needle = this.modelSearch.toLowerCase();
+    if (needle === "") return this.modelOptions;
+    return this.modelOptions.filter((o) =>
+      `${o.server_name} · ${o.model_name}`.toLowerCase().includes(needle),
+    );
   }
 
   /** Whether the new-chat draft can be submitted (a model chosen, temp in range). */
@@ -905,12 +936,20 @@ export async function saveChatSettings(
   const option =
     state.modelOptions.find((o) => modelOptionKey(o) === state.settingsDraft.optionKey) ?? null;
   const body: UpdateChatRequest = {
-    llm_server_id: option ? option.server_id : null,
-    model_name: option ? option.model_name : null,
     // Only `temperature` is editable; every other stored param is carried through
     // from the loaded chat unchanged so an edit never silently resets it (decision 4).
     sampling: { ...chat.sampling, temperature: state.settingsDraft.temperature },
   };
+  // AN UNRESOLVABLE DRAFT OPTION IS NOT A REQUEST TO CLEAR THE PAIR (fast/009,
+  // known defect 1). When the drafted key matches no LOADED option — the server was
+  // deactivated, the model left the catalogue — the model half is OMITTED from the
+  // body entirely (both fields are optional on `UpdateChatRequest`) so the chat
+  // keeps its stored pair. Sending `{llm_server_id: null, model_name: null}` here
+  // would wipe a real pair the author never touched.
+  if (option !== null) {
+    body.llm_server_id = option.server_id;
+    body.model_name = option.model_name;
+  }
 
   runInAction(() => {
     state.serverErrors = {};
@@ -931,6 +970,121 @@ export async function saveChatSettings(
       runInAction(() => {
         state.serverErrors = { form: err.message || "Could not save settings." };
         state.settingsStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * PICK A MODEL AND PERSIST IT IMMEDIATELY (fast/009) — the effect behind a click
+ * or an Enter in the header's model dropdown. This is what makes the header label
+ * actually change and the pick survive a reload; the temperature half keeps its
+ * existing draft + flush-on-send path and is NOT made immediate.
+ *
+ * `optionKey` is a {@link modelOptionKey} value. Intent, in order:
+ *
+ * 1. Resolve `optionKey` against the loaded `modelOptions`; unresolvable (or no
+ *    active chat) → do NOTHING: no request, no state change.
+ * 2. Remember the active chat's stored `llm_server_id` / `model_name` pair.
+ * 3. Write the picked pair onto the active chat's row OPTIMISTICALLY, so
+ *    {@link ChatPaneState.modelLabel} — and therefore the header — changes at once.
+ * 4. Close the model panel (`openedPanel = null`) and clear
+ *    {@link ChatPaneState.modelSearch}.
+ * 5. Clear the previous `serverErrors.model` and mark the write in flight through
+ *    the EXISTING `settingsStatus` trio — no second status is introduced.
+ * 6. PATCH through `chatsApi.updateChat` with a body carrying ONLY `llm_server_id`
+ *    and `model_name`: no `sampling`, no `title`, no `archived`, so a model pick
+ *    never smuggles a temperature draft to the server (DoD-6).
+ * 7. On success, replace the chat's row with the server's chat and re-seed ONLY
+ *    `settingsDraft.optionKey` to the picked key, leaving
+ *    `settingsDraft.temperature` untouched — so `settingsDirty` reads clean on the
+ *    model half (no re-PATCH on the next send, DoD-8) while an unsent creativity
+ *    edit is not discarded.
+ * 8. On failure, and only when the signal did not abort, restore the remembered
+ *    pair onto the row, restore `settingsDraft.optionKey` to the remembered pair's
+ *    key, and record the author-facing message under the stable `"model"` key of
+ *    the existing `serverErrors` map (the module's `err.message || <fallback>`
+ *    idiom). `ApiError` → `serverErrors`, anything else rethrows.
+ */
+export async function pickChatModel(
+  state: ChatPaneState,
+  bookId: string,
+  optionKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chat = state.activeChat;
+  if (chat === null) return;
+
+  // An option key that resolves to nothing is not a pick: no request, no state
+  // change, not even a closed dropdown (step 1).
+  const option = state.modelOptions.find((o) => modelOptionKey(o) === optionKey) ?? null;
+  if (option === null) return;
+
+  const chatId = chat.id;
+  const previousServerId = chat.llm_server_id;
+  const previousModelName = chat.model_name;
+  const previousOptionKey = optionKeyForChat(chat);
+
+  runInAction(() => {
+    // OPTIMISTIC: the row moves first, so `modelLabel` — and the header — changes on
+    // the click rather than a round trip later. The remembered pair above is what a
+    // rejected PATCH restores.
+    state.chats = state.chats.map((c) =>
+      c.id === chatId
+        ? { ...c, llm_server_id: option.server_id, model_name: option.model_name }
+        : c,
+    );
+    state.openedPanel = null;
+    state.modelSearch = "";
+    // Only the model key is cleared: a pick must not swallow an unrelated `form`
+    // refusal already on screen.
+    const errors = { ...state.serverErrors };
+    delete errors.model;
+    state.serverErrors = errors;
+    // The EXISTING chat-settings trio marks the write — `settingsStatus` already
+    // means "a chat-settings write is in flight" and needs no twin.
+    state.settingsStatus = "loading";
+  });
+
+  // ONLY THE MODEL PAIR (DoD-6): no `sampling`, no `title`, no `archived`, so a
+  // model pick can never smuggle an unsaved temperature draft to the server.
+  const body: UpdateChatRequest = {
+    llm_server_id: option.server_id,
+    model_name: option.model_name,
+  };
+
+  try {
+    const updated = await chatsApi.updateChat(bookId, chatId, body, signal);
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.chats = state.chats.map((c) => (c.id === updated.id ? updated : c));
+      // ONLY THE MODEL HALF of the draft is re-seeded (DoD-8): `settingsDirty` must
+      // read clean on the model so the next send does not re-PATCH a model that is
+      // already stored, while an unsent creativity edit still survives the pick.
+      // Read back from the SERVER'S row (the picked key by construction) so the
+      // draft can never disagree with what is actually stored.
+      state.settingsDraft.optionKey = optionKeyForChat(updated);
+      state.settingsStatus = "ready";
+    });
+  } catch (err) {
+    if (signal?.aborted) return;
+    runInAction(() => {
+      state.chats = state.chats.map((c) =>
+        c.id === chatId
+          ? { ...c, llm_server_id: previousServerId, model_name: previousModelName }
+          : c,
+      );
+      state.settingsDraft.optionKey = previousOptionKey;
+      state.settingsStatus = "error";
+    });
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.serverErrors = {
+          ...state.serverErrors,
+          model: err.message || "Could not change the model.",
+        };
       });
       return;
     }

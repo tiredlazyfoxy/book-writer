@@ -35,6 +35,8 @@ import * as chatsApi from "../../src/api/chats";
 import {
   ChatPaneState,
   modelOptionKey,
+  pickChatModel,
+  saveChatSettings,
   sendChatTurn,
 } from "../../src/work/components/chat/chatPaneState";
 
@@ -233,4 +235,179 @@ describe("sending clears whichever popover is open (DoD-5)", () => {
       expect(state.openedPanel).toBeNull();
     });
   }
+});
+
+/* ===========================================================================
+ * fast/009.model-picker — DoD-6 · DoD-8 · DoD-9 · DoD-11.
+ *
+ * Bound to the frozen signatures in `docs/plans/fast/009.model-picker/status.md` ->
+ * `## Skeleton`:
+ *   pickChatModel(state, bookId, optionKey, signal?): Promise<void>   // 009, new
+ *   saveChatSettings(state, bookId, signal?): Promise<void>           // unchanged
+ *   ChatPaneState.modelSearch / get filteredModelOptions              // 009, new
+ *   failure surface: state.serverErrors["model"]; in-flight: state.settingsStatus
+ *
+ * Every expected value comes from `plan.md` -> Definition of done and its Interface
+ * intent for `chatPaneState.ts` — never from code:
+ *   - DoD-6: a pick issues exactly ONE update carrying ONLY the picked pair; no
+ *     `sampling` / `title` / `archived` may ride along, and no message is sent;
+ *   - DoD-8: the pick re-seeds only the MODEL half of `settingsDraft`, so the next
+ *     send re-PATCHes nothing — while an unsent temperature edit survives the pick;
+ *   - DoD-9: an unresolvable stored pair is LEFT ALONE — the request omits both
+ *     fields rather than nulling them, and the label falls back to the stored
+ *     `model_name` alone;
+ *   - DoD-11: the existing "an accepted send clears whichever panel is open" holds.
+ * =========================================================================== */
+
+/** The pair `s-9 / m-9` is real but not offered by the loaded catalogue. */
+const UNRESOLVABLE_KEY = "s-9::m-9";
+
+describe("a model pick persists immediately and carries nothing else (009 DoD-6)", () => {
+  it("009 DoD-6: a pick issues exactly one update whose body is ONLY the picked pair — no sampling, title or archived — and sends no message", async () => {
+    const state = new ChatPaneState();
+    primeCleanPane(state);
+    const order: string[] = [];
+    recordOrder(order);
+    runInAction(() => {
+      state.openedPanel = "model";
+      state.modelSearch = "open";
+      // An UNSENT creativity edit must not be smuggled to the server by a pick.
+      state.settingsDraft.temperature = 1.4;
+    });
+
+    await pickChatModel(state, BOOK_ID, modelOptionKey(OTHER_OPTION));
+
+    expect(vi.mocked(chatsApi.updateChat)).toHaveBeenCalledTimes(1);
+    const [bookArg, chatArg, body] = vi.mocked(chatsApi.updateChat).mock.calls[0];
+    expect(bookArg).toBe(BOOK_ID);
+    expect(chatArg).toBe(CHAT_ID);
+    expect(body.llm_server_id).toBe("s-2");
+    expect(body.model_name).toBe("m-2");
+    // "carrying ONLY llm_server_id and model_name" — an exact key set.
+    expect(Object.keys(body).sort()).toEqual(["llm_server_id", "model_name"]);
+
+    // A pick is not a turn.
+    expect(order).toEqual(["update"]);
+    expect(vi.mocked(chatsApi.streamChatTurn)).not.toHaveBeenCalled();
+
+    // The pick closed the panel and cleared the needle.
+    expect(state.openedPanel).toBeNull();
+    expect(state.modelSearch).toBe("");
+    // ...and the stored pair really moved.
+    expect(state.activeChat?.llm_server_id).toBe("s-2");
+    expect(state.activeChat?.model_name).toBe("m-2");
+  });
+});
+
+describe("a persisted pick leaves the settings draft clean in its model half (009 DoD-8)", () => {
+  it("009 DoD-8: after a successful pick with no temperature edit, sending issues NO further update call", async () => {
+    const state = new ChatPaneState();
+    primeCleanPane(state);
+    recordOrder([]);
+
+    await pickChatModel(state, BOOK_ID, modelOptionKey(OTHER_OPTION));
+    expect(vi.mocked(chatsApi.updateChat)).toHaveBeenCalledTimes(1);
+
+    // The model half of the draft now matches what is stored.
+    expect(state.settingsDirty).toBe(false);
+
+    vi.mocked(chatsApi.updateChat).mockClear();
+    await sendChatTurn(state, BOOK_ID, "hello");
+
+    // No re-PATCH of a model that is already stored.
+    expect(vi.mocked(chatsApi.updateChat)).not.toHaveBeenCalled();
+    expect(vi.mocked(chatsApi.streamChatTurn)).toHaveBeenCalledTimes(1);
+  });
+
+  it("009 DoD-8: after a pick FOLLOWED by a temperature edit, sending issues exactly one update whose sampling carries the new temperature and whose pair is the picked one", async () => {
+    const state = new ChatPaneState();
+    primeCleanPane(state);
+    recordOrder([]);
+
+    await pickChatModel(state, BOOK_ID, modelOptionKey(OTHER_OPTION));
+    vi.mocked(chatsApi.updateChat).mockClear();
+
+    // The creativity edit comes AFTER the pick and still travels on the send flush.
+    runInAction(() => {
+      state.settingsDraft.temperature = 1.4;
+    });
+    expect(state.settingsDirty).toBe(true);
+
+    await sendChatTurn(state, BOOK_ID, "hello");
+
+    expect(vi.mocked(chatsApi.updateChat)).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(chatsApi.updateChat).mock.calls[0][2];
+    expect(body.sampling?.temperature).toBe(1.4);
+    expect(body.llm_server_id).toBe("s-2");
+    expect(body.model_name).toBe("m-2");
+    expect(vi.mocked(chatsApi.streamChatTurn)).toHaveBeenCalledTimes(1);
+  });
+
+  it("009 DoD-8: a pick does not discard an UNSENT temperature edit made before it", async () => {
+    const state = new ChatPaneState();
+    primeCleanPane(state);
+    recordOrder([]);
+    runInAction(() => {
+      state.settingsDraft.temperature = 1.4;
+    });
+
+    await pickChatModel(state, BOOK_ID, modelOptionKey(OTHER_OPTION));
+
+    // Only the MODEL half was re-seeded.
+    expect(state.settingsDraft.temperature).toBe(1.4);
+    expect(state.settingsDraft.optionKey).toBe(modelOptionKey(OTHER_OPTION));
+  });
+});
+
+describe("an unresolvable stored pair is left alone, not cleared (009 DoD-9)", () => {
+  it("009 DoD-9: a settings flush omits llm_server_id and model_name entirely rather than sending nulls, and the label keeps the stored model_name", async () => {
+    const state = new ChatPaneState();
+    // The chat stores a pair the catalogue no longer offers (server deactivated /
+    // model withdrawn); the loaded options are the two unrelated ones.
+    runInAction(() => {
+      state.chats = [makeChat({ llm_server_id: "s-9", model_name: "m-9" })];
+      state.activeChatId = CHAT_ID;
+      state.modelOptions = [CURRENT_OPTION, OTHER_OPTION];
+      state.messages = [];
+      state.messagesStatus = "ready";
+      state.settingsDraft.optionKey = UNRESOLVABLE_KEY;
+      state.settingsDraft.temperature = 1.4;
+    });
+    vi.mocked(chatsApi.updateChat).mockImplementation(async (_bookId, _chatId, body) => {
+      const chat = makeChat({ llm_server_id: "s-9", model_name: "m-9" });
+      return { ...chat, sampling: body.sampling ?? chat.sampling };
+    });
+
+    await saveChatSettings(state, BOOK_ID);
+
+    expect(vi.mocked(chatsApi.updateChat)).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(chatsApi.updateChat).mock.calls[0][2];
+    // OMITTED, not nulled — a null pair would wipe a real stored pair.
+    expect(Object.prototype.hasOwnProperty.call(body, "llm_server_id")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(body, "model_name")).toBe(false);
+    // The temperature half is unaffected.
+    expect(body.sampling?.temperature).toBe(1.4);
+
+    // The stored pair survives...
+    expect(state.activeChat?.llm_server_id).toBe("s-9");
+    expect(state.activeChat?.model_name).toBe("m-9");
+    // ...and the header shows the stored model name alone rather than a blank.
+    expect(state.modelLabel).toBe("m-9");
+  });
+});
+
+describe("the openedPanel discriminator still yields to an accepted send (009 DoD-11)", () => {
+  it('009 DoD-11: an accepted send still clears openedPanel from "model"', async () => {
+    const state = new ChatPaneState();
+    primeCleanPane(state);
+    recordOrder([]);
+    runInAction(() => {
+      state.openedPanel = "model";
+    });
+
+    await sendChatTurn(state, BOOK_ID, "hello");
+
+    expect(vi.mocked(chatsApi.streamChatTurn)).toHaveBeenCalledTimes(1);
+    expect(state.openedPanel).toBeNull();
+  });
 });

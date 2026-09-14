@@ -1,15 +1,17 @@
+import type { KeyboardEvent } from "react";
 import { observer } from "mobx-react-lite";
 import {
   ActionIcon,
   Alert,
   Button,
+  Combobox,
   Group,
   Loader,
   Popover,
-  Select,
   Stack,
   Text,
   Title,
+  useCombobox,
 } from "@mantine/core";
 import { IconAdjustmentsHorizontal, IconPlus } from "@tabler/icons-react";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
@@ -19,6 +21,7 @@ import { ComposerResizeHandle } from "./ComposerResizeHandle";
 import {
   createChatInstant,
   modelOptionKey,
+  pickChatModel,
   retryChatTurn,
   sendChatTurn,
   stopChatTurn,
@@ -38,12 +41,20 @@ import {
  * transcript ({@link import("./MessageList").MessageList}) and the composer
  * ({@link import("./Composer").Composer}).
  *
- * BOTH HEADER POPOVERS ARE DRIVEN BY ONE DISCRIMINATOR, `state.openedPanel` (D7):
+ * BOTH HEADER SURFACES ARE DRIVEN BY ONE DISCRIMINATOR, `state.openedPanel` (D7):
  * opening either closes the other by construction, and `sendChatTurn` clears it, so
  * "options close when the author sends or opens the other panel" is one state
  * machine rather than two booleans that can disagree. This is the codebase's first
  * `Popover`; there is no in-repo idiom to copy for its open/close wiring, which is
  * exactly why the wiring is state and not component-local.
+ *
+ * FAST/009 DE-NESTS THE MODEL CONTROL. It used to be a `Popover` whose entire
+ * dropdown was a collapsed `<Select>` — a dropdown inside a dropdown, three clicks
+ * to change a model. It is now one `Combobox` in CONTROLLED mode (`useCombobox`
+ * with `opened` / `onOpenedChange` bound to `openedPanel`, so the discriminator
+ * survives): one click opens an already-rendered, searchable list, and the pick
+ * PATCHes the chat at once through `pickChatModel` rather than parking in
+ * `settingsDraft` until the next send.
  */
 export interface ChatPaneProps {
   bookId: string;
@@ -59,6 +70,43 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
   /** Close `panel` when Mantine dismisses it (click outside / Escape). */
   const dismissPanel = (panel: "model" | "settings", opened: boolean) => {
     if (!opened && state.openedPanel === panel) state.openedPanel = null;
+  };
+
+  // THE MODEL DROPDOWN, CONTROLLED BY `openedPanel`. `frontend.md`'s controlled-
+  // popover rule applies transitively (a `Combobox` IS a `Popover`): the target's
+  // own click owns the toggle, and Mantine's dismissals — click-outside, Escape —
+  // come back through `onOpenedChange`. Both directions are bound below, or the
+  // dropdown becomes unclosable in one of them.
+  const combobox = useCombobox({
+    opened: state.openedPanel === "model",
+    onOpenedChange: (opened) => {
+      // A needle never survives a close/reopen (DoD-12).
+      state.modelSearch = "";
+      if (opened) {
+        state.openedPanel = "model";
+        return;
+      }
+      dismissPanel("model", opened);
+    },
+  });
+
+  const handleModelButtonClick = () => {
+    state.modelSearch = "";
+    combobox.resetSelectedOption();
+    togglePanel("model");
+  };
+
+  // ENTER PICKS THE FIRST OPTION OF THE FILTERED LIST (DoD-4) — but only while
+  // nothing is highlighted. Once the author has moved the highlight with the arrow
+  // keys, Mantine's own handler (which runs right after this one) clicks the
+  // highlighted option, so bailing out here is what keeps a pick from firing twice.
+  const handleModelSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    if (combobox.getSelectedOptionIndex() !== -1) return;
+    event.preventDefault();
+    const first = state.filteredModelOptions[0];
+    if (first === undefined) return;
+    void pickChatModel(state, bookId, modelOptionKey(first));
   };
 
   // "+" creates immediately — no form, no title, the active chat's model pair by
@@ -82,11 +130,6 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
 
   const paneLoading = state.chatsStatus === "idle" || state.chatsStatus === "loading";
 
-  const modelData = state.modelOptions.map((option) => ({
-    value: modelOptionKey(option),
-    label: `${option.server_name} · ${option.model_name}`,
-  }));
-
   return (
     // THE PANE'S VERTICAL CHAIN (feedback F1). `h="100%"` fills the fixed-height
     // `AppShell.Aside`; this `Stack` is the flex column, and `MessageList` is the one
@@ -102,19 +145,26 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
         </Title>
 
         <Group gap={4} wrap="nowrap">
-          <Popover
-            opened={state.openedPanel === "model"}
-            onChange={(opened) => dismissPanel("model", opened)}
+          <Combobox
+            store={combobox}
+            onOptionSubmit={(value) => {
+              void pickChatModel(state, bookId, value);
+            }}
             position="bottom-end"
             shadow="md"
             width={260}
             withArrow
+            // The dropdown renders INLINE (no portal) and MOUNTS ON OPEN: `keepMounted`
+            // defaults to `true` on a `Combobox`, and a kept-mounted dropdown would
+            // never re-fire the search field's `autoFocus`.
+            withinPortal={false}
+            keepMounted={false}
           >
-            <Popover.Target>
+            <Combobox.Target targetType="button">
               <Button
                 variant="subtle"
                 size="compact-xs"
-                onClick={() => togglePanel("model")}
+                onClick={handleModelButtonClick}
                 aria-label="Model"
                 style={{ maxWidth: 160 }}
               >
@@ -122,26 +172,47 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
                   {state.modelLabel}
                 </Text>
               </Button>
-            </Popover.Target>
-            <Popover.Dropdown>
-              {modelData.length === 0 ? (
-                <Text size="sm" c="dimmed">
-                  No models are available.
-                </Text>
-              ) : (
-                <Select
-                  label="Model"
-                  data={modelData}
-                  value={state.settingsDraft.optionKey}
-                  onChange={(value) => {
-                    state.settingsDraft.optionKey = value;
-                  }}
-                  comboboxProps={{ withinPortal: false }}
-                  allowDeselect={false}
-                />
-              )}
-            </Popover.Dropdown>
-          </Popover>
+            </Combobox.Target>
+            <Combobox.Dropdown>
+              <Combobox.Search
+                value={state.modelSearch}
+                onChange={(event) => {
+                  state.modelSearch = event.currentTarget.value;
+                  // A new needle invalidates the old highlight; dropping it puts
+                  // Enter back on the first option of the newly filtered list.
+                  combobox.resetSelectedOption();
+                }}
+                onKeyDown={handleModelSearchKeyDown}
+                placeholder="Search models"
+                aria-label="Search models"
+                autoFocus
+              />
+              <Combobox.Options mah={240} style={{ overflowY: "auto" }}>
+                {/*
+                  A DEAD BUTTON IS WORSE THAN A LABELLED EMPTY STATE: the dropdown
+                  opens in all three non-option cases and simply says why it has
+                  nothing to offer. The error case is tested first — a failed load
+                  also leaves `modelOptions` empty.
+                */}
+                {state.modelOptionsStatus === "error" ? (
+                  <Combobox.Empty>{state.modelOptionsError}</Combobox.Empty>
+                ) : state.modelOptions.length === 0 ? (
+                  <Combobox.Empty>No models available</Combobox.Empty>
+                ) : state.filteredModelOptions.length === 0 ? (
+                  <Combobox.Empty>Nothing found</Combobox.Empty>
+                ) : (
+                  state.filteredModelOptions.map((option) => (
+                    <Combobox.Option
+                      value={modelOptionKey(option)}
+                      key={modelOptionKey(option)}
+                    >
+                      {`${option.server_name} · ${option.model_name}`}
+                    </Combobox.Option>
+                  ))
+                )}
+              </Combobox.Options>
+            </Combobox.Dropdown>
+          </Combobox>
 
           <Popover
             opened={state.openedPanel === "settings"}
@@ -170,6 +241,13 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
           </ActionIcon>
         </Group>
       </Group>
+
+      {/*
+        A REJECTED PICK REPORTS IN THE HEADER REGION, not in the dropdown: the
+        dropdown has already closed by the time the PATCH resolves, so a message
+        inside it would never be seen (fast/009 DoD-7).
+      */}
+      {state.serverErrors.model && <Alert color="red">{state.serverErrors.model}</Alert>}
 
       {state.serverErrors.form && <Alert color="red">{state.serverErrors.form}</Alert>}
 
