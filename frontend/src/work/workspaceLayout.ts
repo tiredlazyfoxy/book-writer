@@ -42,17 +42,51 @@ export const MAX_CHAT_WIDTH_FRACTION = 0.6;
 /** One `ArrowLeft` / `ArrowRight` nudge on the resize handle, in fraction units. */
 export const CHAT_WIDTH_KEYBOARD_STEP = 0.02;
 
+/** Shortest allowed composer height in PIXELS — approximately two text lines. */
+export const MIN_COMPOSER_HEIGHT_PX = 64;
+
+/**
+ * Composer height in PIXELS when nothing is stored — approximately three text
+ * lines. Deliberately above the minimum: the composer used to auto-grow from two
+ * rows to six, so a fixed box at exactly the floor would feel smaller than what
+ * authors have today.
+ */
+export const DEFAULT_COMPOSER_HEIGHT_PX = 96;
+
+/**
+ * Tallest allowed composer height, as a fraction of **viewport height** — the
+ * transcript can never be squeezed out. Expressed as a fraction (unlike the two
+ * pixel constants above) precisely because it depends on the screen.
+ */
+export const MAX_COMPOSER_HEIGHT_FRACTION = 0.5;
+
+/** One `ArrowUp` / `ArrowDown` nudge on the composer handle, in PIXELS. */
+export const COMPOSER_HEIGHT_KEYBOARD_STEP = 24;
+
 /**
  * The persisted layout record. `chatWidth` is a **fraction of viewport width**,
  * always within [{@link MIN_CHAT_WIDTH_FRACTION}, {@link MAX_CHAT_WIDTH_FRACTION}]
  * — it is clamped on read, so a hand-edited storage entry can never widen the pane
  * past its bounds.
+ *
+ * `composerHeight` is in **PIXELS**, not a fraction — the two bounds are expressed
+ * differently on purpose: its lower bound is a text-line count (absolute) while its
+ * upper bound is viewport-relative, so only the minimum can be applied on read.
+ * Like the rest of this record it is a **device-local view preference**: it
+ * describes THIS SCREEN, deliberately not in the URL, not on the server, and
+ * deliberately **NOT per book**.
  */
 export interface WorkspaceLayout {
   /** Desktop navigator rail flag (orthogonal to the mobile drawer's open flag). */
   navCollapsed: boolean;
   /** Chat pane width as a fraction of viewport width, within the bounds. */
   chatWidth: number;
+  /**
+   * Chat composer height in PIXELS, at least {@link MIN_COMPOSER_HEIGHT_PX}. The
+   * viewport-dependent maximum ({@link MAX_COMPOSER_HEIGHT_FRACTION}) is applied at
+   * every point of USE, never on read — this module touches no DOM.
+   */
+  composerHeight: number;
 }
 
 /**
@@ -96,6 +130,59 @@ export function chatWidthCss(fraction: number): string {
 }
 
 /**
+ * Bound a candidate composer height (pixels) against the minimum and the
+ * viewport-dependent maximum. Pure — the viewport height is an ARGUMENT, so this
+ * is verifiable with no window.
+ *
+ * - A non-finite `candidate` yields {@link DEFAULT_COMPOSER_HEIGHT_PX}, then
+ *   clamped by the same rules.
+ * - The lower bound is always {@link MIN_COMPOSER_HEIGHT_PX}.
+ * - The upper bound is `MAX_COMPOSER_HEIGHT_FRACTION × viewportHeight`, **but the
+ *   minimum wins when that product falls below it** — a composer thinner than two
+ *   lines is unusable.
+ * - A `viewportHeight` that is not finite or not positive means the upper bound is
+ *   UNKNOWN: the result is clamped against the minimum alone, so a nonsense
+ *   environment never shrinks a stored preference.
+ */
+export function clampComposerHeight(candidate: number, viewportHeight: number): number {
+  // A non-finite candidate is not "too tall" or "too short" — it is meaningless,
+  // so it resolves to the default and is then bounded by the same rules.
+  const height = Number.isFinite(candidate) ? candidate : DEFAULT_COMPOSER_HEIGHT_PX;
+  if (height < MIN_COMPOSER_HEIGHT_PX) return MIN_COMPOSER_HEIGHT_PX;
+  // A nonsense viewport means the ceiling is UNKNOWN, not zero: clamp against the
+  // minimum alone rather than shrinking a stored preference. The next real use
+  // re-clamps.
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return height;
+  // THE MINIMUM WINS when half the viewport falls below it: on a very short screen
+  // a composer thinner than two text lines is unusable, and a short viewport is the
+  // rarer problem.
+  const maximum = Math.max(MAX_COMPOSER_HEIGHT_FRACTION * viewportHeight, MIN_COMPOSER_HEIGHT_PX);
+  if (height > maximum) return maximum;
+  return height;
+}
+
+/**
+ * The composer drag's ENTIRE geometry, extracted so it can be verified with no DOM
+ * and no layout engine — the same split {@link chatWidthFromPointer} uses.
+ *
+ * DELTA-BASED, not absolute: `startHeight + (startY - clientY)`, so dragging
+ * UPWARD grows the composer and downward shrinks it. The result goes through
+ * {@link clampComposerHeight}.
+ */
+export function composerHeightFromDrag(
+  startHeight: number,
+  startY: number,
+  clientY: number,
+  viewportHeight: number,
+): number {
+  // DELTA-BASED, never absolute: the handle is not at the composer's exact top edge
+  // (there is a `Stack` gap above it), so an absolute formula would make the
+  // composer jump to the pointer on the first move. A non-finite input propagates
+  // into a non-finite sum, which the clamp maps to the default.
+  return clampComposerHeight(startHeight + (startY - clientY), viewportHeight);
+}
+
+/**
  * Read the stored layout. NEVER throws and is TOTAL — every unreadable, non-JSON,
  * wrong-shaped or wrong-typed value resolves to the defaults. The fallback is
  * **per field**: a valid `navCollapsed` beside a garbage `chatWidth` keeps the
@@ -107,6 +194,7 @@ export function readWorkspaceLayout(): WorkspaceLayout {
   const layout: WorkspaceLayout = {
     navCollapsed: false,
     chatWidth: DEFAULT_CHAT_WIDTH_FRACTION,
+    composerHeight: DEFAULT_COMPOSER_HEIGHT_PX,
   };
 
   let raw: string | null;
@@ -133,19 +221,37 @@ export function readWorkspaceLayout(): WorkspaceLayout {
   const record = parsed as Record<string, unknown>;
   if (typeof record.navCollapsed === "boolean") layout.navCollapsed = record.navCollapsed;
   if (typeof record.chatWidth === "number") layout.chatWidth = clampChatWidth(record.chatWidth);
+  // Clamped to the MINIMUM ONLY: the maximum depends on the viewport height, which
+  // this DOM-free module has no business knowing. A stored height larger than half
+  // of THIS screen is not corrupt data — it is a height chosen on a bigger monitor,
+  // and it is corrected the moment it is used.
+  if (typeof record.composerHeight === "number" && Number.isFinite(record.composerHeight)) {
+    layout.composerHeight = Math.max(record.composerHeight, MIN_COMPOSER_HEIGHT_PX);
+  }
   return layout;
 }
 
 /**
- * Store the layout under {@link WORKSPACE_LAYOUT_KEY} as JSON, touching no other
- * key. Swallows storage errors (quota, private mode) exactly as `activeChat.ts`'s
- * writer does — a device-local view preference is best-effort and must never throw
- * into the caller.
+ * Merge a PARTIAL layout patch over the current record and store the merged whole
+ * under {@link WORKSPACE_LAYOUT_KEY} as JSON, touching no other key. Swallows
+ * storage errors (quota, private mode) exactly as `activeChat.ts`'s writer does —
+ * a device-local view preference is best-effort and must never throw into the
+ * caller.
+ *
+ * The patch is merged over {@link readWorkspaceLayout}'s TOTAL record, not over the
+ * raw stored string, so a corrupt store cannot survive a partial write. Two
+ * independent state classes own different fields of this one key
+ * (`WorkspaceShellState` owns `navCollapsed` + `chatWidth`, `ChatPaneState` owns
+ * `composerHeight`); merging is what makes it impossible for either to clobber the
+ * other.
  */
-export function writeWorkspaceLayout(layout: WorkspaceLayout): void {
+export function writeWorkspaceLayout(patch: Partial<WorkspaceLayout>): void {
   try {
     // Exactly one key for the whole workspace — nothing else is touched.
-    localStorage.setItem(WORKSPACE_LAYOUT_KEY, JSON.stringify(layout));
+    // Merged over the TOTAL read record, so a partial patch can never drop the other
+    // owner's fields and a corrupt store cannot survive the write.
+    const merged: WorkspaceLayout = { ...readWorkspaceLayout(), ...patch };
+    localStorage.setItem(WORKSPACE_LAYOUT_KEY, JSON.stringify(merged));
   } catch {
     // A device-local view preference is best-effort: a storage failure (quota,
     // disabled storage) must never throw into the caller — the layout simply

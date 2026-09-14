@@ -23,6 +23,13 @@ import {
   currentContentSubject,
   dispatchCanvasFrame,
 } from "../../contentSubject";
+import {
+  clampComposerHeight,
+  composerHeightFromDrag,
+  DEFAULT_COMPOSER_HEIGHT_PX,
+  readWorkspaceLayout,
+  writeWorkspaceLayout,
+} from "../../workspaceLayout";
 
 /**
  * State for the chat pane (`ChatPane`), owned by `WorkspaceShell` via
@@ -285,6 +292,32 @@ export class ChatPaneState implements CloseTurnController {
   /** The composer's pending prompt text (cleared only once a send is accepted). */
   pendingPrompt = "";
 
+  // --- The composer's height (fast/008) ---
+
+  /**
+   * THE COMPOSER'S LIVE HEIGHT IN PIXELS — a plain observable, read directly by
+   * `Composer` and by `ComposerResizeHandle`. Deliberately NOT a CSS custom
+   * property driven by an `autorun` (fast/005's width indirection): `Composer`
+   * already re-renders per keystroke, so a per-`pointermove` re-render of that same
+   * subtree costs the same as ordinary typing.
+   *
+   * SEEDED IN THE CONSTRUCTOR from `readWorkspaceLayout().composerHeight` passed
+   * through `clampComposerHeight` against `window.innerHeight` — this is where the
+   * viewport-dependent maximum is first applied, so a height chosen on a larger
+   * monitor is corrected on first render rather than overflowing the pane.
+   */
+  composerHeight: number = DEFAULT_COMPOSER_HEIGHT_PX;
+
+  /** Whether a composer-resize pointer drag is in flight. */
+  composerResizing = false;
+
+  /**
+   * The live composer drag's detach-and-restore closure, or none. NON-OBSERVABLE
+   * (excluded in the constructor beside `start` / `stop` / `setActive`): it is a
+   * plain slot the drag lifecycle owns, never something a component renders.
+   */
+  composerResizeDispose: (() => void) | null = null;
+
   /** The live turn's abort handle — owned and returned by `streamPost` — or none. */
   turnController: AbortController | null = null;
 
@@ -307,14 +340,29 @@ export class ChatPaneState implements CloseTurnController {
   closeTurnActive: { bookId: string; chapterId: string } | null = null;
 
   constructor() {
+    // Hydrated HERE, exactly as `WorkspaceShellState` hydrates the pane width, so
+    // the composer paints at the remembered height on the very first frame. This is
+    // also where the viewport-dependent maximum is FIRST applied: `readWorkspaceLayout`
+    // is DOM-free and clamps to the minimum alone, so a height chosen on a larger
+    // monitor is corrected here rather than overflowing this pane.
+    this.composerHeight = clampComposerHeight(
+      readWorkspaceLayout().composerHeight,
+      window.innerHeight,
+    );
+
     // The three `CloseTurnController` members are excluded for the reason
     // `ChapterPageState` excludes `subjectSource` / `applyDraft`: the module tier
     // (`work/closeTurn.ts`) holds this object across the module boundary and calls
     // them itself, and MobX would otherwise wrap each bound member as an action.
+    // `composerResizeDispose` joins the exclusion map (fast/008) for the same
+    // reason `WorkspaceShellState` excludes its `resizeDispose`: it holds a raw
+    // closure the drag lifecycle owns, and MobX would otherwise wrap it as an
+    // action. The three `CloseTurnController` entries are untouched.
     makeAutoObservable(this, {
       start: false,
       stop: false,
       setActive: false,
+      composerResizeDispose: false,
     });
   }
 
@@ -1476,4 +1524,121 @@ function closeTurnStreamHandlers(
 export function stopCloseTurn(state: ChatPaneState): void {
   // EXACTLY ONE abort path for every turn this pane runs.
   stopChatTurn(state);
+}
+
+// --- The composer resize lifecycle (fast/008) ---------------------------------
+//
+// Three external `(state, …)` functions, per this file's header rule: the class
+// holds observable data + pure `get` computeds ONLY. The drag lifecycle copies
+// `workspaceShellState.ts`'s width drag exactly — listeners on `window`, never
+// `setPointerCapture`; body styles saved and restored by the dispose closure;
+// begin and end both idempotent; storage written ONCE at the end of a drag.
+
+/**
+ * START A POINTER DRAG on the composer's divider. Intent: capture the current
+ * {@link ChatPaneState.composerHeight} and the pointer-down `clientY` as CLOSURE
+ * LOCALS (never as fields on the state); set `composerResizing`; suppress text
+ * selection (`document.body.style.userSelect = "none"`) and pin a `row-resize`
+ * cursor on `document.body`, SAVING the prior values so they can be restored;
+ * attach `pointermove` / `pointerup` / `pointercancel` to **`window`** —
+ * deliberately NOT `setPointerCapture` (jsdom implements neither that nor
+ * `PointerEvent`, and window listeners keep tracking when the pointer outruns the
+ * 6px strip); and store the detach-and-restore closure on
+ * {@link ChatPaneState.composerResizeDispose}.
+ *
+ * IDEMPOTENT: a second call while a drag is already live is a no-op. The
+ * `pointermove` handler does EXACTLY one thing — assign
+ * `composerHeightFromDrag(startHeight, startY, event.clientY, window.innerHeight)`
+ * to `state.composerHeight`. No storage write, no other state change.
+ */
+export function beginComposerResize(state: ChatPaneState, clientY: number): void {
+  // Idempotent: a second pointer-down while a drag is already live changes nothing
+  // (and must never attach a second set of listeners).
+  if (state.composerResizeDispose !== null) return;
+
+  // CLOSURE LOCALS, never fields on the state: the move handler is created here and
+  // closes over them. Fields would have to join the `makeAutoObservable` exclusion
+  // map and would re-render the pane at pointer-down for no reason.
+  const startHeight = state.composerHeight;
+  const startY = clientY;
+
+  const handleMove = (event: PointerEvent): void => {
+    // The ONLY thing a pointer move does. No storage write here — the height is
+    // persisted once, on pointer-up.
+    runInAction(() => {
+      state.composerHeight = composerHeightFromDrag(
+        startHeight,
+        startY,
+        event.clientY,
+        window.innerHeight,
+      );
+    });
+  };
+  const handleEnd = (): void => {
+    endComposerResize(state);
+  };
+
+  // Listeners on `window`, deliberately NOT `setPointerCapture`: jsdom implements
+  // neither that nor `PointerEvent`, and window listeners keep tracking when the
+  // pointer outruns the 6px strip.
+  window.addEventListener("pointermove", handleMove);
+  window.addEventListener("pointerup", handleEnd);
+  window.addEventListener("pointercancel", handleEnd);
+
+  const previousUserSelect = document.body.style.userSelect;
+  const previousCursor = document.body.style.cursor;
+  document.body.style.userSelect = "none";
+  document.body.style.cursor = "row-resize";
+
+  state.composerResizeDispose = () => {
+    window.removeEventListener("pointermove", handleMove);
+    window.removeEventListener("pointerup", handleEnd);
+    window.removeEventListener("pointercancel", handleEnd);
+    document.body.style.userSelect = previousUserSelect;
+    document.body.style.cursor = previousCursor;
+  };
+
+  runInAction(() => {
+    state.composerResizing = true;
+  });
+}
+
+/**
+ * END A POINTER DRAG: detach the listeners, restore the saved body styles, clear
+ * `composerResizing`, and persist the height ONCE as a partial patch carrying
+ * `composerHeight` alone.
+ *
+ * IDEMPOTENT, and guarded on {@link ChatPaneState.composerResizeDispose} rather
+ * than on `composerResizing`, so a call with no drag in flight is a TRUE no-op —
+ * including no storage write.
+ */
+export function endComposerResize(state: ChatPaneState): void {
+  const dispose = state.composerResizeDispose;
+  // No drag in flight (a stray pointer-up, or a second one) — nothing to detach,
+  // restore or WRITE. Guarding on the closure rather than on `composerResizing` is
+  // what makes this a true no-op, storage included.
+  if (dispose === null) return;
+  state.composerResizeDispose = null;
+  dispose();
+  runInAction(() => {
+    state.composerResizing = false;
+  });
+  // ONCE, at the end of the drag — and as a PARTIAL patch carrying this pane's field
+  // alone, so the shell's `navCollapsed` / `chatWidth` survive untouched.
+  writeWorkspaceLayout({ composerHeight: state.composerHeight });
+}
+
+/**
+ * THE KEYBOARD PATH: apply a pixel delta to the live height —
+ * `clampComposerHeight(state.composerHeight + delta, window.innerHeight)` — and
+ * persist the same partial patch. This is what makes the persistence wiring
+ * verifiable in jsdom at all; the pointer drag itself is `[manual/live]`.
+ */
+export function nudgeComposerHeight(state: ChatPaneState, delta: number): void {
+  runInAction(() => {
+    // `window.innerHeight` is read HERE, at the point of use — the stored value
+    // carries no ceiling of its own.
+    state.composerHeight = clampComposerHeight(state.composerHeight + delta, window.innerHeight);
+  });
+  writeWorkspaceLayout({ composerHeight: state.composerHeight });
 }

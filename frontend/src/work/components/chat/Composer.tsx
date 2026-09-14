@@ -90,11 +90,17 @@ export const Composer = observer(function Composer({
       <Textarea
         placeholder="Message the assistant…"
         aria-label="Message the assistant"
-        autosize
-        minRows={2}
-        maxRows={6}
         value={state.pendingPrompt}
         disabled={streaming || closeReadOnly}
+        // fast/008: the input is a FIXED-HEIGHT box the author sizes with
+        // `ComposerResizeHandle` (no `autosize`, no `minRows` / `maxRows`), and it
+        // scrolls internally past that height. `resize: "none"` is not cosmetic — a
+        // fixed-height `<textarea>` keeps the browser's native bottom-right grip,
+        // which would sit directly under the Send icon and compete with the handle
+        // for the same gesture.
+        styles={{
+          input: { height: state.composerHeight, resize: "none" },
+        }}
         // An explicit width makes the slot deterministic: the default derives from
         // `--input-height`, which an autosizing textarea does not have a fixed value
         // for. It also drives the input's own padding, so typed text never runs

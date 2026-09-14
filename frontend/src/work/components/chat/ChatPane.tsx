@@ -15,6 +15,7 @@ import { IconAdjustmentsHorizontal, IconPlus } from "@tabler/icons-react";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
+import { ComposerResizeHandle } from "./ComposerResizeHandle";
 import {
   createChatInstant,
   modelOptionKey,
@@ -193,6 +194,7 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
       {state.activeChat && (
         <>
           <MessageList state={state} />
+          <ComposerResizeHandle state={state} />
           <Composer
             state={state}
             onSend={handleSend}
