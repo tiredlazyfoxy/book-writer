@@ -25,8 +25,9 @@ The policy, in one place:
 - :func:`determine_mode` maps the resolved subject onto one of FEAT-020's mode
   keys (``assistant-config.md`` → "Mode determination"): the three codex kinds,
   plus — as of 015 step 009 — an ``open`` chapter to ``write-chapter`` and a
-  ``closing`` chapter to ``close-chapter``. Every other subject resolves to
-  **no mode**;
+  ``closing`` chapter to ``close-chapter``, plus the three **lore lists**, which
+  share their entry mode's row outright (``characters`` → ``edit-character`` and
+  so on). Every other subject resolves to **no mode**;
 - :func:`mode_system_prompt` is the ``mode=`` layer
   ``services/prompt_composition.py`` already composes but nothing populated
   before this step (US-110.AC-3 / US-110.AC-4);
@@ -55,8 +56,9 @@ from app.services import subagent_delegation
 from app.services import tools as tools_service
 from app.services.tools import ToolDef
 
-# The allowlist for a subject that has **no** mode — book state, any of the
-# lists, and the chats view (``context.md`` decision 6: a null mode is NOT "the
+# The allowlist for a subject that has **no** mode — book state, the chapters
+# list, variants, and the chats view (the three LORE lists are mode-bearing; see
+# :data:`_CODEX_LIST_MODES`) (``context.md`` decision 6: a null mode is NOT "the
 # whole registry"). Code-defined, never persisted: without it, wiring real
 # ``mode_tool`` gating would silently strip web search from the chats view that
 # ``011.chat-panel`` shipped. Today it happens to equal the whole
@@ -139,6 +141,40 @@ _CODEX_KIND_MODES: dict[str, str] = {
 _CHAPTER_STATE_MODES: dict[str, str] = {
     ChapterState.open.value: "write-chapter",
     ChapterState.closing.value: "close-chapter",
+}
+
+
+# ``assistant-config.md``'s mode-determination table, the CODEX-LIST half. The
+# three lore lists resolve to **the same mode as editing one of their entries**:
+# the characters list to ``edit-character``, the locations list to
+# ``edit-location``, the facts list to ``edit-fact``.
+#
+# WHY THE SAME ROW AND NOT A LIST-SPECIFIC ONE. Browsing the characters list and
+# editing a character are one activity, not two: the author creates an entry
+# FROM the list (``create_codex_entry`` is in all three modes' default tool set
+# and takes its ``kind`` as a model argument, reading no subject), and the lore
+# the assistant must consult is the same lore either way. A separate row would
+# make the administrator tune the same guidance twice and let the two drift.
+#
+# Before this mapping the three lists fell to :data:`BASE_TOOL_NAMES` --
+# ``web_search`` and nothing else -- so on the characters list the assistant
+# could not search the codex it was being asked about, and could not create the
+# entry the list exists to collect.
+#
+# ``write_codex_draft`` stays in the allowlist and that is CORRECT, not an
+# oversight: ``services/codex_tools.py:_refuse_write`` refuses it for any subject
+# whose ``kind`` is not ``codex-entry`` and returns the refusal **to the model**,
+# which is a better answer than an absent tool -- the model learns why and can
+# reach for ``create_codex_entry`` instead.
+#
+# Keyed by ``SubjectKind`` wire value, valued by mode key, the
+# :data:`_CODEX_KIND_MODES` convention. ``chapters`` / ``variants`` /
+# ``chapter-variants`` / ``book-state`` / ``chats`` are deliberately absent: they
+# keep resolving to no mode.
+_CODEX_LIST_MODES: dict[str, str] = {
+    "characters": "edit-character",
+    "locations": "edit-location",
+    "facts": "edit-fact",
 }
 
 
@@ -280,39 +316,53 @@ async def resolve_subject(
 def determine_mode(subject: ResolvedSubject) -> str | None:
     """Map a resolved ``subject`` onto a FEAT-020 mode key, or ``None``.
 
-    ``assistant-config.md``'s mode-determination table, **both** halves as of 015
-    step 009:
+    ``assistant-config.md``'s mode-determination table, **all three** parts of it:
 
     - a codex entry of kind ``character`` → ``"edit-character"``, ``location`` →
       ``"edit-location"``, ``fact`` → ``"edit-fact"`` (:data:`_CODEX_KIND_MODES`);
     - a resolved **chapter** by its ``state``: ``open`` → ``"write-chapter"``,
       ``closing`` → ``"close-chapter"`` (:data:`_CHAPTER_STATE_MODES`), and
       ``planned`` / ``closed`` → **no mode**, because neither is an activity
-      FEAT-020 names.
+      FEAT-020 names;
+    - a **codex LIST** by its kind: ``characters`` → ``"edit-character"``,
+      ``locations`` → ``"edit-location"``, ``facts`` → ``"edit-fact"``
+      (:data:`_CODEX_LIST_MODES`) — the **same rows** the entries resolve to, not
+      list-specific twins. Browsing the lore and editing it are one activity, and
+      the entry the author creates from the list is created by a tool that reads
+      no subject at all.
 
-    **Every other subject, and the absence of a subject, resolves to no mode.**
-    No mode means :data:`BASE_TOOL_NAMES` — *not* an empty allowlist — which is
-    the load-bearing half of tool gating's three cases.
+    **Every other subject** — the chapters list, variants, book state, the chats
+    view — **and the absence of a subject, resolves to no mode.** No mode means
+    :data:`BASE_TOOL_NAMES` — *not* an empty allowlist — which is the
+    load-bearing half of tool gating's three cases.
 
-    Synchronous and pure: it reads only the record it is handed (an existing
-    entry's kind comes off ``subject.entry``, a resolved chapter's state off
-    ``subject.chapter``; a blank entry's kind comes off what
-    :func:`resolve_subject` recorded). The returned key is one of
+    Synchronous and pure: it reads only the record it is handed — an existing
+    entry's kind off ``subject.entry``, a resolved chapter's state off
+    ``subject.chapter``, a list's kind off ``subject.kind``; a blank entry's kind
+    comes off what :func:`resolve_subject` recorded. The returned key is one of
     ``db/assistant_modes.py:DEFAULT_MODE_KEYS`` — every one of them an
     **already-seeded** row; nothing here seeds anything.
 
-    The final fall-through is "this subject resolved to **nothing at all**", not
-    "this subject has no codex entry": ``entry`` and ``chapter`` are twins and a
-    chapter subject carries a null ``entry`` by construction, so keying the
-    guard off ``entry`` alone would make the chapter branch unreachable while
-    every codex case still answered correctly. (UC-076's blank entry has neither
-    row; :func:`resolve_subject` attaches its mode from the request's
-    ``codex_kind`` before this function could help.)
+    The three branches are ordered **most-specific first**, and that order is
+    load-bearing: a loaded row answers before the kind does, so a codex entry is
+    never mistaken for its list. ``entry`` and ``chapter`` are twins and a chapter
+    subject carries a null ``entry`` by construction, so keying the guard off
+    ``entry`` alone would make the chapter branch unreachable while every codex
+    case still answered correctly. The final fall-through is "this subject
+    resolved to **nothing at all**". (UC-076's blank entry has neither row;
+    :func:`resolve_subject` attaches its mode from the request's ``codex_kind``
+    before this function could help.)
     """
     if subject.entry is not None:
         return _mode_for_codex_kind(subject.entry.kind)
     if subject.chapter is not None:
         return _mode_for_chapter_state(subject.chapter.state)
+    if subject.kind is not None:
+        # A LIST subject carries no row at all, so this is the one branch keyed
+        # off ``subject.kind`` itself rather than off something loaded. ``.get``
+        # answers ``None`` for every kind outside the three lore lists, which is
+        # the fall-through below said once instead of twice.
+        return _CODEX_LIST_MODES.get(subject.kind)
     return None
 
 

@@ -423,11 +423,14 @@ async def test_non_codex_entry_and_absent_subjects_refused__DoD6(db: DbConfig):
     non_entry_subjects = [
         # book state
         ResolvedSubject(kind="book-state", mode_key=None),
-        # the list views
+        # the list views. The three LORE lists now carry a MODE (they share their
+        # entry mode's row), which makes them the sharper case: a mode-bearing
+        # subject that is still not an entry must be refused on its KIND, and the
+        # refusal must reach the model rather than the tool being absent.
         ResolvedSubject(kind="chapters", mode_key=None),
-        ResolvedSubject(kind="characters", mode_key=None),
-        ResolvedSubject(kind="locations", mode_key=None),
-        ResolvedSubject(kind="facts", mode_key=None),
+        ResolvedSubject(kind="characters", mode_key="edit-character"),
+        ResolvedSubject(kind="locations", mode_key="edit-location"),
+        ResolvedSubject(kind="facts", mode_key="edit-fact"),
         ResolvedSubject(kind="variants", mode_key=None),
         ResolvedSubject(kind="chapter-variants", mode_key=None),
         ResolvedSubject(kind="chats", mode_key=None),

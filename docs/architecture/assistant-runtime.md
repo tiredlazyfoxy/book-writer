@@ -35,10 +35,23 @@ The runtime "current mode" is **not stored on a chat** (a chat is not bound to a
 | Codex entry, `kind = character` | codex-entry mode | `edit-character` |
 | Codex entry, `kind = location` | codex-entry mode | `edit-location` |
 | Codex entry, `kind = fact` | codex-entry mode | `edit-fact` |
+| **Characters list** | codex-entry mode | `edit-character` |
+| **Locations list** | codex-entry mode | `edit-location` |
+| **Facts list** | codex-entry mode | `edit-fact` |
 | Chapter in state `open` | chapter mode | `write-chapter` |
 | Chapter in state `closing` | chapter mode | `close-chapter` |
 
-`close-chapter` mode is the assistant's behaviour **while a close run is streaming** for a chapter in `closing` (feature `016`; the procedure is `domain-continuity.md`'s). That the chapter body is **read-only** in that state (`frontend-workspace.md`) is orthogonal — the mode selects prompt and tools, not write permission. Subjects outside these five (Book state, any list, the chats view) fall **outside FEAT-020's mode set**; what the assistant may do there is answered under "Tool gating" below, not left open.
+`close-chapter` mode is the assistant's behaviour **while a close run is streaming** for a chapter in `closing` (feature `016`; the procedure is `domain-continuity.md`'s). That the chapter body is **read-only** in that state (`frontend-workspace.md`) is orthogonal — the mode selects prompt and tools, not write permission. Subjects outside these five (Book state, the chapters and variants lists, the chats view) fall **outside FEAT-020's mode set**; what the assistant may do there is answered under "Tool gating" below, not left open.
+
+#### A lore list resolves to its entries' mode — the same row, not a twin
+
+The three codex lists are **not** mode-less, and they do **not** have list-specific modes of their own: the characters list resolves to `edit-character`, the locations list to `edit-location`, the facts list to `edit-fact` (`services/assistant_runtime.py:_CODEX_LIST_MODES`). Browsing the lore and editing it are **one activity** — the author creates an entry *from* the list, and `create_codex_entry` takes its `kind` as a model argument and reads no subject at all, so it works there unchanged. A separate row would make an administrator tune the same guidance twice and let the two copies drift.
+
+This is the **one branch of `determine_mode` keyed off the subject's `kind`** rather than off a loaded row: a list carries no id, so there is nothing to load. The three branches are ordered most-specific-first (`entry` → `chapter` → `kind`), so a codex entry is never mistaken for its list.
+
+**Before this mapping the three lists fell to `BASE_TOOL_NAMES`** — `web_search` and nothing else — so on the characters list the assistant could not search the codex it was being asked about, nor create the entry the list exists to collect. That was an unintended consequence of "no mode ⇒ base tools", not a decision.
+
+`write_codex_draft` stays in the allowlist on a list, and that is correct rather than an oversight: `services/codex_tools.py:_refuse_write` refuses any subject whose `kind` is not `codex-entry` and returns the refusal **to the model**, which is a better answer than an absent tool — the model learns why and can reach for `create_codex_entry` instead. The three seeded codex prompts name both situations explicitly.
 
 #### The chapter rows were design only until feature `015.chapter-writing-free-mode`
 
@@ -109,7 +122,7 @@ Only the composition of these named prompts is in scope here. Assembling retriev
 The settled rule is **three cases, not two**:
 
 1. **A mode-bearing subject** gets **exactly its `mode_tool` rows.** Zero rows is an **empty allowlist**, not the whole registry (`assistant-config.md` carries the reasoning). A tool not selected for the mode is never built into the definitions, so it is unavailable to the model in that mode (US-111.AC-2). **The rule is unchanged by feature `024`; the starting state is not** — the five modes now **seed with a default tool set**, so the codex modes (`edit-character` / `edit-location` / `edit-fact`) resolve by default to `web_search`, `codex_search`, `codex_read_entry` and `write_codex_draft` rather than to nothing. A mode an administrator has since edited down to zero rows still gets an empty allowlist.
-2. **A subject with no mode** — book state, any list, the chats view, or no subject at all — gets a code-defined **`BASE_TOOL_NAMES`**, holding `web_search` as shipped.
+2. **A subject with no mode** — book state, the chapters and variants lists, the chats view, or no subject at all — gets a code-defined **`BASE_TOOL_NAMES`**, holding `web_search` as shipped. **The three lore lists are no longer in this case**: they carry their entry mode and therefore case 1's `mode_tool` rows (see "A lore list resolves to its entries' mode" above).
 3. `services/tools.py:resolve_tools`'s **`None ⇒ whole registry` branch is no longer reached by the turn.** Feature `011.chat-panel` opened that seam; feature `013.codex` closed it.
 
 **Case 2 is the load-bearing part, and it was a new decision made during `013.codex`'s planning.** Without a base allowlist, wiring real gating would have **silently stripped web search from the chats view feature `011.chat-panel` had just shipped** — a null mode would then have meant "no tools". A capability disappearing as a side effect of tightening a different rule is the failure mode this case exists to prevent.

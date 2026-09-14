@@ -461,20 +461,18 @@ async def test_other_books_entry_is_not_loaded__DoD4_US085_AC1(db: DbConfig):
 
 
 # ---------------------------------------------------------------------------
-# DoD-5 — book state, lists, chats and an absent subject all resolve to no mode
+# DoD-5 — book state, non-lore lists, chats and an absent subject: no mode
 # ---------------------------------------------------------------------------
 
 
 # DoD-5 (assistant-config.md: subjects outside the five fall outside the mode
-# set): the book-state subject, every list subject and the chats subject resolve
-# to no mode.
+# set): the book-state subject, the NON-LORE list subjects (chapters, variants,
+# chapter-variants) and the chats subject resolve to no mode. The three LORE
+# lists do NOT -- they are covered by the codex-list tests below.
 @pytest.mark.parametrize(
     "subject_kind",
     [
         "book-state",
-        "characters",
-        "locations",
-        "facts",
         "chapters",
         "variants",
         "chapter-variants",
@@ -507,6 +505,95 @@ async def test_absent_subject_resolves_to_no_mode__DoD5(db: DbConfig):
     assert assistant_runtime.determine_mode(resolved) is None
     assert NO_SUBJECT.mode_key is None
     assert assistant_runtime.determine_mode(NO_SUBJECT) is None
+
+
+# ---------------------------------------------------------------------------
+# The three LORE lists resolve to their ENTRY mode -- same row, not a twin
+# ---------------------------------------------------------------------------
+
+
+# A codex LIST subject resolves to exactly the mode its entries resolve to:
+# browsing the lore and editing it are one activity, and the entry the author
+# creates from the list is created there. No row is loaded for a list -- it
+# carries no id -- so the mode comes off the subject KIND.
+@pytest.mark.parametrize(
+    ("subject_kind", "expected_mode"),
+    [
+        ("characters", "edit-character"),
+        ("locations", "edit-location"),
+        ("facts", "edit-fact"),
+    ],
+)
+async def test_codex_list_resolves_to_its_entry_mode(
+    db: DbConfig, subject_kind, expected_mode
+):
+    user = await _seed_user()
+    book = await _seed_book(user.id)
+
+    resolved = await assistant_runtime.resolve_subject(
+        _access(book.id, user.id), subject_kind=subject_kind
+    )
+
+    assert resolved.kind == subject_kind
+    # A list has no row on either side -- the mode is keyed off the kind alone.
+    assert resolved.entry is None
+    assert resolved.chapter is None
+    assert resolved.mode_key == expected_mode
+    assert assistant_runtime.determine_mode(resolved) == expected_mode
+
+
+# The list shares the entry mode's ROW, so it shares its admin-edited system
+# prompt -- there is no second prompt to keep in step.
+async def test_codex_list_gets_the_entry_modes_prompt(db: DbConfig):
+    user = await _seed_user()
+    book = await _seed_book(user.id)
+    await _seed_mode("edit-character", "CHARACTER_MODE_RULES")
+
+    resolved = await assistant_runtime.resolve_subject(
+        _access(book.id, user.id), subject_kind="characters"
+    )
+
+    assert await assistant_runtime.mode_system_prompt(resolved.mode_key) == (
+        "CHARACTER_MODE_RULES"
+    )
+
+
+# ...and its tool allowlist: the list gets the mode's mode_tool rows, NOT the
+# BASE_TOOL_NAMES fallback it fell to before. This is the whole point of the
+# mapping -- on the characters list the assistant can search the codex it is
+# being asked about, and create the entry the list exists to collect.
+async def test_codex_list_gets_the_entry_modes_tools_not_the_base_set(db: DbConfig):
+    user = await _seed_user()
+    book = await _seed_book(user.id)
+    await _seed_mode("edit-character")
+    await _seed_mode_tool("edit-character", "web_search")
+    await _seed_mode_tool("edit-character", "codex_search")
+    await _seed_mode_tool("edit-character", "create_codex_entry")
+
+    resolved = await assistant_runtime.resolve_subject(
+        _access(book.id, user.id), subject_kind="characters"
+    )
+    allowed = await assistant_runtime.allowed_tool_names(resolved.mode_key)
+
+    assert set(allowed) == {"web_search", "codex_search", "create_codex_entry"}
+    assert set(allowed) != set(assistant_runtime.BASE_TOOL_NAMES)
+
+
+# The NON-lore lists are deliberately untouched: mapping them was not part of
+# this change, so they keep falling to the base allowlist.
+@pytest.mark.parametrize("subject_kind", ["chapters", "variants", "chapter-variants"])
+async def test_non_lore_lists_still_have_no_mode(db: DbConfig, subject_kind):
+    user = await _seed_user()
+    book = await _seed_book(user.id)
+
+    resolved = await assistant_runtime.resolve_subject(
+        _access(book.id, user.id), subject_kind=subject_kind
+    )
+
+    assert resolved.mode_key is None
+    assert await assistant_runtime.allowed_tool_names(
+        resolved.mode_key
+    ) == assistant_runtime.BASE_TOOL_NAMES
 
 
 # ---------------------------------------------------------------------------
