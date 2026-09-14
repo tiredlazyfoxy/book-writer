@@ -15,9 +15,11 @@ import {
 } from "./workspaceShellState";
 import {
   ChatPaneState,
+  followTranscript,
   loadChatMessages,
   loadChatPane,
   pickChat,
+  releaseTranscriptViewport,
   stopChatTurn,
 } from "../chat/chatPaneState";
 import {
@@ -89,9 +91,22 @@ export const WorkspaceShell = observer(function WorkspaceShell() {
     const disposeChatWidthVar = autorun(() => {
       document.documentElement.style.setProperty(CHAT_WIDTH_CSS_VAR, state.chatWidthCssValue);
     });
+    // fast/010: the transcript follows the newest message. A SECOND autorun inside
+    // THIS SAME effect — deps unchanged, NO new effect (a second effect is what
+    // would re-run the loads above). It reads the pane's growth signature, which is
+    // what makes MobX re-run it whenever the transcript grows, and hands the timing
+    // to `followTranscript` (deferred to a rAF and coalesced).
+    const disposeTranscriptFollow = autorun(() => {
+      void chatPaneState.transcriptGrowthSignature;
+      followTranscript(chatPaneState);
+    });
     return () => {
       disposeChatWidthVar();
       document.documentElement.style.removeProperty(CHAT_WIDTH_CSS_VAR);
+      // Beside `disposeChatWidthVar()` in the SAME cleanup — the follow's disposer
+      // plus the release that cancels a pending frame and drops the DOM handle.
+      disposeTranscriptFollow();
+      releaseTranscriptViewport(chatPaneState);
       // Unconditional and idempotent — detaches a drag still in flight at unmount.
       endChatResize(state);
       // Identity-guarded inside the registry, so a late unmount whose registration

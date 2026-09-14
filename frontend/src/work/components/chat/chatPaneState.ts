@@ -30,6 +30,7 @@ import {
   readWorkspaceLayout,
   writeWorkspaceLayout,
 } from "../../workspaceLayout";
+import { isTranscriptPinned, transcriptBottomScrollTop } from "./transcriptScroll";
 
 /**
  * State for the chat pane (`ChatPane`), owned by `WorkspaceShell` via
@@ -330,6 +331,39 @@ export class ChatPaneState implements CloseTurnController {
    */
   composerResizeDispose: (() => void) | null = null;
 
+  // --- The transcript's scroll pinning (fast/010) ---
+
+  /**
+   * THE SCROLLING TRANSCRIPT ELEMENT, or `null` when nothing is attached — the
+   * `ScrollArea`'s internal VIEWPORT div, handed over by `MessageList`'s callback
+   * ref (`viewportRef`), NOT the component's root wrapper.
+   *
+   * NON-OBSERVABLE, excluded in the constructor beside `composerResizeDispose`:
+   * it is a raw DOM handle the scroll lifecycle owns, never something a component
+   * renders.
+   */
+  transcriptViewport: HTMLDivElement | null = null;
+
+  /**
+   * WHETHER THE TRANSCRIPT IS FOLLOWING THE BOTTOM — `true` from construction, so
+   * a fresh pane follows from its very first render with no scroll event needed.
+   *
+   * NON-OBSERVABLE, and that is LOAD-BEARING rather than stylistic: this flag is
+   * rewritten on every scroll event at pointer rate (an observable would fire the
+   * pane's observers continuously), and the follow `autorun` READS it — an
+   * observable flag would make that autorun re-enter itself on its own
+   * programmatic scroll.
+   */
+  transcriptPinned = true;
+
+  /**
+   * The `requestAnimationFrame` id of the follow currently scheduled, or `null`.
+   * Used to COALESCE: a streaming turn mutates `streamingContent` per token, and
+   * one frame per delta would queue hundreds of redundant scroll writes.
+   * NON-OBSERVABLE for the same reason as the two slots above.
+   */
+  transcriptFollowFrame: number | null = null;
+
   /** The live turn's abort handle — owned and returned by `streamPost` — or none. */
   turnController: AbortController | null = null;
 
@@ -370,11 +404,19 @@ export class ChatPaneState implements CloseTurnController {
     // reason `WorkspaceShellState` excludes its `resizeDispose`: it holds a raw
     // closure the drag lifecycle owns, and MobX would otherwise wrap it as an
     // action. The three `CloseTurnController` entries are untouched.
+    // The three transcript-scroll slots (fast/010) join the map for the reason
+    // spelled out on each of them: a DOM handle, a flag written at pointer rate and
+    // read by the follow `autorun` (an observable one would re-enter that autorun on
+    // its own programmatic scroll), and a raw rAF handle. The three
+    // `CloseTurnController` entries and `composerResizeDispose` are untouched.
     makeAutoObservable(this, {
       start: false,
       stop: false,
       setActive: false,
       composerResizeDispose: false,
+      transcriptViewport: false,
+      transcriptPinned: false,
+      transcriptFollowFrame: false,
     });
   }
 
@@ -637,6 +679,35 @@ export class ChatPaneState implements CloseTurnController {
       });
     }
     return rendered;
+  }
+
+  /**
+   * THE TRANSCRIPT'S GROWTH SIGNATURE (fast/010) — a value that changes whenever
+   * the transcript grows, derived from the four observables that can grow it. The
+   * shell's follow `autorun` reads this and nothing else.
+   *
+   * A STRING JOINING THE FOUR COUNTS WITH A SEPARATOR, NOT THEIR SUM, and the
+   * distinction is the whole reason this computed exists rather than four bare
+   * reads: `finishTurn` appends one persisted message AND clears
+   * `streamingContent` in the same action, so a sum can net to the same number,
+   * the computed's value would not change, and MobX would NOT re-run the autorun
+   * — the transcript would fail to follow at exactly the moment the final answer
+   * lands.
+   *
+   * It reads `messages.length`, NOT `renderedMessages.length`: `renderedMessages`
+   * is a presentation derivation whose shape can change without the transcript
+   * growing, and rebuilding that array from a non-rendering context is wasted
+   * work.
+   *
+   * Pure — no side effects, no I/O.
+   */
+  get transcriptGrowthSignature(): string {
+    return [
+      this.messages.length,
+      this.streamingContent.length,
+      this.streamingThinking.length,
+      this.streamingToolTrace.length,
+    ].join(":");
   }
 }
 
@@ -1136,6 +1207,10 @@ export async function loadChatMessages(
       state.messages = messages;
       state.messagesStatus = "ready";
     });
+    // fast/010: a freshly loaded transcript always starts at its BOTTOM. This one
+    // site covers mount, reload, chat switch and `chatPaneController.openChat`,
+    // which all run through here — which is why that controller needs no change.
+    repinTranscript(state);
   } catch (err) {
     if (signal?.aborted) return;
     if (err instanceof ApiError) {
@@ -1247,6 +1322,12 @@ export async function sendChatTurn(
     state.turnError = null;
   });
 
+  // fast/010: Send is an explicit "done reading back" gesture, so an author who
+  // was scrolled up is re-pinned here — they see their own message land and the
+  // reply arrive beneath it. The follow coalesces, so an overlapping schedule from
+  // the shell's autorun costs nothing.
+  repinTranscript(state);
+
   const controller = await chatsApi.streamChatTurn(
     bookId,
     chat.id,
@@ -1329,6 +1410,11 @@ export async function retryChatTurn(state: ChatPaneState, bookId: string): Promi
     state.turnStatus = "streaming";
     state.turnError = null;
   });
+
+  // fast/010: retry is the same "I just asked for output" gesture as Send, reached
+  // from the same composer, so it re-pins identically — an author who retries
+  // expects to watch the new attempt exactly as they would a first one.
+  repinTranscript(state);
 
   // Retry re-opens the SAME turn with NO prompt: the user message is already
   // persisted server-side, so nothing is re-sent or duplicated.
@@ -1795,4 +1881,138 @@ export function nudgeComposerHeight(state: ChatPaneState, delta: number): void {
     state.composerHeight = clampComposerHeight(state.composerHeight + delta, window.innerHeight);
   });
   writeWorkspaceLayout({ composerHeight: state.composerHeight });
+}
+
+// --- The transcript's scroll pinning (fast/010) ---
+//
+// Six EXTERNAL operations `(state, …)`, per this file's header rule — the class
+// holds observable data and pure `get` computeds only. The geometry itself lives
+// in the pure `transcriptScroll.ts` beside this file.
+//
+// THE PROGRAMMATIC SCROLL'S OWN SCROLL EVENT IS LEFT ALONE, DELIBERATELY: writing
+// `scrollTop` fires `onScrollPositionChange`, which re-runs `noteTranscriptScroll`;
+// because the write lands at the bottom that recomputes to pinned = true and the
+// loop terminates on its first iteration. NO suppression flag — it would also
+// swallow a genuine user scroll landing in the same frame, which is the one event
+// that must never be missed.
+
+/**
+ * Store (or clear) the scrolling transcript viewport — `MessageList`'s callback
+ * ref hands the node here. THAT IS ALL IT DOES.
+ *
+ * It must NOT re-pin and must NOT cancel the pending frame: an inline callback ref
+ * has a new function identity on every render, so React detaches with `null` and
+ * re-attaches the same node on EVERY render of `MessageList` — which is once per
+ * streaming delta. A re-pin there would yank a scrolled-up author back down
+ * mid-stream; a cancel there would kill the very frame that is about to follow.
+ *
+ * It is therefore tolerant of repeated `null`-then-node churn by construction:
+ * detach and re-attach happen synchronously inside one React commit, and a pending
+ * frame reads the viewport slot only when it fires, which is after that commit.
+ */
+export function attachTranscriptViewport(
+  state: ChatPaneState,
+  element: HTMLDivElement | null,
+): void {
+  state.transcriptViewport = element;
+}
+
+/**
+ * Recompute the pinned flag from the LIVE element — this is what
+ * `onScrollPositionChange` calls.
+ *
+ * Reads the attached viewport's `scrollTop` / `scrollHeight` / `clientHeight` and
+ * assigns {@link isTranscriptPinned}'s answer to
+ * `state.transcriptPinned`. A no-op when no viewport is attached (it leaves the
+ * flag alone rather than guessing). The `{ x, y }` argument of the Mantine
+ * callback is IGNORED on purpose: the predicate needs all three numbers and the
+ * element is the truth.
+ */
+export function noteTranscriptScroll(state: ChatPaneState): void {
+  const viewport = state.transcriptViewport;
+  // Nothing attached: leave the flag alone rather than guessing from no geometry.
+  if (viewport === null) return;
+  state.transcriptPinned = isTranscriptPinned(
+    viewport.scrollTop,
+    viewport.scrollHeight,
+    viewport.clientHeight,
+  );
+}
+
+/**
+ * Put the transcript at its bottom, SYNCHRONOUSLY — the single place the contract
+ * is enforced, and synchronous so the geometry wiring is testable with no timing
+ * at all.
+ *
+ * If a viewport is attached AND `state.transcriptPinned` is set, it writes
+ * {@link transcriptBottomScrollTop}'s result to the viewport's `scrollTop`.
+ * Otherwise it does nothing — and in particular does not throw when nothing is
+ * attached.
+ */
+export function scrollTranscriptToBottom(state: ChatPaneState): void {
+  const viewport = state.transcriptViewport;
+  if (viewport === null || !state.transcriptPinned) return;
+  viewport.scrollTop = transcriptBottomScrollTop(
+    viewport.scrollHeight,
+    viewport.clientHeight,
+  );
+}
+
+/**
+ * Schedule a deferred, coalesced follow — this is what the shell's `autorun`
+ * calls.
+ *
+ * - returns immediately when `state.transcriptPinned` is clear — a scrolled-up
+ *   author schedules nothing at all, which IS "the position is preserved";
+ * - returns immediately when `state.transcriptFollowFrame` is already set — THIS IS
+ *   THE COALESCING, and without it a fast token stream queues one frame per delta;
+ * - otherwise it schedules a `requestAnimationFrame`; the frame clears the stored
+ *   handle and then
+ *   calls {@link scrollTranscriptToBottom}, which RE-CHECKS pinned and the viewport
+ *   (the author may have scrolled during the frame).
+ *
+ * THE DEFERRAL IS MANDATORY, NOT STYLISTIC: a MobX `autorun` fires synchronously
+ * on mutation, BEFORE React re-renders, so measuring `scrollHeight` at that instant
+ * yields the pre-update height and the scroll lands short of the new bottom by
+ * exactly the height of what just arrived.
+ */
+export function followTranscript(state: ChatPaneState): void {
+  // A scrolled-up author schedules nothing at all — that IS "position preserved".
+  if (!state.transcriptPinned) return;
+  // THE COALESCING: one frame per burst, never one frame per streaming delta.
+  if (state.transcriptFollowFrame !== null) return;
+  state.transcriptFollowFrame = requestAnimationFrame(() => {
+    state.transcriptFollowFrame = null;
+    // Re-checks pinned AND the viewport: the author may have scrolled, or the pane
+    // released its viewport, during the frame.
+    scrollTranscriptToBottom(state);
+  });
+}
+
+/**
+ * FORCE the transcript back to following and schedule the follow — the shared
+ * "I just asked for output" gesture behind the three re-pin call sites
+ * (`loadChatMessages` on the success path, `sendChatTurn` on acceptance, and
+ * `retryChatTurn` at the equivalent point).
+ *
+ * Sets `state.transcriptPinned = true` (overriding a scrolled-up author), then
+ * calls {@link followTranscript}. Because the follow coalesces, an overlapping
+ * schedule from the shell's autorun costs nothing, and this stays correct when no
+ * shell is mounted.
+ */
+export function repinTranscript(state: ChatPaneState): void {
+  state.transcriptPinned = true;
+  followTranscript(state);
+}
+
+/**
+ * Cancel any pending follow frame and clear the viewport slot — called from
+ * `WorkspaceShell`'s EXISTING cleanup.
+ */
+export function releaseTranscriptViewport(state: ChatPaneState): void {
+  if (state.transcriptFollowFrame !== null) {
+    cancelAnimationFrame(state.transcriptFollowFrame);
+    state.transcriptFollowFrame = null;
+  }
+  state.transcriptViewport = null;
 }

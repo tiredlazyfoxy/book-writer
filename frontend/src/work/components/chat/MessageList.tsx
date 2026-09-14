@@ -3,7 +3,11 @@ import { Box, Paper, ScrollArea, Stack, Text } from "@mantine/core";
 import Markdown from "react-markdown";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallTrace } from "./ToolCallTrace";
-import { toggleToolCallRow } from "./chatPaneState";
+import {
+  attachTranscriptViewport,
+  noteTranscriptScroll,
+  toggleToolCallRow,
+} from "./chatPaneState";
 import type { ChatPaneState } from "./chatPaneState";
 
 /**
@@ -37,10 +41,12 @@ import type { ChatPaneState } from "./chatPaneState";
  * authorship contract.
  *
  * Holds NO `useEffect` (frontend.md leaf rule): the one sanctioned imperative
- * side-effect — auto-scroll while streaming — belongs, if shipped, in a single
- * pane-level mount `autorun`, never in this leaf. It is deliberately NOT shipped
- * here: the transcript did not auto-scroll before this reshape either, and adding it
- * would be new behaviour rather than the layout repair F1 asked for.
+ * side-effect — auto-scroll while streaming — belongs in a single pane-level mount
+ * `autorun`, never in this leaf. fast/010 SHIPPED it there: the follow lives in
+ * `WorkspaceShell`'s EXISTING mount `autorun`, which reads the pane's transcript
+ * growth signature. This leaf still holds no effect — it only hands its scrolling
+ * viewport element to the pane state (`viewportRef`) and reports scroll position
+ * (`onScrollPositionChange`), both plain props. The leaf rule is unchanged.
  */
 export interface MessageListProps {
   state: ChatPaneState;
@@ -50,6 +56,14 @@ export const MessageList = observer(function MessageList({ state }: MessageListP
   return (
     <ScrollArea
       type="auto"
+      // fast/010: `viewportRef` — and NOT the component's own `ref` — is the only
+      // handle on the SCROLLING element; the component's `ref` targets the root,
+      // non-scrolling wrapper. A callback ref is a plain prop, not a hook: no
+      // `useRef`, no `useCallback`, no `useEffect`, so the leaf rule holds.
+      viewportRef={(el) => attachTranscriptViewport(state, el)}
+      // The `{ x, y }` argument is ignored on purpose — the pinned predicate needs
+      // all three geometry numbers and the element is the truth.
+      onScrollPositionChange={() => noteTranscriptScroll(state)}
       style={{
         // F1's fill: the ONLY child of `ChatPane`'s column that grows, so it takes
         // every pixel the header and composer do not.
