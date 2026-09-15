@@ -1,6 +1,6 @@
 # Authorization — the book-scoped permission model
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017, FEAT-020; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075, UC-095..097, UC-100
+**Realizes:** FEAT-006, FEAT-007, FEAT-011, FEAT-015, FEAT-017, FEAT-020, FEAT-021; UC-021..030, UC-035..037, UC-041, UC-042, UC-043, UC-050, UC-060, UC-061, UC-062, UC-064, UC-068, UC-069..075, UC-095..097, UC-100, UC-103..UC-109; US-124, US-134
 
 Every book-domain capability is gated on the caller's relationship to **one specific book**. This document defines the roles, the enforcement point, and the capability × role matrix. It assumes the book-domain entities — start at `domain-model.md` (the index), with `domain-book.md` for `Book` / `BookMember` and `domain-chapter.md` for the write path.
 
@@ -266,11 +266,11 @@ The other half of "what ACT-006 can see", recorded beside the exclusion list abo
 
 Note the resolution recorded as finding R4-2: cloning a public book is a **co-author** capability (ACT-005, a member), not a reader one. ACT-006 has no clone use case, and the members-only codex is therefore never exposed by a clone.
 
-### Chats and per-author prompts — three row-ownership rules
+### Chats, per-author prompts and memos — four row-ownership rules
 
-Some rows belong to **one member**, not to a role. The matrix cannot express that: it maps **capability → role set** and has **no notion of "author of this row"**. All three rules below are therefore enforced one layer up — the `book_access` dependency establishes *membership*, and the owning service then scopes the row. **No `Capability` member and no `_CAPABILITY_MATRIX` row was added for any of them.**
+Some rows belong to **one member**, not to a role. The matrix cannot express that: it maps **capability → role set** and has **no notion of "author of this row"**. All four rules below are therefore enforced one layer up — the `book_access` dependency establishes *membership*, and the owning service then scopes the row. **No `Capability` member and no `_CAPABILITY_MATRIX` row was added for any of them.**
 
-One such rule reads as a special case, two read as a pattern; **three make it the house shape**. The next feature that needs one should copy the shape from here rather than inventing a matrix concept for it.
+One such rule reads as a special case, two read as a pattern; **three made it the house shape**. This section then predicted that "the next feature that needs one should copy the shape from here rather than inventing a matrix concept for it" — **the prediction held.** FEAT-021's memos are that next feature, and the fourth rule below is the same shape with nothing invented for it: no capability, no matrix row, no new dimension on the matrix.
 
 **Chats — `Chat.author_id`.** A chat is **private to its author**, including from the book's owner (US-061.AC-1). No role reaches another user's chat. Only the *saved output* of a chat is shared (US-061.AC-2). Enforcement is a **service-level ownership check in `services/chats.py`, layered over the `book_access` dependency** (feature `011.chat-panel`). A chat belonging to **another author answers `404`, not `403`** — the same existence-hiding reasoning as a private book under "Failure modes" below: a `403` would confirm that the chat exists and whose it is, which is precisely what US-061.AC-1 is protecting.
 
@@ -305,11 +305,33 @@ The route pair `GET` / `PUT /api/books/{book_id}/chapters/{chapter_id}/system-pr
 
 **Collaboration mode does not apply to a prompt** — either level. A prompt is an author's instruction to **their own assistant**, never book content, so there is nothing for an owner to review and no proposal state to hold — unlike a codex entry or a chapter block, whose text lands in the book. This is why both rules are row ownership and not *(mode)*-qualified capabilities.
 
+**Memos — `Memo.user_id`** (FEAT-021, `domain-book.md`). The fourth rule, and the first where the owned thing is a **set** rather than a single row: **every member owns many memos per book and may read and write only their own.** Nobody — **including the book's owner** — reads another member's (US-124.AC-1/AC-2). `book_access` establishes membership; `services/memos.py` then **scopes every read and every write to `access.user_id`**, and there is no route shape in which a caller can name someone else's row. **No `Capability` member and no `_CAPABILITY_MATRIX` row is added.**
+
+A memo belonging to **another author answers `404`, not `403`** — the same existence-hiding reasoning as `Chat.author_id` above: a `403` would confirm that the memo exists and whose it is, which is exactly what the privacy requirement protects. **US-124 is therefore satisfied structurally**, by the shape of the service and the routes, not by a check that a later feature could bypass.
+
+The route family `/api/books/{book_id}/memos…` produces:
+
+| Situation | Status |
+|---|---|
+| No token | **401** |
+| Private book the caller has no relationship to | **404** — produced by `resolve_book_access`, **not re-derived** in the service |
+| Logged-in **non-member** of a book they can see | **403** |
+| A memo that does not exist, **or belongs to another author, or belongs to another book** | **404** — one refusal, no existence oracle |
+| Member acting on their **own** memo | **200** (`201` on create) |
+
+**Collaboration mode does not apply to a memo either**, on the prompts' reasoning unchanged: a memo is the author's own standing note, never book content, so there is nothing for an owner to review and no proposal state to hold.
+
+**An archived book does NOT refuse memo writes — a deliberate, named carve-out** from "Book state and visibility gates" below. See that section; it is recorded there as well, because a reader applying the gate by default would get this wrong.
+
 ## The admin boundary
 
 **An admin never participates in a book through the authoring interface** — in any collaboration mode, at any visibility, on any book, including one they could otherwise reach. FEAT-011 states it and this design enforces it structurally rather than by convention: the book-domain services check `BookAccess.role` against the matrix above, and `admin` is **not** a member role in that matrix. An admin calling an authoring endpoint is refused exactly as a stranger is.
 
 The one place an admin reaches book content is the **FEAT-011 moderation read view** (UC-043): read-only, whole-book, including the codex, on any book regardless of visibility, plus quarantine (UC-044) and destroy (UC-045). That surface is a separate route tree behind the existing `require_role(admin)` dependency, and it does not share endpoints with the authoring API.
+
+**The moderation view excludes memos (US-134), and needs no mechanism to.** Because that surface is a separate route tree with its own DTOs, it simply **never projects `memos`** — exactly as it never projects chats or per-author prompts. Privacy here is absolute and matches FEAT-019's prompts, **unlike the codex**, which the moderation view does reach (US-093). There is nothing to filter and no flag to keep in step: the exclusion is the absence of a field, which is the same structural argument the reader-safe DTOs make (`quick-reference.md` → the reader surface) — a surface built by *removing* fields leaks the next field somebody adds; one built from its own types cannot.
+
+Per product's own note, memos are still **destroyed when the book is destroyed**, by FEAT-011's existing book-granularity rule. US-134 is about *visibility, not survival*, and `destroyed` remains a **tombstone state rather than a row deletion** (`domain-book.md`).
 
 **Why structural rather than "admins can do anything":** the product rule is not a courtesy, it is the point of the role split — an admin is a platform operator, not a co-author, and an admin who could write into a book would make authorship attribution (US-040.AC-2) unreliable. A single "admin bypasses all checks" branch would silently undo that everywhere at once.
 
@@ -332,7 +354,7 @@ The state and visibility fields gate access **before** the matrix is consulted:
 | `Book.state` | Members | Reader (public) | Admin |
 |---|---|---|---|
 | `active` | matrix applies | read-only if public | moderation view |
-| `archived` | matrix applies to **reads**; **every write is refused** — see below | read-only if public | moderation view |
+| `archived` | matrix applies to **reads**; **every write of book *content* is refused** — see below, including the one named exception (memos) | read-only if public | moderation view |
 | `quarantined` | **content hidden**; owner is shown the removal notice (UC-046) | hidden | moderation view |
 | `destroyed` | **content hidden**; owner is shown the removal notice (UC-046) | hidden | moderation view |
 
@@ -352,6 +374,16 @@ This was carried as an open question through feature `009.books`. It is now deci
 
 The deferral this replaces named `010` / `014` as "the write features, which are the first to have something to refuse". That naming was wrong and is corrected here: **`014` writes no book *content*** — a skeleton row and a per-author prompt — and **`015` is the first feature that writes into a book's text.**
 
+#### The one named exception: memos stay writable on an archived book (FEAT-021)
+
+**This narrows the rule above; it does not contradict it, and it is stated here because the table read as absolute.** An archived book **does not refuse** memo creation, editing, reordering, activation, archiving or restore. Every other write refusal is unchanged.
+
+**The reasoning, which is also the test for the next exception.** UC-023's archive preserves the book's *content*, and refusing content writes is what makes "preserved" mean something. A memo is **not book content**: it is the author's own private note *about* a book they have deliberately set aside — exactly the material an author is most likely to write *while* a book is parked. The same logic that exempts a per-author prompt from the chapter state machine and from collaboration mode (above) exempts a memo from the archive gate. Refusing it would protect nothing and would make the archive a gate on the author's own notes.
+
+**Quarantined and destroyed are unchanged.** Under those states content is hidden from everyone including members (UC-044, UC-046), and memos go with it — this carve-out is about `archived` alone.
+
+Consequently **`services/memo_tools.py`'s `create_memo` has no archived-book link in its refusal chain**, unlike `chapter_tools.py`'s (`assistant-runtime.md`). The assistant is still refused by the same rule as the author — which here means not refused at all.
+
 ## Failure modes
 
 Failure behaviour is part of the design, not an afterthought:
@@ -368,5 +400,5 @@ The `401` / `404` / `403` split is the same taxonomy the existing admin routes u
 
 Recorded rather than guessed:
 
-- **The moderation view's route surface and DTOs** — FEAT-011 is Stage 6 and its architecture is out of scope here. This document fixes only that the surface is separate, admin-only, read-only, and reaches the codex.
+- **The moderation view's route surface and DTOs** — FEAT-011 is Stage 6 and its architecture is out of scope here. This document fixes only that the surface is separate, admin-only, read-only, reaches the codex, and **does not reach memos** (US-134, above).
 - **Proposal review for notes and codex entries.** FEAT-010's own `_TBD:` says only block proposals have a use case today; this matrix marks note and codex edits *(mode)* without designing the review surface for them. **Codex has since taken an interim position rather than waiting**: a co-author's write in a proposal-mode book is **refused with `403`** rather than held, because there is nothing to hold it in (see the codex subsection above and `domain-codex.md`). That is a decision about the *gap*, not a design of the review surface — the surface is still open.

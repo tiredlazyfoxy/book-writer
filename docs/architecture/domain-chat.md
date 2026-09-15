@@ -63,13 +63,17 @@ A chat's `title` is produced by a one-shot model call over the chat's own transc
 
 **There is no chat → codex write path, by construction.** US-086.AC-2 / US-087.AC-2 / US-088.AC-2 hold **structurally, not by a check**: no code path exists from a chat turn to the `codex_entries` table. The assistant's canvas tool reads the resolved subject and emits a frame; the only writer is the ordinary codex route the author calls on save. `assistant-runtime.md` → "The shared-canvas write for codex, as built" carries the full reasoning.
 
+**Read the scope of that guarantee exactly: it is about the *codex*, and it is unchanged.** It was never a rule that tools in general do not write. FEAT-021's `create_memo` is **the first tool-driven database write in the system** — it creates a memo row outright, with no draft and no save step — and that is **consistent with the rule above rather than a breach of it**, because a memo carries none of the properties that make the codex rule load-bearing (no book content, no collaboration mode, no version token, no second reader). The argument in full is `assistant-runtime.md` → "`create_memo` — the first tool with a database write behind it". Do not weaken or delete the codex guarantee on the strength of it.
+
 **Archived, not destroyed**, consistent with books, users and codex entries.
 
 ## Assistant subsystem — what is built, what is still deferred
 
 **Built and documented elsewhere.** `assistant-config.md` (FEAT-020) holds the admin configuration model: the fixed **modes**, admin-created **sub-agents**, the code-defined **tool** registry, and the selection/link tables. `assistant-runtime.md` holds the runtime: mode determination from the workspace activity, composition of the named system prompts, tool gating, the tool/function-call protocol (built on the `llm` client's `chat_with_tools` loop), sub-agent delegation as synthetic tools, model resolution, the SSE frame vocabulary, and the shared-canvas write for codex entries. What this file once deferred as "the tool / function-call protocol", "the agent loop", "sub-agent scoped checks (UC-088)", "model selection", "web-search wiring" and "the SSE event protocol *for codex*" is those two documents now.
 
-**Still deferred** — undesigned anywhere, and getting its own session before the remaining assistant work:
+**The composition now threads a memos layer, and delegation carries it too.** The author's **active memos** (FEAT-021) are a fifth named prompt layer, and a sub-agent's nested call receives that same rendered section beside its own `system_prompt` — `assistant-runtime.md` holds both, and `domain-book.md` holds the `Memo` entity.
+
+**Still deferred** — undesigned anywhere, and getting its own session before the remaining assistant work. **FEAT-021 removed nothing from this list, and a reader must not mistake memos for context assembly:** a memo enters the prompt as a **named authored layer**, not as retrieved content — there is no retrieval, no ranking, no relevance question and no truncation decision in it. Every item below is **unchanged**.
 
 - **Context assembly** — how the mode-dependent baseline (US-057) is built, ordered and truncated; how the assistant pulls another chapter (UC-085), searches by meaning (UC-086) or reaches the codex (UC-078) as *content* in the prompt. Feature `011.chat-panel` shipped the chat surface and one working turn; it composed only the **named system prompts**. It did **not** ship US-057 / UC-078 / UC-084 / UC-085 / UC-086. A working chat pane invites the reading that the context model shipped with it — it did not.
 - **The shared-canvas write protocol for chapters** (UC-055) — feature `015`'s. The codex half shipped (below); the chapter half has not.

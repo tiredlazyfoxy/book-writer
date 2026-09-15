@@ -1,6 +1,6 @@
 # Backend — Book-Domain Impact
 
-**Realizes:** FEAT-006..018 (backend-side consequences only)
+**Realizes:** FEAT-006..018, FEAT-021 (backend-side consequences only)
 
 Part of the backend architecture — see `../backend.md` for the index.
 
@@ -18,6 +18,8 @@ The existing four-layer split absorbs the domain without change — one `db/` mo
 | `services/` | **shipped:** `authz.py` (the capability table), `books.py` (lifecycle, membership, visibility), `book_author_prompts.py` (the per-author prompt), `chapters.py` (the skeleton — add, sketch, remove, order — plus, at feature 015, the body write path and the open / close / reopen state machine), `chapter_author_prompts.py` (the per-chapter prompt), `chats.py` (chat CRUD + the row-ownership rule), `chat_turn.py` (the streaming turn), `codex.py` (codex CRUD, versions, collaboration mode), `codex_index.py` (incremental vector maintenance), `embedding.py` (text → vectors), `assistant_config.py` (the FEAT-020 admin editor), plus the assistant-runtime quartet `assistant_runtime.py`, `subagent_delegation.py`, `codex_tools.py`, `chapter_tools.py` (feature 015) and the supporting `tools.py` / `web_search.py` / `prompt_composition.py`. **Not yet built as of feature 015:** continuity and flags. |
 | `routes/` | **shipped:** `books.py`, `book_author_prompts.py`, `chapters.py`, `chapter_author_prompts.py`, `chats.py`, `codex.py`, `admin/assistant_config.py`. HTTP only, under `/api`; the book-access dependency resolves a typed `BookAccess`, the service decides the capability. |
 
+**Designed-only, FEAT-021 (memos):** `models/memo.py`, `models/schemas/memos.py`, `db/memos.py`, `services/memos.py`, `services/memo_tools.py` and `routes/memos.py` — the ordinary one-module-per-layer shape, with the routes nesting under `/api/books/{book_id}/memos` so `book_access` binds unchanged (`quick-reference.md`, `authorization.md`).
+
 Three cross-cutting additions worth naming because they are shared rather than per-entity:
 
 - **`services/authz.py`** — one `require(access, capability)` entry point so the capability × role matrix has a single implementation. Shipped by feature `009.books`. See `authorization.md` → "Enforcement".
@@ -26,20 +28,33 @@ Three cross-cutting additions worth naming because they are shared rather than p
 
 ## The book-domain table registry
 
-**As shipped** (features `008.data-domain`, `021.per-author-system-prompt` and `014.chapter-skeleton`). `TABLE_REGISTRY` (`services/db_import_export.py`) carries a codec pair per table, appended **in FK dependency (import) order** after the two pre-existing entries — with **one named exception**, below. This is the canonical printed order, **20 entries**:
+**As shipped** (features `008.data-domain`, `021.per-author-system-prompt` and `014.chapter-skeleton`), **plus `memos` as designed for FEAT-021**. `TABLE_REGISTRY` (`services/db_import_export.py`) carries a codec pair per table, appended **in FK dependency (import) order** after the two pre-existing entries — with **one named exception**, below. This is the canonical printed order, **21 entries**:
 
 ```
 users, llm_servers,                       # pre-existing (features 003, 004)
 assistant_modes, sub_agents,              # FEAT-020 instance-global config (assistant-config.md)
 mode_tools, subagent_tools, mode_subagents,
-books, book_members, book_author_prompts, chapter_author_prompts,
+books, book_members, book_author_prompts, chapter_author_prompts, memos,
 chapters, chapter_changes, chapter_text_revisions, chapter_note_changesets,
 codex_entries, codex_entry_versions,
 flags,
 chats, chat_messages
 ```
 
-Feature 008 landed **16** of them in one pass — the five FEAT-020 config pairs plus eleven book-domain pairs — in exactly the order above. Feature 011 added columns to `chats` / `chat_messages` and their codecs but **no table**, so it left the order untouched. Feature 021 added the nineteenth, `book_author_prompts`, and feature 014 the twentieth, `chapter_author_prompts`.
+Feature 008 landed **16** of them in one pass — the five FEAT-020 config pairs plus eleven book-domain pairs — in exactly the order above. Feature 011 added columns to `chats` / `chat_messages` and their codecs but **no table**, so it left the order untouched. Feature 021 added the nineteenth, `book_author_prompts`, feature 014 the twentieth, `chapter_author_prompts`, and **FEAT-021 the twenty-first, `memos`**.
+
+### `memos` sits immediately after `chapter_author_prompts` (index 11)
+
+The position satisfies **both** grounds the registry is written by, which is what keeps it from becoming a second exception:
+
+- **It is FK-correct.** `memos` references `books` and `users`, and both are already earlier in the list. Nothing about it precedes its own parent.
+- **It keeps the per-author tables adjacent.** `book_author_prompts`, `chapter_author_prompts` and `memos` are the three `(book_id | chapter_id, user_id)` tables, and a reader who found one will look for the next beside it.
+
+**It is therefore *not* a second exception to FK ordering** — the one sanctioned exception remains `chapter_author_prompts` alone. Stated explicitly, because the adjacency argument above is **the same argument that produced that exception**, and a reader will assume it repeats. Here adjacency and FK order agree; there they did not.
+
+The new table needs **model registration only**: `init_db()`'s `create_all` is additive, so `db/engine.py`'s **ADDITIVE MIGRATION SEAM stays `pass`** and **`ADDITIVE_COLUMNS` is untouched** — that seam is for a new **column on an existing table** (`ChatMessage.tool_trace` is its only user), which this is not.
+
+The codec pair (`to_dict` / `from_dict`, ids emitted as **strings**, accepted as string-or-legacy-number) is owed **in the same change as the model**, per the root `CLAUDE.md` rule — the same non-negotiable every other table below met.
 
 `book_author_prompts` sits **immediately after `book_members`**, and the position is deliberate on two grounds: FK import order requires it (it references `books` and `users`, both already earlier), and keeping the two `(book_id, user_id)` link tables adjacent is where a reader looks for either of them. The new table needed **model registration only** — `init_db()`'s `create_all` is additive, so `db/engine.py`'s ADDITIVE MIGRATION SEAM stayed `pass`.
 

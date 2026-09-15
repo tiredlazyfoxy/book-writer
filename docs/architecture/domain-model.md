@@ -1,6 +1,6 @@
 # Domain Model — the book layer (index)
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018 in full; **FEAT-013 entities only** (UC-053, UC-055, UC-081, UC-082, UC-092 — not the assistant subsystem). Use cases: UC-021..052, UC-058..060, UC-069..075, UC-079, UC-089, UC-091
+**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-021 in full; **FEAT-013 entities only** (UC-053, UC-055, UC-081, UC-082, UC-092 — not the assistant subsystem). Use cases: UC-021..052, UC-058..060, UC-069..075, UC-079, UC-089, UC-091, UC-103..UC-109
 
 The first architectural pass over the book domain: every persistent entity behind `FEAT-006..018`, its lifecycle, the single write path into a chapter, and the concurrency contract.
 
@@ -32,6 +32,7 @@ This asymmetry is also what decided which open questions got answered in this pa
 ```
 User ──owns──────────► Book ◄──────── BookMember ──► User
                         │  ▲     ◄──── BookAuthorPrompt ──► User
+                        │  │     ◄──── Memo ──► User      (FEAT-021)
                         │  └── active_notes (materialised free text)
                         │
         ┌───────────────┼────────────────┬──────────────┬───────────┐
@@ -62,6 +63,7 @@ LlmServer ◄──(nullable model assignment)── SubAgent
 | `Book` | the book and its book-wide settings | `domain-book.md` | Stage 2 | no |
 | `BookMember` | co-author membership | `domain-book.md` | Stage 2 | no |
 | `BookAuthorPrompt` | one author's per-book assistant instruction | `domain-book.md` | Stage 3 | no |
+| `Memo` | one author's standing notes for a book | `domain-book.md` | FEAT-021 | no |
 | `Chapter` | one chapter, one main body | `domain-chapter.md` | Stage 2 | later (UC-086) |
 | `ChapterChange` | every write into a chapter body | `domain-chapter.md` | Stage 2 | no |
 | `ChapterTextRevision` | pre-apply body snapshots | `domain-chapter.md` | Stage 3 | no |
@@ -90,7 +92,7 @@ A few relationships cross file boundaries and are cross-linked at both ends:
 
 | File | Covers |
 |---|---|
-| **`domain-book.md`** | `Book`, `BookMember`, `BookAuthorPrompt`, the book lifecycle state machine (archive vs. quarantine→destroy), visibility, the moderation fields, the system-prompt fields, `active_notes`, and cloning |
+| **`domain-book.md`** | `Book`, `BookMember`, `BookAuthorPrompt`, **`Memo`** (FEAT-021), the book lifecycle state machine (archive vs. quarantine→destroy), visibility, the moderation fields, the system-prompt fields, `active_notes`, and cloning |
 | **`domain-chapter.md`** | `Chapter` and its four-state machine (`planned` → `open` → `closing` → `closed`), **CF1**, `ChapterChange` (the unified write record and the one write path), placement, stale-changes-are-refused, **variants-as-apply**, `ChapterTextRevision`, and the `version` / 409 / CF-r6 concurrency rules |
 | **`domain-continuity.md`** | `ChapterNoteChangeset`, the active note set, the summary lifecycle and the `draft` / `approved` / `stale` continuity status, and `Flag` |
 | **`domain-codex.md`** | `CodexEntry` and `CodexEntryVersion` — kinds, naming, archival, history, cross-book copy |
@@ -110,7 +112,7 @@ Every entity in those files follows the existing system-wide rules — none of t
 
 Both are non-optional and both are due **in the same change as the model**, not batched for later. **Both are now met for the whole domain** — the record below states what was delivered and when, because the sequence matters.
 
-- **Import/export — met.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. Feature `008.data-domain` honoured it per step for all sixteen tables it added, feature `021.per-author-system-prompt` added the nineteenth, and feature `014.chapter-skeleton` the twentieth (`chapter_author_prompts`). **The registry now carries 20 entries and every domain table is in it.** See `backend/book-domain.md` → "The book-domain table registry" for the canonical order — including the one **sanctioned exception** to its FK-dependency ordering, recorded there.
+- **Import/export — met.** Every table owes a `to_dict` / `from_dict` codec pair (ids emitted as strings, accepted as string-or-legacy-number) and one ordered `TABLE_REGISTRY` tuple, appended in **FK dependency order**. The root `CLAUDE.md` rule is explicit; skipping it leaves an instance whose export silently loses a book. Feature `008.data-domain` honoured it per step for all sixteen tables it added, feature `021.per-author-system-prompt` added the nineteenth, and feature `014.chapter-skeleton` the twentieth (`chapter_author_prompts`). **FEAT-021 adds the twenty-first, `memos`** — owed in the same change as its model, like every other. See `backend/book-domain.md` → "The book-domain table registry" for the canonical order — including the one **sanctioned exception** to its FK-dependency ordering, recorded there, which `memos` does **not** repeat.
 - **Vector sources — met, in two steps.** A vector-backed model appends a `VECTOR_SOURCE_REGISTRY` entry. `CodexEntry` is the first. It was **delivered across two features, not deferred indefinitely**: feature `008.data-domain` created the `codex_entries` table and registered no vector source, and feature `013.codex` registered it, widening the entry shape at the same time. The obligation is **discharged**, not outstanding. Chapter text, summaries and notes follow for UC-086. See `retrieval.md`.
 
 ## Product divergences this design assumes
@@ -187,11 +189,16 @@ The one consequence for citation is already applied: **`domain-continuity.md` an
 
 Design questions this pass deliberately leaves open. **Three earlier gaps closed on 2026-07-24 review** — the moderation fields (`domain-book.md`), the continuity status columns and the `closing` state (`domain-chapter.md`, `domain-continuity.md`), and stale pending changes (refused, not rebased). They are design, not gaps, and are no longer listed.
 
-One genuinely open item remains:
+Two genuinely open items remain:
 
 | Gap | Lives in | Due at |
 |---|---|---|
 | Whether an **archived book** refuses writes. UC-023 says content and history are preserved and archive is reversible; nothing states whether a member may keep writing into one | `authorization.md` | open — deferred to the write features (`010`/`014`) |
+| **No ceiling on memo count or length** (FEAT-021) | `domain-book.md`, `assistant-runtime.md` | **open — product's own `_TBD:`, raised here, not resolved** |
+
+**The memo-ceiling gap, stated as architecture sees it.** Every active memo is concatenated into **every** turn's composed prompt **and** into **every** sub-agent delegation, with **no truncation and no shedding** — and **token budgeting is itself still deferred** (`assistant-runtime.md` → "Out of scope"). So the set grows into every request indefinitely, and the author gets **no signal** when it crowds out chapter text.
+
+It is **recorded, not resolved.** It is an open `_TBD:` on FEAT-021 in `docs/product/`, product accepted it knowingly, and this folder's rule is to **raise a `_TBD:`, never to close it by choosing a design**. What is worth naming is the consequence for sequencing: **the deferred token-budgeting work now has a concrete first customer** — until FEAT-021 the prompt's growth was bounded by artifacts the system chose, and now it is bounded by nothing.
 
 **The archived-book gap stays open after feature `009.books`, deliberately.** 009 delivered the `BookAccess` resolver and the `services/authz.py` capability spine, and `BookAccess` does resolve `book_state` — so the information a refusal would need is available. But 009 built **no write-refusal capability at all**, because nothing in 009 writes book content: the behaviour could be neither exercised nor decided there. It is deferred to the features that first write into a book.
 

@@ -1,6 +1,6 @@
 # Assistant Configuration — modes, sub-agents and tools
 
-**Realizes:** FEAT-020, UC-095, UC-096, UC-097, US-110, US-111, US-112, US-113, US-114
+**Realizes:** FEAT-020, UC-095, UC-096, UC-097, US-110, US-111, US-112, US-113, US-114; **FEAT-021 (the `create_memo` catalogue entry and its seeding only)** — UC-108
 
 The admin-configured behaviour of the AI assistant: the fixed working **modes**, the admin-created **sub-agents**, the code-defined **tool** catalogue, and the selections that wire them together. This document holds the **stored configuration model** — what an admin can express and how it persists.
 
@@ -65,6 +65,8 @@ ToolDef:
 
 **Registry membership as shipped:** `web_search` (feature `011.chat-panel`, its first and at the time only entry) plus three codex tools defined in `services/codex_tools.py` and registered here by `013.codex` — `codex_search`, `codex_read_entry` and `write_codex_draft`. The codex three are **context-bearing**: they need the book (and, for the canvas write, the resolved subject and the frame emitter), which a plain module function cannot know, so `ToolDef` gained an optional `binder` that builds the callable from a per-turn `ToolContext`. A bound tool offered with no context is skipped and logged. **Which of these a given turn may call is not a registry property — it is the runtime's gating question** (`assistant-runtime.md` → "Tool gating").
 
+**FEAT-021 adds one entry: `create_memo`, from `services/memo_tools.py`** — **bound**, like the codex, chapter and close tools. It is a first on two counts. It is the first bound entry that **needs no new `ToolContext` field** (`book_id` and `access.user_id` are already there, so the context stays **six** fields), where the last three tool features each widened it. And it is the first whose callable **writes to the database** rather than emitting a `canvas` frame and persisting nothing. The write-vs-canvas reasoning — why that is safe here and why it leaves `domain-chat.md`'s no-chat-to-codex-write guarantee untouched — is **`assistant-runtime.md`'s**, not repeated here: this file owns the catalogue, the runtime owns what a tool does with a turn.
+
 **Only *selections* persist; the catalogue itself is never exported** — the same stance as `VECTOR_SOURCE_REGISTRY` (`backend/persistence.md`). A tool is identified everywhere by its stable string `name`; link rows store that name, never a foreign key, because a tool is not a row.
 
 ### The three link tables
@@ -115,6 +117,9 @@ These are **instance-global admin config** — the same class as `users` and `ll
   See `backend/book-domain.md` → "The book-domain table registry", which carries the full list.
 - **`TOOL_REGISTRY` is code, not exported** — like `VECTOR_SOURCE_REGISTRY`. Nothing about the catalogue crosses the import/export boundary; only the selection rows do.
 - **Seeding, both first-run paths.** `seed_default_modes()` writes the five `AssistantMode` rows and is wired into **`services/setup.py::create_database`** and — added by `012.assistant-config-editor` — into **`import_database`**. It is **idempotent by `key`**, so a fresh instance that seeds its own modes and then restores an archive converges rather than colliding; that convergence is exactly what the natural-key PK exists to provide. Before the second wiring, an instance bootstrapped by DB import had no modes and showed an empty editor. Full detail lives in `backend/persistence.md` (the startup lifecycle) — it is not repeated here.
+- **`create_memo` is seeded into all five modes' `mode_tool` rows** (FEAT-021), continuing feature `024`'s stance — *a feature that is inert by default is also a feature nobody discovers is broken* — rather than the earlier empty-allowlist default. The **rule is unchanged; only the seeded starting state moves**: a mode an administrator edits down to zero tools still resolves to zero tools, and registration alone still grants nothing.
+
+  **The existing-install caveat, stated plainly and not smoothed over:** `seed_default_modes()` is **idempotent by `key`** and runs on the two first-run paths, so it will **not retro-add a `mode_tool` row** to an installation whose modes are already seeded. On an existing install an administrator must add `create_memo` to the modes **by hand**. The feature still works there, because `BASE_TOOL_NAMES` covers every no-mode surface (`assistant-runtime.md` → "Tool gating") — but **inside the five modes it is absent until an admin acts**. This is a known consequence of idempotent seeding, not a defect to fix here, and it is the same shape as FEAT-020's open `_TBD:` about default prompts reaching existing installs.
 
 Module placement follows the four-layer split (`backend/book-domain.md`): one `db/` module per table (`db/assistant_modes.py`, `db/sub_agents.py`, `db/mode_tools.py`, `db/subagent_tools.py`, `db/mode_subagents.py`), `models/` tables + DTOs in `models/schemas/assistant_config.py`, and `services/assistant_config.py` holding the CRUD and the name-unique / model-pair invariants.
 
@@ -132,7 +137,7 @@ The **endpoint and DTO tables live in `quick-reference.md`**, not here; this sec
 
 ## Runtime consumption
 
-**Moved.** How the stored configuration becomes one assistant call — mode determination from the workspace activity, the four-layer system-prompt composition, tool gating, the `chat_with_tools` protocol and its seam, sub-agent delegation as synthetic tools, model resolution, and the SSE frame vocabulary — is **`assistant-runtime.md`**. That document is the built slice of the otherwise-deferred FEAT-013 subsystem; it reads the tables above through the `db/` layer and never through `services/assistant_config.py`.
+**Moved.** How the stored configuration becomes one assistant call — mode determination from the workspace activity, the **five-layer** system-prompt composition (four until FEAT-021 inserted the memos layer), tool gating, the `chat_with_tools` protocol and its seam, sub-agent delegation as synthetic tools, model resolution, and the SSE frame vocabulary — is **`assistant-runtime.md`**. That document is the built slice of the otherwise-deferred FEAT-013 subsystem; it reads the tables above through the `db/` layer and never through `services/assistant_config.py`.
 
 ## Authorization
 

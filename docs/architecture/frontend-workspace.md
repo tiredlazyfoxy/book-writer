@@ -1,6 +1,6 @@
 # Frontend Workspace — entries, routes, and the working page
 
-**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017, FEAT-018, FEAT-019; UC-021..037, UC-042, UC-051, UC-069, UC-070, UC-071, UC-076, UC-077, UC-081, UC-083, UC-089, UC-090, UC-091, UC-100
+**Realizes:** FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-012, FEAT-013, FEAT-014, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021; UC-021..037, UC-042, UC-051, UC-069, UC-070, UC-071, UC-076, UC-077, UC-081, UC-083, UC-089, UC-090, UC-091, UC-100, UC-103..UC-107; US-105.AC-7
 
 The book domain's frontend topology: which Vite entries exist, what each serves, and how the working page is built. This is a deep-dive off `frontend.md`, which keeps the MobX/Mantine/API rules that everything here obeys.
 
@@ -77,10 +77,13 @@ The codex and continuity routes here are **read-only mirrors**. All *management*
 | `/work/:bookId/variants` | variants list |
 | `/work/:bookId/variants/:chapterId` | one chapter's variants and revisions |
 | `/work/:bookId/chats` | the book's **chats list** — an ordinary content-pane page (feature `023`), active and archived; picking a row opens that chat in the **chat pane** with no route change |
+| `/work/:bookId/memos` | the caller's **own memos list** (FEAT-021, UC-103..UC-107) — private, ordered, **editable in place**. No item route; see below |
 
 **`codex/new` exists because a blank entry has no id (feature 013).** UC-076 requires a blank entry of a chosen kind to be openable *before any row exists*, and `/codex/:id` cannot express "no id yet". The **kind rides in a query param** rather than in the path because it is view state chosen at navigation time, not an identifier; the route stays deep-linkable either way. It is declared **ahead of** `codex/:id` so the static segment wins.
 
 **The chat id is not in the URL.** The chat pane resolves its own active chat, per book, and does not participate in routing at all.
+
+**`/memos` has no item route, and there is no `/memos/:id` — a deliberate absence (FEAT-021).** Product states there is no memo page, just the list, so this is the **first navigator entry whose list is the entire surface**: the codex has a list *and* an item route, Chats has a list *plus* a pane. There is no `memos/new` either — creation appends into the list in place (UC-103), so there is nothing for a route to address. Page shape follows the house rule with no exception: page = route = fresh state instance, its own `MemosListPageState` beside it, its own page-level load effect, nothing owned by the pane. **Save-on-focus-loss (UC-104) is an ordinary event handler, not a `useEffect` watching the draft.** Neither collaboration mode nor the chapter state machine gates any of it, and neither does book archive (`authorization.md` → the named archive carve-out).
 
 **`/work/:bookId/chats` is a real page — the second and final resolution of this document's own contradiction (feature 011, then feature `023.chat-ux-revision`).** The route table once read as though the chat *list* rendered in the content pane while the navigator section below said Chats "does not render into the content pane"; two sentences of the same document disagreed.
 
@@ -144,6 +147,7 @@ Three regions:
 │ Chapters     │   draft-until-saved        │  composer           │
 │ Variants     │   restore buffer per item  │                     │
 │ Chats ───────┼──► the chats LIST ─pick──► │  the picked chat    │
+│ Memos        │   the memos LIST — editable│                     │
 └──────────────┴────────────────────────────┴─────────────────────┘
 ```
 
@@ -170,13 +174,14 @@ An in-code comment on `AdminShell` asserts a repo-wide "no `<Outlet/>` anywhere"
 
 ### Navigator (UC-090)
 
-**Book state · Characters · Locations · Facts · Chapters · Variants · Chats.**
+**Book state · Characters · Locations · Facts · Chapters · Variants · Chats · Memos.**
 
 - **Book state** is the **landing view** (UC-091, US-106.AC-1) — the first thing shown on opening the book to work. It aggregates the book's own fields, and per chapter: title, summary (UC-089), after-chapter note changeset (UC-049/UC-051), and any active **flags** in context (FEAT-016).
 - **Characters / Locations / Facts** are the one `CodexEntry` table filtered by `kind` — a fixed taxonomy, not three entities.
 - **Chapters** is read/write prose; Book state is the continuity picture. Product records the overlap as accepted and deliberate, not duplication.
 - **Variants** is an addition to the product-final list — see "Divergence" below.
 - **Chats** renders its **list** into the content pane like every other entry (UC-090 step 2), and only a **picked** chat opens in the **chat pane** (UC-090 step 5, US-105.AC-5). It is an **ordinary router link** — feature `023.chat-ux-revision` removed the pane-control exception, and the route map above carries the decision history.
+- **Memos** is the **eighth entry** (FEAT-021, US-105.AC-7 / UC-090): the author's own memos for this book — private to them, ordered by them, editable in place. It is an **ordinary router link** with `paneTarget: "content"` — the uniform post-`023` shape, **with no pane-control exception**, which is the whole point of having removed the last one.
 
 #### What each section actually shows today
 
@@ -189,6 +194,7 @@ The navigator was built whole at feature 010 with **one** section carrying data 
 | Chats | **has data** — the list is a content-pane page (feature `023`); a picked chat opens in the chat pane (feature 011) |
 | Chapters | **has data** (features `014`, `015`, `016`) — the ordered skeleton with add / remove / reorder, the sketch editor, the caller's own chapter prompt, the `open` chapter's body editor with its state transitions, and the close procedure's surfaces |
 | Variants | labelled empty state — owner `018.chapter-history-variants` |
+| Memos | **has data** — the caller's own memos list, editable in place (FEAT-021; owner: this feature) |
 
 **Book state's deferral is closed (feature `016.chapter-close-continuity`).** **US-106.AC-2/AC-3** — per chapter, its title, summary, after-chapter note changeset and active flags — shipped, and the two labelled empty states this document recorded as blocked ("no chapter, summary or flag endpoint exists to aggregate") now have endpoints behind them. The view carries two things: the book's **state notes**, viewable by any member and editable per collaboration mode (UC-049/UC-050), and a **per-chapter continuity list** (UC-051, UC-089, UC-091). Feature 010's record that the landing view aggregated the **book's own fields only** is retained above as history; it was true of that feature and is no longer true of the page.
 
@@ -208,7 +214,8 @@ The pane holds **either a list or a single item** (UC-090, UC-083). A loaded sub
 | A **`closed`** chapter | **read-only** (US-097.AC-1) |
 | A codex entry, not archived | editable, per collaboration mode (US-079) |
 | Book state | state notes editable (UC-050) **and the caller's own system prompt** (feature 021); everything else read-only |
-| Any list | read-only |
+| The **memos list** | **editable** — the caller's own memos: body, order, the on/off switch, archive/restore (UC-103..UC-107). The one exception to the row below |
+| Any other list | read-only |
 
 **The table gained its first *partial* row (feature `014.chapter-skeleton`), and the shape it uses is the one to copy.** A `planned` chapter is editable in two regions and read-only in the one the table was originally written about. It needed a partial row because **US-097.AC-1's read-only rule is about the chapter's body**, and the sketch is editable in exactly the *opposite* window from the body: the sketch only while `planned` (UC-033), the body only while `open`. One verdict per subject could not express that.
 
@@ -230,6 +237,10 @@ A later subject needing a partial row **copies this shape** — an optional regi
 **Neither new field enters the draft-until-saved restore buffer.** The buffer exists for large artifacts carrying a version token; the sketch is explicitly **last-write-wins with no version** (no `expected_version`, no `409`, and a sketch edit does not bump `Chapter.version`, which tracks the body only), and the prompt row has exactly **one writer**. Consequently there is **no stale-buffer detection, no divergence view and no `409` path** on either. The exclusion is sanctioned in `frontend-work-drafts.md` → "Sanctioned exclusions", the same way feature 021's was.
 
 **The Book-state row gained exactly one editable region (feature 021).** The caller's own per-author system prompt is editable there; the rest of the view stays read-only. It is deliberately **outside the draft-until-saved restore buffer**: the buffer exists for large content-pane artifacts whose loss is expensive, while this is a short settings field edited from **two** surfaces (here and the Shell's book settings), and buffering it on one but not the other would be incoherent. Consequently the field has **no `baseVersion`, no stale-buffer detection, no divergence view and no 409 path** — the row has exactly one writer, its owner. An editable field missing from this table is drift, and the exclusion is sanctioned in `frontend-work-drafts.md` → "Sanctioned exclusions" the same way the buffer's inclusions are.
+
+**The table gained its first *editable list* row (FEAT-021), which narrows a rule it has carried since feature `010` — said here rather than left to read as drift.** "Any list is read-only" was always a rule about **book-content** lists: their items have their **own pages** and their **own write paths**, so editing them in the list would create a second editing surface for one artifact — exactly what the one-editing-surface rule exists to prevent. The memos list has **neither**: there is no memo page and no other write path, so **the list *is* the editor**, which is what "sticky notes, no memo page" means. The rule is narrowed to content lists, not abandoned. Memos are **outside the restore buffer** too, on the per-author prompt's reasoning (`frontend-work-drafts.md` → "Sanctioned exclusions"): short, saved on focus loss, one writer, and no version token to compare a `baseVersion` against.
+
+**`resolveEditability` gains a memos branch returning a constant `editable` verdict — no `EditableRegion` member, no `WriteRegion` widening.** The branch **decides nothing**: the memos list has no state machine, no collaboration-mode gate and no archived-book gate (`authorization.md` → the named carve-out). That is exactly why it exists — this table is the authority on every subject's editability and this document states that a subject missing from it is drift, so a one-line constant branch keeps **"single enforcement point" literally true** and is cheaper to maintain than a documented exception to it. **The honest counterpoint, said rather than left to be rediscovered:** `subject.ts` exists so **the author and the assistant are refused by the same rule** (US-097.AC-2), and memos have **no such symmetry to enforce** — `create_memo` creates a **new** row and **never writes into a displayed memo**, so there is no assistant write path into an existing one at all. The branch is kept for **table completeness, not for symmetry**.
 
 **`src/work/subject.ts` is the single enforcement point** for this table — the one place editability is decided, not per-component. That is what makes the symmetry in US-097.AC-2 / US-059.AC-3 hold, and it is why adding `closing` to the chapter state machine cost one row here rather than an audit of every write path. `resolveEditability` returns the verdict and the author-facing read-only reason; `checkWritePermission` is the writer-agnostic gate derived from it.
 
