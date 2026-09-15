@@ -88,6 +88,7 @@ def _register_models() -> None:
     import app.models.codex_entry_version  # noqa: F401
     import app.models.flag  # noqa: F401
     import app.models.chat  # noqa: F401
+    import app.models.memo  # noqa: F401
 
     return
 

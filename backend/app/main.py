@@ -34,6 +34,7 @@ from app.routes import codex
 from app.routes import continuity
 from app.routes import flags
 from app.routes import health
+from app.routes import memos
 from app.routes import reader
 from app.routes.admin import assistant_config as admin_assistant_config
 from app.routes.admin import db as admin_db
@@ -106,6 +107,7 @@ app.include_router(continuity.router)
 app.include_router(flags.router)
 app.include_router(book_author_prompts.router)
 app.include_router(chapter_author_prompts.router)
+app.include_router(memos.router)
 app.include_router(admin_users.router)
 app.include_router(admin_llm_servers.router)
 app.include_router(admin_db.router)

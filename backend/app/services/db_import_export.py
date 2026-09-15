@@ -38,6 +38,7 @@ from app.models.codex_entry import CodexEntry, CodexKind
 from app.models.codex_entry_version import CodexEntryVersion
 from app.models.flag import Flag, FlagOrigin, FlagStatus
 from app.models.llm_server import LlmServer
+from app.models.memo import Memo
 from app.models.mode_subagent import ModeSubagent
 from app.models.mode_tool import ModeTool
 from app.models.sub_agent import SubAgent
@@ -527,6 +528,58 @@ def _dict_to_chapter_author_prompt(
         chapter_id=int(data["chapter_id"]),
         user_id=int(data["user_id"]),
         system_prompt=data["system_prompt"],
+        created_at=datetime.fromisoformat(created_at) if created_at else None,
+        modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
+    )
+
+
+def _memo_to_dict(memo: Memo) -> dict[str, object]:
+    """Serialize a ``Memo`` row to a JSON-safe dict for export.
+
+    ``id`` / ``book_id`` / ``user_id`` emitted as ``str(...)``; the required
+    ``body`` passed through verbatim (``""`` is a value, never ``None``);
+    ``ordinal`` int and the two booleans ``active`` / ``archived`` round-trip as
+    themselves (``False`` is a value, never "absent"); ``created_at`` /
+    ``modified_at`` via ``.isoformat()`` or ``None``.
+    Exported key set (frozen):
+    ``{"id", "book_id", "user_id", "body", "ordinal", "active", "archived",
+    "created_at", "modified_at"}``.
+    """
+    return {
+        "id": str(memo.id),
+        "book_id": str(memo.book_id),
+        "user_id": str(memo.user_id),
+        "body": memo.body,
+        "ordinal": memo.ordinal,
+        "active": memo.active,
+        "archived": memo.archived,
+        "created_at": memo.created_at.isoformat() if memo.created_at else None,
+        "modified_at": (
+            memo.modified_at.isoformat() if memo.modified_at else None
+        ),
+    }
+
+
+def _dict_to_memo(data: dict[str, object]) -> Memo:
+    """Restore a ``Memo`` row from an exported dict (inverse of
+    ``_memo_to_dict``).
+
+    ``id`` / ``book_id`` / ``user_id`` parsed as string-or-legacy-number to
+    ``int``; ``body`` read directly (``""`` stays ``""``); ``ordinal`` as
+    ``int``; ``active`` / ``archived`` as ``bool`` (``False`` stays ``False``);
+    datetimes parsed from isoformat, both nullable.
+    """
+    raw_id = data.get("id")
+    created_at = data.get("created_at")
+    modified_at = data.get("modified_at")
+    return Memo(
+        id=int(raw_id) if raw_id is not None else None,
+        book_id=int(data["book_id"]),
+        user_id=int(data["user_id"]),
+        body=data["body"],
+        ordinal=int(data["ordinal"]),
+        active=bool(data["active"]),
+        archived=bool(data["archived"]),
         created_at=datetime.fromisoformat(created_at) if created_at else None,
         modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
     )
@@ -1075,6 +1128,7 @@ TABLE_REGISTRY: list[RegistryEntry] = [
         _chapter_author_prompt_to_dict,
         _dict_to_chapter_author_prompt,
     ),
+    ("memos", Memo, _memo_to_dict, _dict_to_memo),
     ("chapters", Chapter, _chapter_to_dict, _dict_to_chapter),
     (
         "chapter_changes",
