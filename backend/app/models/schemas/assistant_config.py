@@ -35,9 +35,9 @@ Skeleton (012 steps 002, 003, 004): field names/types are frozen. A schema is a
 declarative type — there is nothing to leave unimplemented.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict
+
+from app.models.schemas.common import UtcDateTime
 
 
 class ToolResponse(BaseModel):
@@ -81,8 +81,8 @@ class AssistantModeResponse(BaseModel):
     system_prompt: str | None
     tool_names: list[str]
     sub_agent_ids: list[str]
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class AssistantModesListResponse(BaseModel):
@@ -152,8 +152,8 @@ class SubAgentResponse(BaseModel):
     model_name: str | None
     tool_names: list[str]
     mode_keys: list[str]
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class SubAgentsListResponse(BaseModel):

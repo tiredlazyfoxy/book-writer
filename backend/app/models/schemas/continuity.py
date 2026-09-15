@@ -28,12 +28,11 @@ Skeleton (016): field names / types / constraints are frozen. DTOs are
 declarative — there is nothing to leave unimplemented.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
 from app.models.chapter import SummaryStatus
 from app.models.chapter_notes import NoteStatus
+from app.models.schemas.common import UtcDateTime
 from app.models.schemas.flags import FlagResponse
 
 
@@ -68,7 +67,7 @@ class BookStateNotesResponse(BaseModel):
 
     book_id: str
     active_notes: str
-    modified_at: datetime | None
+    modified_at: UtcDateTime | None
 
 
 class ChapterNoteChangesetResponse(BaseModel):
@@ -93,8 +92,8 @@ class ChapterNoteChangesetResponse(BaseModel):
     modified: str
     deleted: str
     status: NoteStatus | None
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class ChapterContinuityResponse(BaseModel):

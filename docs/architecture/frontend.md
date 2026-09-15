@@ -93,6 +93,20 @@ export default defineConfig({
 - **Dark is the default color scheme** — the app mounts with `defaultColorScheme="dark"` on the `MantineProvider`.
 - No Tailwind, no CSS modules, no styled-components.
 
+## Date and time display
+
+**Every timestamp rendered anywhere in the UI goes through `src/utils/date.ts` `formatDate`, and the format is `YYYY-MM-DD HH:MM UTC`.** `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` / `Intl.DateTimeFormat` are **forbidden in `src/`** — that is the greppable form of the rule, and a hit is a code-review failure. Three reasons, in the order they bite:
+
+- **A locale render is machine-dependent.** `toLocaleString()` gave `9/14/2026, 3:04:00 PM` on one box and something else on the next, so no test could assert it and no screenshot was reproducible. `formatDate` derives its output from `toISOString()`, never from a local getter.
+- **The zone is named, so nobody has to guess.** These are UTC instants; a bare wall-clock time invites the reader to assume it is theirs.
+- **ISO field order sorts lexicographically**, which is what a column of timestamps wants.
+
+Seconds are dropped (not rounded); an absent value renders as an **em dash**; an unparseable string is **echoed back verbatim** rather than becoming `Invalid Date`, so a wire-shape problem surfaces instead of hiding. But a **domain-meaningful** absence stays at the call site — `/admin/users` shows `"Never"` for an account that never logged in, which is a fact about the account, not a missing timestamp.
+
+**This depends on the backend labelling the zone.** `UtcDateTime` (`backend.md` → Typing discipline) guarantees every JSON timestamp carries an explicit UTC designator, because JS parses a tz-less ISO string as **local** time. Before that guarantee the render sites silently displayed instants shifted by the viewer's offset — the display helper alone would not have fixed it.
+
+The rule exists because the helper had been copy-pasted into three pages (`BookStatePage`, `CodexListPage`, `ChatList` — byte-identical bodies under two names) while a fourth site rendered the raw wire string with no helper at all.
+
 ## Folder layout
 
 The build has five entries: `login/` (separate entry, outside React Router), `user/` (Shell SPA), `admin/` (Admin SPA), `work/` (working page SPA) and `read/` (reader). Each SPA owns its `pages/` and `components/`; `api/`, `types/`, `utils/`, `components/` (cross-SPA shells), `theme.ts`, and `auth.ts` are shared at `src/` root. See `frontend-workspace.md` for the entry-by-entry route map.
@@ -111,7 +125,7 @@ frontend/
       <resource>.ts       # one per backend resource
     types/                # full API surface — DTOs only, flat (.d.ts)
       <resource>.d.ts
-    utils/                # shared helpers (formatDate, ...)
+    utils/                # shared helpers — date.ts (formatDate), navigate.ts
     components/           # cross-SPA shells: AppLayout, AppHeader, AppSidebar
     auth.ts              # current user / token — module-level state, not a class
     user/                 # User SPA

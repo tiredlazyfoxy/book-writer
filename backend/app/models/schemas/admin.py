@@ -6,10 +6,9 @@ Declarative Pydantic schemas — the typed contracts for the admin users surface
 names/types are frozen by the skeleton (feature 005, step 001).
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
+from app.models.schemas.common import UtcDateTime
 from app.models.user import UserRole
 
 
@@ -34,7 +33,7 @@ class AdminUserResponse(BaseModel):
     id: str
     username: str
     role: UserRole
-    last_login: datetime | None
+    last_login: UtcDateTime | None
     active: bool
 
 

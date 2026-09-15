@@ -17,7 +17,7 @@ import {
 } from "@mantine/core";
 import { IconPlus, IconSearch } from "@tabler/icons-react";
 import type { CodexEntryResponse, CodexKind } from "../../types/codex";
-import type { ISODateString } from "../../types/common";
+import { formatDate } from "../../utils/date";
 import { registerContentSubject, unregisterContentSubject } from "../contentSubject";
 import type { SubjectKind } from "../subject";
 import { CodexListPageState, loadCodexEntries, submitCodexSearch } from "./codexListPageState";
@@ -45,13 +45,6 @@ export const CODEX_KIND_LABELS: Record<CodexKind, string> = {
 
 /** Longest body excerpt shown in the list for an entry with no name (a fact). */
 const EXCERPT_LENGTH = 120;
-
-/** Render an ISO timestamp for the author, or an em dash when the field is null. */
-function formatTimestamp(value: ISODateString | null): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
 
 /** Whitespace-collapsed, length-capped opening of an entry's body. */
 function bodyExcerpt(body: string): string {
@@ -196,7 +189,7 @@ export const CodexListPage = observer(function CodexListPage({ kind }: CodexList
               </Table.Td>
               <Table.Td>
                 <Text size="sm" c="dimmed">
-                  {formatTimestamp(entry.modified_at)}
+                  {formatDate(entry.modified_at)}
                 </Text>
               </Table.Td>
             </Table.Tr>

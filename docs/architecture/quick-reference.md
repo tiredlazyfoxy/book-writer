@@ -378,6 +378,7 @@ The body is a **sub-resource, not a field on `ChapterResponse`** — `014` has o
 ## Conventions
 
 - **Entity ids = Snowflake 64-bit ints** — 41-bit ms timestamp (fixed epoch) / 10-bit node id (`BOOKWRITER_NODE_ID`, default 0) / 12-bit sequence; app-generated via `app/ids.py` `generate_id()`. **Serialized as strings** in JSON/JSONL/DTOs (they exceed JS 2^53; a number loses precision); `from_dict` also accepts a legacy JSON number. Frontend `.d.ts` types ids as `string`. See `backend/auth-ids.md` → Conventions — entity ID strategy.
+- **Timestamps = aware UTC on the wire** — every response-schema `datetime` is annotated `UtcDateTime` (`app/models/schemas/common.py`), so JSON always carries an explicit designator (`"2026-09-14T15:04:00Z"`). SQLite returns stamps tz-naive and JS parses a tz-less ISO string as **local** time; the alias reattaches UTC on serialization (`when_used="json-unless-none"`, so in-process `model_dump()` is unchanged). Request fields stay plain `datetime`. The frontend renders every stamp through `src/utils/date.ts` `formatDate` as `YYYY-MM-DD HH:MM UTC` — `toLocaleString` and friends are banned in `src/`. See `backend.md` → Typing discipline and `frontend.md` → Date and time display.
 
 ## Frontend `src/api/` pattern
 

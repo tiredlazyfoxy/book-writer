@@ -16,8 +16,8 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
-import type { ISODateString } from "../../types/common";
 import type { ContinuityStatus } from "../../types/continuity";
+import { formatDate } from "../../utils/date";
 import {
   BookStatePageState,
   loadBookContinuity,
@@ -37,13 +37,6 @@ const CONTINUITY_STATUS_LABELS: Record<ContinuityStatus, string> = {
   approved: "Approved",
   stale: "Stale",
 };
-
-/** Render an ISO timestamp for the author, or an em dash when the field is null. */
-function formatTimestamp(value: ISODateString | null): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
 
 /**
  * The Book-state landing view for `/work/:bookId/state` (UC-091 / US-106.AC-1).
@@ -169,7 +162,7 @@ export const BookStatePage = observer(function BookStatePage() {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{formatTimestamp(detail.created_at)}</Text>
+                  <Text size="sm">{formatDate(detail.created_at)}</Text>
                 </Table.Td>
               </Table.Tr>
               <Table.Tr>
@@ -179,7 +172,7 @@ export const BookStatePage = observer(function BookStatePage() {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{formatTimestamp(detail.modified_at)}</Text>
+                  <Text size="sm">{formatDate(detail.modified_at)}</Text>
                 </Table.Td>
               </Table.Tr>
             </Table.Tbody>

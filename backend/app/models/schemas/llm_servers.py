@@ -13,9 +13,9 @@ the JS safe-integer range, mirroring ``AdminUserResponse.id``).
 Skeleton (step 002): field names/types are frozen.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
+
+from app.models.schemas.common import UtcDateTime
 
 
 class CreateLlmServerRequest(BaseModel):
@@ -68,8 +68,8 @@ class LlmServerResponse(BaseModel):
     is_active: bool
     is_embedding: bool
     embedding_model: str | None
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class LlmServersListResponse(BaseModel):

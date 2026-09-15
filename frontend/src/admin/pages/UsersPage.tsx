@@ -14,6 +14,7 @@ import {
 } from "@mantine/core";
 import { IconDots, IconKey, IconPlus, IconUserCog, IconUserOff } from "@tabler/icons-react";
 import type { AdminUserResponse } from "../../types/admin";
+import { formatDate } from "../../utils/date";
 import { UsersPageState, disableUserAction, loadUsers } from "./usersPageState";
 import { CreateUserModal } from "../components/users/CreateUserModal";
 import { SetPasswordModal } from "../components/users/SetPasswordModal";
@@ -101,7 +102,7 @@ export const UsersPage = observer(function UsersPage() {
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">
-                    {user.last_login ?? "Never"}
+                    {user.last_login ? formatDate(user.last_login) : "Never"}
                   </Text>
                 </Table.Td>
                 <Table.Td>

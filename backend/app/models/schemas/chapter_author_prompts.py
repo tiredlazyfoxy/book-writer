@@ -27,9 +27,9 @@ Skeleton (014 step 004): field names / types / defaults are frozen. DTOs are
 declarative — there is nothing to leave unimplemented.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
+
+from app.models.schemas.common import UtcDateTime
 
 
 class UpdateChapterAuthorPromptRequest(BaseModel):
@@ -62,4 +62,4 @@ class ChapterAuthorPromptResponse(BaseModel):
 
     chapter_id: str
     system_prompt: str
-    modified_at: datetime | None
+    modified_at: UtcDateTime | None

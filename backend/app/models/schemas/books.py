@@ -14,12 +14,11 @@ steps 004 (read projections) and 005 (settings mutations) — keep it open for t
 member-detail / update request shapes those add.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
 from app.models.book import BookState, CollaborationMode, Visibility
 from app.models.book_member import MemberRole
+from app.models.schemas.common import UtcDateTime
 
 
 class CreateBookRequest(BaseModel):
@@ -59,8 +58,8 @@ class BookResponse(BaseModel):
     collaboration_mode: CollaborationMode
     visibility: Visibility
     state: BookState
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class BookListResponse(BaseModel):
@@ -80,7 +79,7 @@ class BookMemberResponse(BaseModel):
 
     user_id: str
     role: MemberRole
-    created_at: datetime | None
+    created_at: UtcDateTime | None
 
 
 class BookDetailResponse(BookResponse):

@@ -23,12 +23,12 @@ Skeleton (011 step 001): field names / types / defaults are frozen. DTOs are
 declarative — there is nothing to leave unimplemented.
 """
 
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.models.codex_entry import CodexKind
+from app.models.schemas.common import UtcDateTime
 
 # The vocabulary of things the working page's content pane can hold — the wire
 # mirror of ``frontend/src/work/subject.ts:SubjectKind``, value for value
@@ -127,8 +127,8 @@ class ChatResponse(BaseModel):
     model_name: str | None
     sampling: ChatSamplingParams
     archived: bool
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class ChatListResponse(BaseModel):
@@ -258,7 +258,7 @@ class ChatMessageResponse(BaseModel):
     content: str
     reasoning: str | None
     position: int
-    created_at: datetime | None
+    created_at: UtcDateTime | None
     tool_trace: list[ToolTraceEntry] | None = None
 
 

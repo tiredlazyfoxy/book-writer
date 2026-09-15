@@ -23,12 +23,12 @@ Skeleton (016): field names / types / constraints are frozen. DTOs are
 declarative — there is nothing to leave unimplemented.
 """
 
-from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, StringConstraints
 
 from app.models.flag import FlagOrigin, FlagStatus
+from app.models.schemas.common import UtcDateTime
 
 
 class FlagResponse(BaseModel):
@@ -50,9 +50,9 @@ class FlagResponse(BaseModel):
     comment: str
     status: FlagStatus
     created_by: str
-    created_at: datetime | None
+    created_at: UtcDateTime | None
     resolved_by: str | None
-    resolved_at: datetime | None
+    resolved_at: UtcDateTime | None
 
 
 class FlagListResponse(BaseModel):

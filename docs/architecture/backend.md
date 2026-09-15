@@ -60,6 +60,17 @@ This keeps call sites self-documenting (`users.get_by_id(...)`, `auth_service.cr
 | LLM tool schemas | Pydantic `BaseModel` | parameter schemas for function calling |
 | Internal data passing | `TypedDict` | in-process data between functions |
 
+**Response-schema timestamps are `UtcDateTime`, not bare `datetime`** (`app/models/schemas/common.py`). Every timestamp on the wire therefore carries an explicit UTC designator (`…T15:04:00Z`).
+
+The alias exists because of a mismatch between how timestamps are written and how they come back. Services always write `datetime.now(timezone.utc)`, but the SQLite columns are declared **without** `timezone=True`, so a value read back from the database is tz-**naive** — the same instant, just unlabelled. A bare `datetime` serialized that as `"2026-09-14T15:04:00"`, and **JavaScript parses a tz-less ISO string as local time**, so every rendered stamp was silently shifted by the viewer's offset. Attaching UTC to a naive value is a restoration, not a guess.
+
+Two properties of the annotation worth not re-deriving:
+
+- **`when_used="json-unless-none"`** confines the conversion to JSON dumps — an in-process `model_dump()` still yields a real `datetime`, so nothing downstream changed shape.
+- **`return_type=datetime`**, not `str` — Pydantic still does the formatting, so the OpenAPI `format: date-time` survives and UTC renders with a trailing `Z`.
+
+It is applied to **response** fields only. `UpdateCodexEntryRequest.expected_modified_at` stays a plain `datetime`: a serializer on an input does nothing, and `services/codex.py::_comparable` already reduces both sides of the optimistic-concurrency check to naive UTC, so an aware `…Z` round-tripped from the client still matches a naive stored `modified_at`. The gzip-JSONL import/export is likewise untouched — its codecs call `.isoformat()` on the **table** models and never pass through a response schema.
+
 ## `pyproject.toml` dependencies
 
 The backend is packaged as `bookwriter-backend` with setuptools + a local `.venv` (Windows `Scripts/` layout). The dependency block:

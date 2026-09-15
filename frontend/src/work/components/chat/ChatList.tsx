@@ -8,15 +8,8 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { IconArchive, IconArchiveOff } from "@tabler/icons-react";
-import type { ISODateString } from "../../../types/common";
+import { formatDate } from "../../../utils/date";
 import type { ChatsListPageState } from "../../pages/chatsListPageState";
-
-/** Render a chat's last-modified stamp for the author, or an em dash when absent. */
-function formatStamp(value: ISODateString | null): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
 
 /**
  * The book's list of visible chats (`state.visibleChats`): title, last-modified
@@ -80,7 +73,7 @@ export const ChatList = observer(function ChatList({
                   {chat.title}
                 </Text>
                 <Text c="dimmed" size="xs">
-                  {formatStamp(chat.modified_at)}
+                  {formatDate(chat.modified_at)}
                 </Text>
               </UnstyledButton>
               <ActionIcon

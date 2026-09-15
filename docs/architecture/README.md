@@ -34,7 +34,7 @@ Two gaps between that description and the repository, stated here so no one read
   - `backend/auth-ids.md` — the per-user-key JWT + bcrypt auth scheme and the system-wide snowflake entity-ID strategy (spec, string-at-JSON-boundary serialization, migration stance).
   - `backend/features.md` — the as-shipped records for `User`/`LlmServer`, LLM-server connections (FEAT-004), and database consistency & management (FEAT-005).
   - `backend/book-domain.md` — the book domain's backend impact: module map, the ~12-codec table registry, Stage-4-columns-at-Stage-2, and the 409 concurrency rule.
-- `frontend.md` — React/TypeScript/MobX/Mantine/Vite conventions, the `src/` structure, the `api/` layer and SSE pattern, theming, and the full MobX hard rules.
+- `frontend.md` — React/TypeScript/MobX/Mantine/Vite conventions, the `src/` structure, the `api/` layer and SSE pattern, theming, the date/time display convention, and the full MobX hard rules.
 
 **Book domain (2026-07-24):**
 

@@ -33,6 +33,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.models.codex_entry import CodexKind
+from app.models.schemas.common import UtcDateTime
 
 
 class CreateCodexEntryRequest(BaseModel):
@@ -83,8 +84,8 @@ class CodexEntryResponse(BaseModel):
     archived: bool
     author_id: str
     modified_by: str | None
-    created_at: datetime | None
-    modified_at: datetime | None
+    created_at: UtcDateTime | None
+    modified_at: UtcDateTime | None
 
 
 class CodexEntryListResponse(BaseModel):
