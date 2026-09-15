@@ -19,6 +19,14 @@ import type { WorkPaneTarget } from "./components/shell/navItems";
  * "either a list or a single item"). The three codex lists are distinct kinds
  * (`characters` / `locations` / `facts`); `codex-entry` is a single entry.
  * `chapter-variants` is one chapter's variants; `variants` is the whole list.
+ *
+ * `memos` (026, FEAT-021) is the author's own standing notes for this book — a
+ * LIST kind with no item route, added for WIRE HONESTY so a turn started from that
+ * page carries `subject_kind: "memos"` rather than `null`. It is mode-less like
+ * `chapters` / `variants` / `chats`: nothing keys a mode off it, no
+ * `ResolvedSubject` member and no `determine_mode` branch exist on either side of
+ * the wire (`026/context.md` decision 11). Kept value-for-value identical to
+ * `types/chats.d.ts:SubjectKind` and to the backend `Literal`.
  */
 export type SubjectKind =
   | "book-state"
@@ -30,7 +38,8 @@ export type SubjectKind =
   | "codex-entry"
   | "variants"
   | "chapter-variants"
-  | "chats";
+  | "chats"
+  | "memos";
 
 /** A chapter's lifecycle state (`domain-chapter.md`): at most one `open` per book. */
 export type ChapterState = "planned" | "open" | "closing" | "closed";
@@ -174,8 +183,12 @@ export function resolveSubjectPaneTarget(subject: LoadedSubject): WorkPaneTarget
  * Resolve a loaded subject to its editability verdict, implementing
  * `frontend-workspace.md`'s table exactly: the `open` chapter and a non-archived
  * codex entry are editable whole; Book state is `book-state-notes`-editable;
- * `closing` / `closed` chapters, archived codex entries and every list are
- * read-only with a stated reason.
+ * `closing` / `closed` chapters, archived codex entries and every BOOK-CONTENT
+ * list are read-only with a stated reason.
+ *
+ * Feature `026.memos` adds the one list that is NOT (`memos`, editable whole, no
+ * reason) and changes nothing else: every other list kind keeps its read-only
+ * verdict and its wording verbatim.
  *
  * The one PARTIAL row (feature `014.chapter-skeleton` step 008): a `planned`
  * chapter is read-only in its body text — the reason it already carried, verbatim
@@ -267,11 +280,27 @@ export function resolveEditability(subject: LoadedSubject): Editability {
     case "variants":
     case "chapter-variants":
     case "chats":
-      // Every list kind is read-only.
+      // Every list kind is read-only — EXCEPT `memos`, immediately below.
       return {
         editable: "none",
         readOnlyReason: "This is a list view and cannot be edited.",
       };
+    case "memos":
+      // The content pane's FIRST editable list (026, FEAT-021). "Any list is
+      // read-only" was always a rule about BOOK-CONTENT lists, whose items have
+      // their own pages and their own write paths; memos have neither — there is no
+      // `/memos/:id`, and creation appends into the list in place, so the list IS
+      // the editor (`frontend-workspace.md` → the `resolveEditability` paragraph).
+      //
+      // A CONSTANT verdict: this branch decides nothing. Memos have no state
+      // machine, no collaboration-mode gate and no archived-book gate (the named
+      // carve-out — an archived book still takes memo writes). It uses the EXISTING
+      // `"whole"` region, mints no `EditableRegion` member and does not widen
+      // `WriteRegion`. It exists so `frontend-workspace.md`'s editability table
+      // stays literally the single enforcement point — a subject missing from it is
+      // drift — and NOT for author/assistant symmetry: `create_memo` creates a NEW
+      // row and never writes into a displayed memo.
+      return { editable: "whole", readOnlyReason: null };
     default:
       return {
         editable: "none",

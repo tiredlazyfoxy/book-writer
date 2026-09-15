@@ -18,7 +18,7 @@ export interface WorkNavigatorProps {
 }
 
 /**
- * The work SPA's left-hand navigator: renders the seven `WORK_NAV_ITEMS` — ALL of
+ * The work SPA's left-hand navigator: renders the eight `WORK_NAV_ITEMS` — ALL of
  * them identically, as in-SPA react-router links under the current book id,
  * marking the active one via `isWorkNavItemActive`. No data loading, no MobX
  * fields (mirrors `AdminNav`).
@@ -64,7 +64,7 @@ export const WorkNavigator = observer(function WorkNavigator({
         // unknown props onto the root element, so it keeps the entry findable by
         // accessible name once CSS hides the visible label, and leaves
         // `textContent` untouched when the label is visible.
-        // 023: ONE shape for all seven entries — no `paneTarget` branch left.
+        // 023: ONE shape for all eight entries — no `paneTarget` branch left.
         const entry = (
           <NavLink
             key={item.path}

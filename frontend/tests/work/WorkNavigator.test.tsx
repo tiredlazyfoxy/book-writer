@@ -1,6 +1,11 @@
 /**
- * Work navigator — all seven entries are content-pane links.
+ * Work navigator — every entry is a content-pane link.
  * Retargeted by 023.chat-ux-revision (design-note D12), DoD-8.
+ * Widened to EIGHT entries by 026.memos / 009.memos-api-and-navigator, DoD-1: the
+ * navigator gains a **Memos** entry after Chats, so the expected label list and the
+ * link count move with it. 023's own contract — every entry renders identically as a
+ * router link, Chats included — is untouched; this file's `__DoD8` numbering is 023's
+ * and is deliberately kept.
  *
  * This spec previously asserted 011's arrangement — six router links plus a Chats
  * CONTROL that revealed the pane's list without navigating. 023 inverts that
@@ -31,7 +36,10 @@ import { useLocation } from "react-router-dom";
 import { WorkNavigator } from "../../src/work/components/shell/WorkNavigator";
 import { renderWithProviders } from "../support/render";
 
-/** The seven author-facing labels, in UC-090 order — Chats is now among the links. */
+/**
+ * The eight author-facing labels, in UC-090 order — Chats is among the links, and
+ * **Memos** is the eighth, after Chats (widened by 026.memos step 009, DoD-1).
+ */
 const NAV_LABELS = [
   "Book state",
   "Characters",
@@ -40,6 +48,7 @@ const NAV_LABELS = [
   "Chapters",
   "Variants",
   "Chats",
+  "Memos",
 ];
 
 /** Label -> its basename-stripped subject href for book `bk-1`. */
@@ -51,6 +60,7 @@ const NAV_HREFS: Record<string, string> = {
   Chapters: "/bk-1/chapters",
   Variants: "/bk-1/variants",
   Chats: "/bk-1/chats",
+  Memos: "/bk-1/memos",
 };
 
 /** Reports the router's current pathname, so navigation is observable. */
@@ -60,11 +70,13 @@ function LocationProbe(): ReactElement {
 }
 
 describe("every navigator entry is a content-pane link (DoD-8)", () => {
-  it("DoD-8: renders all seven entries as links in UC-090 order — Chats included", () => {
+  it("DoD-8: renders all eight entries as links in UC-090 order — Chats and Memos included", () => {
     renderWithProviders(<WorkNavigator bookId="bk-1" />, { route: "/bk-1/state" });
 
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(7);
+    // WIDENED by 026.memos step 009 (DoD-1): the eighth entry is mandated by the step,
+    // so the seven-link literal asserted a fact the step deliberately changes.
+    expect(links).toHaveLength(8);
     expect(links.map((link) => link.textContent?.trim())).toEqual(NAV_LABELS);
   });
 

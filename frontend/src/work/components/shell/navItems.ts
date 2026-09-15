@@ -13,6 +13,7 @@ import {
   IconInfoCircle,
   IconMapPin,
   IconMessage,
+  IconNotes,
   IconUsers,
   type Icon,
 } from "@tabler/icons-react";
@@ -39,16 +40,21 @@ export interface WorkNavItem {
 }
 
 /**
- * The seven navigator entries in UC-090 order — Book state · Characters ·
- * Locations · Facts · Chapters · Variants · Chats.
+ * The eight navigator entries in UC-090 order — Book state · Characters ·
+ * Locations · Facts · Chapters · Variants · Chats · Memos.
  *
- * Book state · Characters · Locations · Facts · Chapters · Variants · Chats.
  * Chapters also lights up for the singular single-chapter segment `/chapter`.
  * (Variants' per-chapter path `/variants/:chapterId` needs no extra segment — it
  * is a `/`-delimited descendant of `/variants`, which {@link isWorkNavItemActive}
  * already matches.)
  *
- * 023: ALL SEVEN entries now target the CONTENT pane. Chats used to be the one
+ * 026 appends the EIGHTH entry, Memos (FEAT-021, US-105.AC-7) — the author's own
+ * standing notes for this book. An ordinary content-pane router link like every
+ * other entry, with NO `extraActiveSegments`: `/memos` has no item route to light
+ * up for, because the list IS the editor (`frontend-workspace.md` → "`/memos` has
+ * no item route"), so there is no `/memos/:id` and no `/memos/new`.
+ *
+ * 023: ALL SEVEN entries before it now target the CONTENT pane. Chats used to be the one
  * exception — a chat-pane control rather than a route link (011/004, US-105.AC-3) —
  * but the chat list moved onto `/:bookId/chats` as an ordinary content page (D1),
  * so nothing branches on `paneTarget` any more. The type and the field are kept:
@@ -69,6 +75,7 @@ export const WORK_NAV_ITEMS: readonly WorkNavItem[] = [
   },
   { path: "/variants", label: "Variants", icon: IconGitBranch, paneTarget: "content" },
   { path: "/chats", label: "Chats", icon: IconMessage, paneTarget: "content" },
+  { path: "/memos", label: "Memos", icon: IconNotes, paneTarget: "content" },
 ];
 
 /**

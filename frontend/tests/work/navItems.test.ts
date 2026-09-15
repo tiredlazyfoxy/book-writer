@@ -33,8 +33,11 @@ import {
   type WorkNavItem,
 } from "../../src/work/components/shell/navItems";
 
-/** The seven author-facing labels, in the UC-090 order the DoD pins. */
-const EXPECTED_LABELS = [
+/**
+ * The seven labels feature 010 pinned, in the UC-090 order — the entries 026.memos
+ * step 009 DoD-1 requires to be UNCHANGED in label and order.
+ */
+const LEGACY_LABELS = [
   "Book state",
   "Characters",
   "Locations",
@@ -43,6 +46,12 @@ const EXPECTED_LABELS = [
   "Variants",
   "Chats",
 ] as const;
+
+/**
+ * The eight author-facing labels as of 026.memos step 009: the seven above, plus
+ * **Memos** as the eighth, after Chats (step file -> "Interface intent"; DoD-1).
+ */
+const EXPECTED_LABELS = [...LEGACY_LABELS, "Memos"] as const;
 
 /** Label -> its basename-stripped subject href for book `bk-1` (from the route map). */
 const EXPECTED_HREFS: Record<string, string> = {
@@ -53,6 +62,8 @@ const EXPECTED_HREFS: Record<string, string> = {
   Chapters: "/bk-1/chapters",
   Variants: "/bk-1/variants",
   Chats: "/bk-1/chats",
+  // `context.md` -> the `/work/:bookId/memos` route, basename-stripped.
+  Memos: "/bk-1/memos",
 };
 
 /** Locate a declared nav item by its author-facing label. */
@@ -65,11 +76,15 @@ function itemByLabel(label: string): WorkNavItem {
 }
 
 describe("WORK_NAV_ITEMS", () => {
-  it("DoD-1: declares exactly seven entries", () => {
-    expect(WORK_NAV_ITEMS).toHaveLength(7);
+  // AMENDED by 026.memos step 009 (DoD-1): the table declares an EIGHTH entry, so the
+  // seven-entry count and the seven-label list this file used to assert are stale.
+  // The 010 contract that survives is the order of the original seven, asserted below
+  // and again in the 026 block at the end of this file.
+  it("DoD-1 (010) / DoD-1 (026): declares exactly eight entries", () => {
+    expect(WORK_NAV_ITEMS).toHaveLength(8);
   });
 
-  it("DoD-1: the labels are the UC-090 order Book state · Characters · Locations · Facts · Chapters · Variants · Chats", () => {
+  it("DoD-1 (010) / DoD-1 (026): the labels are the UC-090 order Book state · Characters · Locations · Facts · Chapters · Variants · Chats · Memos", () => {
     expect(WORK_NAV_ITEMS.map((item) => item.label)).toEqual([...EXPECTED_LABELS]);
   });
 });
@@ -121,5 +136,75 @@ describe("isWorkNavItemActive", () => {
 
   it("DoD-3: the Variants entry is active for a per-chapter variants path", () => {
     expect(isWorkNavItemActive("/bk-1/variants/ch-9", "bk-1", itemByLabel("Variants"))).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------------------------
+ * 026.memos / 009.memos-api-and-navigator — the EIGHTH navigator entry.
+ * DoD-1 · DoD-2 · DoD-3.
+ *
+ * Bound to the frozen interface in status.md -> `## Skeleton` (026 step 009):
+ *   WORK_NAV_ITEMS gains an eighth entry, LAST, after Chats; `workNavHref` and
+ *   `isWorkNavItemActive` are UNCHANGED (an entry with no `extraActiveSegments` was
+ *   already the common case).
+ *
+ * Every expected value comes from the spec, never from code:
+ *   - DoD-1 (US-105.AC-7): the entry is labelled **Memos**, is the eighth, sits after
+ *     Chats, and the seven existing entries are unchanged in label and order (step
+ *     file -> "Interface intent" -> `navItems.ts`);
+ *   - DoD-2 (US-105.AC-7): it is an ORDINARY content-pane link — `paneTarget` is
+ *     `"content"`, no pane-control exception — and its href resolves under the book id
+ *     to the memos segment, like every other entry (`context.md` -> the
+ *     `/work/:bookId/memos` route; basename-stripped, `/bk-1/memos`);
+ *   - DoD-3 (UC-090 / US-105.AC-7): it is active for the memos path and NOT active for
+ *     any sibling entry's path — and no sibling lights up for the memos path either.
+ *     There are no `extraActiveSegments`: `/memos` has no item route to light up for
+ *     (`context.md` -> decision 12).
+ *
+ * Items are looked up by their author-facing LABEL, the idiom this file already uses:
+ * the skeleton does not freeze the exact `path` string form.
+ * ---------------------------------------------------------------------------------- */
+
+describe("WORK_NAV_ITEMS — the Memos entry (026 DoD-1)", () => {
+  it("DoD-1: Memos is the eighth entry, last, after Chats", () => {
+    const labels = WORK_NAV_ITEMS.map((item) => item.label);
+
+    expect(labels).toHaveLength(8);
+    expect(labels[7]).toBe("Memos");
+    expect(labels.indexOf("Memos")).toBe(labels.indexOf("Chats") + 1);
+  });
+
+  it("DoD-1: the seven existing entries are unchanged in label and order", () => {
+    expect(WORK_NAV_ITEMS.slice(0, 7).map((item) => item.label)).toEqual([...LEGACY_LABELS]);
+  });
+});
+
+describe("workNavHref / paneTarget — Memos is an ordinary content-pane link (026 DoD-2)", () => {
+  it("DoD-2: the Memos entry targets the content pane", () => {
+    // No pane-control exception: it is a router link like every other entry.
+    expect(itemByLabel("Memos").paneTarget).toBe("content");
+  });
+
+  it("DoD-2: the Memos href resolves under the book id to the memos segment", () => {
+    expect(workNavHref("bk-1", itemByLabel("Memos"))).toBe("/bk-1/memos");
+    expect(workNavHref("other-book", itemByLabel("Memos"))).toBe("/other-book/memos");
+  });
+});
+
+describe("isWorkNavItemActive — Memos (026 DoD-3)", () => {
+  it("DoD-3: the Memos entry is active for the memos path", () => {
+    expect(isWorkNavItemActive("/bk-1/memos", "bk-1", itemByLabel("Memos"))).toBe(true);
+  });
+
+  it("DoD-3: the Memos entry is NOT active for any sibling entry's path", () => {
+    for (const label of LEGACY_LABELS) {
+      expect(isWorkNavItemActive(EXPECTED_HREFS[label], "bk-1", itemByLabel("Memos"))).toBe(false);
+    }
+  });
+
+  it("DoD-3: no sibling entry is marked active for the memos path", () => {
+    for (const label of LEGACY_LABELS) {
+      expect(isWorkNavItemActive("/bk-1/memos", "bk-1", itemByLabel(label))).toBe(false);
+    }
   });
 });

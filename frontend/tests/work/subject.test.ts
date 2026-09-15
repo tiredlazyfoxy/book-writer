@@ -32,7 +32,14 @@
  * A pure module: no router, no `renderWithProviders`. `globals: false`.
  */
 import { describe, expect, it } from "vitest";
-import type { LoadedSubject, SubjectKind } from "../../src/work/subject";
+import type {
+  EditableRegion,
+  LoadedSubject,
+  SubjectKind,
+  WriteRegion,
+} from "../../src/work/subject";
+// The wire-exact twin, pinned against the work-module union by 026.memos step 009 DoD-5.
+import type { SubjectKind as WireSubjectKind } from "../../src/types/chats";
 import {
   checkWritePermission,
   resolveEditability,
@@ -412,6 +419,212 @@ describe("checkWritePermission — the body write follows the chapter's state (0
         "whole",
       );
 
+      expect(decision.allowed).toBe(false);
+      expect((decision.reason ?? "").length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------------------------
+ * 026.memos / 009.memos-api-and-navigator — the memos subject kind.
+ * DoD-5 · DoD-6 · DoD-7.
+ *
+ * Bound to the frozen interface in status.md -> `## Skeleton` (026 step 009):
+ *   type SubjectKind = … | "chats" | "memos"      // widened by ONE, eleventh and last
+ *   type SubjectKind (src/types/chats.d.ts)       // the wire twin, widened identically
+ *   type EditableRegion = "none" | "whole" | "book-state-notes" | "chapter-sketch"
+ *                       | "chapter-own-prompt" | "chapter-text"   // NOT widened
+ *   type WriteRegion = "whole" | "book-state-notes"                // NOT widened
+ *   resolveEditability(subject): Editability      // gains a `memos` case only
+ *   checkWritePermission(subject, region): WriteDecision           // untouched
+ *
+ * Every expected value comes from the spec, never from code:
+ *   - DoD-5 (`quick-reference.md` -> the `SubjectKind` row; `context.md` -> decision 11):
+ *     `"memos"` joins BOTH unions and the two lists stay value-for-value identical. The
+ *     two exhaustive `Record<Union, true>` tables below are the assertion's teeth: a
+ *     missing member or an extra one fails to compile under `npm run test:types`, and
+ *     the cross-assignments pin the two unions as mutually assignable — i.e. equal;
+ *   - DoD-6 (`frontend-workspace.md` -> the `resolveEditability` paragraph;
+ *     `context.md` -> decision 12): the memos kind answers a CONSTANT editable verdict —
+ *     the existing `"whole"` region, no read-only reason — because the memos list is the
+ *     content pane's first editable list and the branch decides nothing. And the other
+ *     half, which is what stops the branch being written too broadly: every OTHER list
+ *     kind still answers its read-only verdict, reason string verbatim
+ *     (`009.context.md` -> "Every list kind today returns …");
+ *   - DoD-7 (same paragraph): `EditableRegion` gains NO member — the memos verdict reuses
+ *     `"whole"` — and `checkWritePermission`'s behaviour is unchanged for every existing
+ *     subject kind. `WriteRegion` is not widened either.
+ * ---------------------------------------------------------------------------------- */
+
+/** The read-only verdict's wording, carried verbatim by every list kind but memos. */
+const LIST_READ_ONLY_REASON = "This is a list view and cannot be edited.";
+
+/**
+ * The ELEVEN subject kinds, exhaustively. `Record<SubjectKind, true>` fails to compile
+ * if a member is missing OR if one is named that the union does not carry.
+ */
+const SUBJECT_KIND_TABLE: Record<SubjectKind, true> = {
+  "book-state": true,
+  chapters: true,
+  chapter: true,
+  characters: true,
+  locations: true,
+  facts: true,
+  "codex-entry": true,
+  variants: true,
+  "chapter-variants": true,
+  chats: true,
+  memos: true,
+};
+
+/** The same eleven, against the wire twin in `src/types/chats.d.ts`. */
+const WIRE_SUBJECT_KIND_TABLE: Record<WireSubjectKind, true> = {
+  "book-state": true,
+  chapters: true,
+  chapter: true,
+  characters: true,
+  locations: true,
+  facts: true,
+  "codex-entry": true,
+  variants: true,
+  "chapter-variants": true,
+  chats: true,
+  memos: true,
+};
+
+/** The SIX editable regions — unchanged by this feature. */
+const EDITABLE_REGION_TABLE: Record<EditableRegion, true> = {
+  none: true,
+  whole: true,
+  "book-state-notes": true,
+  "chapter-sketch": true,
+  "chapter-own-prompt": true,
+  "chapter-text": true,
+};
+
+/** The TWO write regions — unchanged by this feature. */
+const WRITE_REGION_TABLE: Record<WriteRegion, true> = {
+  whole: true,
+  "book-state-notes": true,
+};
+
+describe("SubjectKind carries `memos`, in both copies (026 DoD-5)", () => {
+  it("DoD-5: `memos` is a member of the work-module union and of the wire twin", () => {
+    expect(Object.keys(SUBJECT_KIND_TABLE)).toContain("memos");
+    expect(Object.keys(WIRE_SUBJECT_KIND_TABLE)).toContain("memos");
+  });
+
+  it("DoD-5: the two lists are value-for-value identical — same members, no more, no fewer", () => {
+    expect([...Object.keys(SUBJECT_KIND_TABLE)].sort()).toEqual(
+      [...Object.keys(WIRE_SUBJECT_KIND_TABLE)].sort(),
+    );
+    // Eleven members: the ten that existed plus `memos`.
+    expect(Object.keys(SUBJECT_KIND_TABLE)).toHaveLength(11);
+    expect(Object.keys(WIRE_SUBJECT_KIND_TABLE)).toHaveLength(11);
+  });
+
+  it("DoD-5: the two unions are mutually assignable, so neither can drift from the other", () => {
+    // Compile-time teeth (`npm run test:types` is the only program covering `tests/`):
+    // each assignment requires one union to be assignable to the other, and the pair of
+    // them requires the two to be the same set. Runtime only witnesses the value.
+    const asWire: WireSubjectKind = "memos";
+    const asWork: SubjectKind = asWire;
+    const backToWire: WireSubjectKind = asWork;
+
+    expect(asWork).toBe("memos");
+    expect(backToWire).toBe("memos");
+  });
+});
+
+describe("resolveEditability — the memos list is editable (026 DoD-6)", () => {
+  it("DoD-6: the memos kind resolves as editable in the existing `whole` region, with no read-only reason", () => {
+    const result = resolveEditability({ kind: "memos" });
+
+    expect(result.editable).toBe("whole");
+    expect(result.readOnlyReason).toBeNull();
+  });
+
+  it("DoD-6: the verdict is CONSTANT — nothing about the loaded subject changes it", () => {
+    // The branch decides nothing: no state machine, no collaboration-mode gate, no
+    // archived-book gate (`context.md` -> decision 12; decision 4's carve-out).
+    const subjects: LoadedSubject[] = [
+      { kind: "memos" },
+      { kind: "memos", entityId: "m-1" },
+      { kind: "memos", chapterState: "closed" },
+      { kind: "memos", codexArchived: true },
+    ];
+
+    for (const subject of subjects) {
+      const result = resolveEditability(subject);
+      expect(result.editable).toBe("whole");
+      expect(result.readOnlyReason).toBeNull();
+    }
+  });
+
+  it("DoD-6: every OTHER list kind still answers its read-only verdict, reason verbatim", () => {
+    // The half that stops the branch from being written too broadly: memos is the only
+    // list that became editable.
+    for (const kind of LIST_KINDS) {
+      const result = resolveEditability({ kind });
+      expect(result.editable).toBe("none");
+      expect(result.readOnlyReason).toBe(LIST_READ_ONLY_REASON);
+    }
+  });
+
+  it("DoD-6: the chapter, codex and book-state verdicts are untouched by the memos branch", () => {
+    expect(resolveEditability(OPEN_CHAPTER).editable).toBe("whole");
+    expect(resolveEditability(PLANNED_CHAPTER).readOnlyReason).toBe(PLANNED_READ_ONLY_REASON);
+    expect(
+      resolveEditability({ kind: "codex-entry", entityId: "ce-1", codexArchived: false }).editable,
+    ).toBe("whole");
+    expect(
+      resolveEditability({ kind: "codex-entry", entityId: "ce-1", codexArchived: true }).editable,
+    ).toBe("none");
+    expect(resolveEditability({ kind: "book-state" }).editable).toBe("book-state-notes");
+  });
+});
+
+describe("no region was minted, and the write gate is unchanged (026 DoD-7)", () => {
+  it("DoD-7: `EditableRegion` still carries exactly its six members — memos reuses `whole`", () => {
+    // `Record<EditableRegion, true>` above fails to compile if a seventh member exists
+    // and is unnamed here; the count keeps a rename from slipping through silently.
+    expect(Object.keys(EDITABLE_REGION_TABLE)).toHaveLength(6);
+    expect(Object.keys(EDITABLE_REGION_TABLE)).toContain("whole");
+    expect(Object.keys(EDITABLE_REGION_TABLE)).not.toContain("memos");
+  });
+
+  it("DoD-7: `WriteRegion` is not widened either — still `whole` and `book-state-notes`", () => {
+    expect([...Object.keys(WRITE_REGION_TABLE)].sort()).toEqual(["book-state-notes", "whole"]);
+  });
+
+  it("DoD-7: checkWritePermission answers unchanged for every existing chapter state", () => {
+    expect(checkWritePermission(OPEN_CHAPTER, "whole").allowed).toBe(true);
+    for (const chapterState of NON_OPEN_CHAPTER_STATES) {
+      const decision = checkWritePermission(
+        { kind: "chapter", entityId: "ch-x", chapterState },
+        "whole",
+      );
+      expect(decision.allowed).toBe(false);
+      expect((decision.reason ?? "").length).toBeGreaterThan(0);
+    }
+  });
+
+  it("DoD-7: checkWritePermission answers unchanged for codex entries and for Book state", () => {
+    expect(
+      checkWritePermission({ kind: "codex-entry", entityId: "ce-1", codexArchived: false }, "whole")
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkWritePermission({ kind: "codex-entry", entityId: "ce-1", codexArchived: true }, "whole")
+        .allowed,
+    ).toBe(false);
+    expect(checkWritePermission({ kind: "book-state" }, "book-state-notes").allowed).toBe(true);
+    expect(checkWritePermission({ kind: "book-state" }, "whole").allowed).toBe(false);
+  });
+
+  it("DoD-7: checkWritePermission still refuses a write into every existing read-only list kind", () => {
+    for (const kind of LIST_KINDS) {
+      const decision = checkWritePermission({ kind }, "whole");
       expect(decision.allowed).toBe(false);
       expect((decision.reason ?? "").length).toBeGreaterThan(0);
     }

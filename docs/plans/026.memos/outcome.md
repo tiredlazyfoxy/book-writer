@@ -132,4 +132,30 @@ to record, no authorization rule to add and no route table to write. What follow
 
 ## Observations
 
-_populated by the coder as steps complete_
+- Step 008: **`ToolContext`'s field count is stale in two architecture documents.**
+  `docs/architecture/assistant-config.md` and `docs/architecture/quick-reference.md` both state that
+  `ToolContext` "stays **six** fields", but `backend/app/services/tools.py` has **seven** —
+  `codex_creates_this_turn` was added by a later fast feature and never recorded. Step 008 does not
+  change the count (it needed no new field: `book_id` and `access` were already there) and did not
+  touch the docs, `docs/architecture/` being the architect's domain. Possible impact: a finalization
+  pass should correct "six" to "seven" in both files and name `codex_creates_this_turn` in the field
+  list, so the next reader counting fields against the code does not read the mismatch as this
+  feature's doing.
+
+- Step 011: **an alert cannot be named by an `aria-label` and a Mantine `title` at once — pick one.**
+  The `## Skeleton` record for step 011 and `MemosListPage.tsx`'s docstring both described the
+  list-level reorder alert as carrying a `title` headline **plus** an `aria-label` `Reorder error`.
+  Those two are not jointly satisfiable: Mantine's `Alert` renders `title` as a headline and wires
+  `aria-labelledby` to it, and `aria-labelledby` wins the accessible-name computation, so the
+  `aria-label` is inert and the surface is unreachable under its contracted name — which is what
+  produced the first DoD-6 failure. The implementation follows step 010's `MemoRow` shape
+  (`aria-label`, **no** `title`, the headline rendered as the alert's own first line); the headline
+  wording, the author-facing content and every frozen signature are unchanged, so this is
+  **record-vs-code wording drift, not a contract breach**, and the `## Skeleton` record was left as
+  the skeleton wrote it. Both coherent shapes exist in the codebase and the next author should pick
+  deliberately: `MemoRow` / this alert are named by `aria-label` with no `title`, while
+  `ChaptersPage`'s reorder alert is named by its `title` headline with no `aria-label`. Possible
+  impact: a line in `docs/architecture/frontend.md` (or `frontend-workspace.md`'s accessible-name
+  guidance) stating that an alert with a contracted accessible name uses exactly ONE naming
+  mechanism, never both.
+

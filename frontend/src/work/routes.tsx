@@ -7,6 +7,7 @@ import { ChaptersPage } from "./pages/ChaptersPage";
 import { CodexEntryPage } from "./pages/CodexEntryPage";
 import { CodexListPage } from "./pages/CodexListPage";
 import { ChatsListPage } from "./pages/ChatsListPage";
+import { MemosListPage } from "./pages/MemosListPage";
 import { SubjectPlaceholderPage } from "./pages/SubjectPlaceholderPage";
 import { WorkspaceShell } from "./components/shell/WorkspaceShell";
 
@@ -100,6 +101,14 @@ export const WorkRoutes = observer(function WorkRoutes() {
           pane and leaves the URL alone, so no `chats/:id` route is introduced.
         */}
         <Route path="chats" element={<ChatsListPage />} />
+        {/*
+          026: the memos list, mounted DIRECTLY with no `key={id}` wrapper — that
+          wrapper is the item-route remount rule, and no memo id appears in any URL.
+          `/memos` has NO item route (`frontend-workspace.md`): the list is itself the
+          editor, so there is no `memos/:id` and no `memos/new`, and an address under
+          `/memos/` falls through to the nested catch-all below.
+        */}
+        <Route path="memos" element={<MemosListPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

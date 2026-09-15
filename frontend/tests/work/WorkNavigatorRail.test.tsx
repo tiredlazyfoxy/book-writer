@@ -8,7 +8,10 @@
  * (`plan.md` -> Interface -> `WorkNavigator.tsx`: "all seven entries render identically
  * as `<NavLink component={RouterLink} to={workNavHref(bookId, item)}/>` — no
  * `paneTarget`-based branching left in the body"; `navItems.ts`: the Chats entry's
- * `paneTarget` becomes `"content"`). So the entry counts become seven and the
+ * `paneTarget` becomes `"content"`). So the entry counts become seven — EIGHT since
+ * 026.memos / 009.memos-api-and-navigator DoD-1 added the Memos entry after Chats,
+ * which is the only change that feature makes here; this file's `__DoD8` / `__DoD9`
+ * numbering is fast/005's + 023's and is deliberately kept — and the
  * Chats-opens-the-aside expectation flips to a link + href assertion. Everything this
  * spec says about THE RAIL ITSELF — accessible-name reachability while collapsed,
  * href parity between the two modes, and the `classNames` wiring — is preserved
@@ -22,9 +25,9 @@
  * Every expected value comes from the spec — fast/005's `plan.md` -> Definition of
  * done + Interface intent for the rail, and 023's `plan.md` -> DoD-8 + Interface for
  * the entry set — never from code:
- *   - expanded (the default, `collapsed` omitted) renders the seven entries as router
+ *   - expanded (the default, `collapsed` omitted) renders the eight entries as router
  *     links with their visible labels (DoD-8);
- *   - collapsed keeps the same seven links reachable BY ACCESSIBLE NAME with the same
+ *   - collapsed keeps the same eight links reachable BY ACCESSIBLE NAME with the same
  *     hrefs, because every NavLink carries an unconditional `aria-label` (DoD-9);
  *   - collapsed, the Chats entry is a link to `/:bookId/chats` like every sibling —
  *     023 DoD-8 inverts US-105.AC-3 by design, and it holds in both modes (DoD-10);
@@ -42,7 +45,10 @@ import { cleanup, screen } from "@testing-library/react";
 import { WorkNavigator } from "../../src/work/components/shell/WorkNavigator";
 import { renderWithProviders } from "../support/render";
 
-/** The seven navigator labels, in UC-090 order — Chats is now among the links. */
+/**
+ * The eight navigator labels, in UC-090 order — Chats is among the links, and
+ * **Memos** is the eighth, after Chats (widened by 026.memos step 009, DoD-1).
+ */
 const NAV_LABELS = [
   "Book state",
   "Characters",
@@ -51,6 +57,7 @@ const NAV_LABELS = [
   "Chapters",
   "Variants",
   "Chats",
+  "Memos",
 ];
 
 /** Label -> its basename-stripped subject href for book `bk-1`. */
@@ -62,6 +69,7 @@ const NAV_HREFS: Record<string, string> = {
   Chapters: "/bk-1/chapters",
   Variants: "/bk-1/variants",
   Chats: "/bk-1/chats",
+  Memos: "/bk-1/memos",
 };
 
 /** The three rail slot class names the collapsed mode wires through `classNames`. */
@@ -77,25 +85,27 @@ function linkHrefsByName(): Record<string, string | null> {
 }
 
 describe("expanded navigator renders every entry as a link (DoD-8)", () => {
-  it("DoD-8: with `collapsed` omitted, the seven router-link entries render with their visible labels", () => {
+  it("DoD-8: with `collapsed` omitted, the eight router-link entries render with their visible labels", () => {
     renderWithProviders(<WorkNavigator bookId="bk-1" />, {
       route: "/bk-1/state",
     });
 
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(7);
+    // WIDENED by 026.memos step 009 (DoD-1): the eighth entry is mandated by the step.
+    expect(links).toHaveLength(8);
     // The visible label text is untouched in expanded mode — the 010/002 regression guard.
     expect(links.map((link) => link.textContent?.trim())).toEqual(NAV_LABELS);
   });
 });
 
 describe("collapsed navigator keeps its links (DoD-9)", () => {
-  it("DoD-9: collapsed, exactly seven links are findable by accessible name", () => {
+  it("DoD-9: collapsed, exactly eight links are findable by accessible name", () => {
     renderWithProviders(<WorkNavigator bookId="bk-1" collapsed />, {
       route: "/bk-1/state",
     });
 
-    expect(screen.getAllByRole("link")).toHaveLength(7);
+    // WIDENED by 026.memos step 009 (DoD-1): the eighth entry is mandated by the step.
+    expect(screen.getAllByRole("link")).toHaveLength(8);
     for (const label of NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }

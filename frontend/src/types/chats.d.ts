@@ -146,8 +146,8 @@ export interface ModelOptionResponse {
  * (`backend/app/models/schemas/chats.py`, 013 step 007/010). A literal union, not
  * a free string: an unknown kind is refused at the schema boundary.
  *
- * Structurally identical to `work/subject.ts:SubjectKind` (same ten members, same
- * order) but deliberately declared here: `src/types/` models the WIRE and must
+ * Structurally identical to `work/subject.ts:SubjectKind` (same eleven members,
+ * same order) but deliberately declared here: `src/types/` models the WIRE and must
  * not import from an entry's domain modules. TypeScript's structural typing makes
  * the two interchangeable, and a member added to one and not the other stops
  * compiling at the mapping site.
@@ -162,7 +162,8 @@ export type SubjectKind =
   | "codex-entry"
   | "variants"
   | "chapter-variants"
-  | "chats";
+  | "chats"
+  | "memos";
 
 /**
  * The three subject fields a turn request may carry, supplied together by the
