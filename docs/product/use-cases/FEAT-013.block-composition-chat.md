@@ -314,7 +314,7 @@ not change.)
   open.
 - **Main flow:**
   1. Author opens a navigator entry — **Characters / Locations / Facts /
-     Chapters / Variants / Book state / Chats**.
+     Chapters / Variants / Book state / Chats / Memos**.
   2. System renders that entry in the content pane as a list (or, for Book
      state, its landing view, UC-091).
   3. Author picks an item.
@@ -333,6 +333,13 @@ not change.)
   seam S1 above is unchanged — the subject drives the assistant's *mode*,
   never which chat is open. `[confirmed: user]` interview 2026-09-14,
   "augment round — the assistant on a lore list"; challenge C2.
+- **Postconditions (memos, 2026-09-15):** The **Memos** entry renders the
+  author's own memos list (FEAT-021) in the content pane, the same as
+  every other navigator entry (step 2). Picking it resolves to **no
+  mode** — it joins the 2026-09-14 non-goal list (chapters list,
+  planned/closed chapters, Book state, chats view): browsing one's own
+  memos is navigation, not authoring. `[confirmed: user]` interview
+  2026-09-15, "augment round — memos"; challenge CP5.
 - **Note:** The codex entries split three ways (Characters / Locations /
   Facts) is the round-4 fixed taxonomy, not a new entity. The **Variants**
   entry, added round 7 to reconcile the architecture pass, renders the
@@ -352,7 +359,9 @@ not change.)
   round 7", divergence 2 — a chapter has revision history from the first
   chapter written and no other entry reaches it. **Mode postcondition:**
   `[confirmed: user]` interview 2026-09-14, "augment round — the
-  assistant on a lore list", challenge C2.
+  assistant on a lore list", challenge C2. **Memos entry:** `[confirmed:
+  user]` interview 2026-09-15, "augment round — memos", collected brief:
+  "A separate left item on the menu."
 
 ### UC-092 — Resume unsaved content-pane edits after navigating away
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005

@@ -41,6 +41,7 @@ tables. This file is exempt from the line budget.
 | FEAT-018 | Codex authoring from the composition chat | should | delivered |
 | FEAT-019 | Per-author system prompts | must | delivered |
 | FEAT-020 | Assistant modes & sub-agents | must | delivered |
+| FEAT-021 | Memos | must | proposed |
 
 ## Use cases
 
@@ -148,6 +149,13 @@ tables. This file is exempt from the line budget.
 | UC-100 | Browse public books | FEAT-007 | ACT-006 | delivered |
 | UC-101 | A stored chat is titled from its own content | FEAT-013 | ACT-004, ACT-005 | delivered |
 | UC-102 | See what the assistant did during a turn | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-103 | Create a memo | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-104 | Edit a memo in place | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-105 | Reorder memos | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-106 | Switch a memo off and on | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-107 | Archive and restore a memo | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-108 | Assistant creates a memo on request | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-109 | Active memos reach every assistant run | FEAT-021 | ACT-004, ACT-005 | proposed |
 
 ## Stories
 
@@ -275,4 +283,16 @@ tables. This file is exempt from the line budget.
 | US-120 | Author sees which tools the assistant used and what they returned | FEAT-013 | delivered |
 | US-121 | Author asks the assistant to create a codex entry outright | FEAT-018 | delivered |
 | US-122 | The assistant's mode follows the author's current content-pane subject | FEAT-013 | delivered |
+| US-123 | Author creates a memo and writes in it immediately | FEAT-021 | proposed |
+| US-124 | A memo is visible only to its author | FEAT-021 | proposed |
+| US-125 | Author edits a memo in place; it saves when focus leaves | FEAT-021 | proposed |
+| US-126 | Author reorders memos by dragging and by arrows | FEAT-021 | proposed |
+| US-127 | Author switches a memo off without losing it | FEAT-021 | proposed |
+| US-128 | Author archives a memo and can restore it | FEAT-021 | proposed |
+| US-129 | Author asks the assistant to create a memo | FEAT-021 | proposed |
+| US-130 | The assistant creates no memo unasked | FEAT-021 | proposed |
+| US-131 | Every active memo reaches the assistant, in the author's order | FEAT-021 | proposed |
+| US-132 | Memos reach every mode and every sub-agent | FEAT-021 | proposed |
+| US-133 | A clone carries the cloner's own memos | FEAT-015 | proposed |
+| US-134 | The moderation view excludes memos | FEAT-011 | proposed |
 <!-- product-spec:end -->

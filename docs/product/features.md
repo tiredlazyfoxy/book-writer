@@ -232,7 +232,7 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
 - **Actors:** ACT-001, ACT-004 · **Priority:** must
 - **Status:** proposed
 - **Realized by:** UC-043, UC-044, UC-045, UC-046, US-045, US-046, US-047,
-  US-048, US-093
+  US-048, US-093, US-134
 - **Note:** Admin never participates in a book in the main authoring
   interface, in any mode, regardless of visibility. Destroy here is the
   single sanctioned exception to FEAT-006's archive-only, never-destroyed
@@ -243,8 +243,13 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   clone, separately (challenge C22). `_TBD: whether a quarantined
   book can be released back to its members._` The moderation view reaches
   the book's codex (FEAT-017) too.
+  **2026-09-15 (memos):** The moderation view does **not** reach memos
+  (FEAT-021, US-134) — privacy there is absolute, unlike the codex;
+  memos are still destroyed when the book is destroyed, by this
+  feature's existing book-granularity rule.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "admin access &
-  moderation"; challenge C9, C22; codex round 4
+  moderation"; challenge C9, C22; codex round 4; interview 2026-09-15,
+  "augment round — memos", challenge C10
 
 ### FEAT-012 — Chapter summaries & state notes
 - **Purpose:** Draft and store per-chapter summaries and a live set of
@@ -418,6 +423,13 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   now stated here; recorded as a defect fix against it, not a new
   behaviour. Fixed directly on branch `bug-fix/main-page`, backend suite
   green — no `docs/plans/` folder owns this change.
+  **2026-09-15 (memos):** the navigator gains a **Memos** entry
+  (FEAT-021) — Characters / Locations / Facts / Chapters / Variants /
+  Book state / Chats / Memos. It renders the author's own memos list in
+  the content pane (UC-090, US-105.AC-7) and, like the chapters list and
+  Book state, resolves to **no mode** — browsing one's own memos is
+  navigation, not authoring; it joins FEAT-020's 2026-09-14 non-goal
+  list. No sixth mode is created.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "block composition chat" / "generation
   context"; codex round 4; interview 2026-07-23, "Augment round 5 —
@@ -428,7 +440,8 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   2026-07-24, "augment round 7", divergence 2; interview 2026-07-24,
   "FEAT-020 — sub-agent model assignment (augment round 9)"; interview
   2026-07-30, "finalization — 021 + 014 + 015", challenge C1; interview
-  2026-09-14, "augment round — the assistant on a lore list", challenge C2
+  2026-09-14, "augment round — the assistant on a lore list", challenge C2;
+  interview 2026-09-15, "augment round — memos"
 
 ### FEAT-014 — Chapter variants & fixes
 - **Purpose:** Let an owner correct a chapter after reopening while
@@ -463,7 +476,7 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
 - **Actors:** ACT-004, ACT-005 · **Priority:** must
 - **Status:** proposed
 - **Realized by:** UC-061, UC-062, UC-063, US-066, US-067, US-068,
-  US-069, US-070, US-071, US-094
+  US-069, US-070, US-071, US-094, US-133
 - **Note:** A clone is fully independent — no link, no sync, no
   comparison with its source. It carries chapters, edits and sketches,
   state notes and summaries, the codex (FEAT-017), membership (selectable —
@@ -481,10 +494,16 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   do **NOT** carry over on a clone — they are per-author personal
   authoring instructions, not book-shaping state; this corrects the
   round-7 claim above that they did (challenge C4).
+  **2026-09-15 (memos):** A clone also carries the cloner's own memos
+  (FEAT-021, US-133) — other members' memos never do, since nobody can
+  read them. Diverges deliberately from the system-prompt rule just
+  above: a memo is book-shaped knowledge (what to remember), a prompt is
+  personal style (how to write).
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 3 —
   variants, cloning & consistency", "book cloning"; challenges C21, C23;
   codex round 4; interview 2026-07-24, "augment round 7", divergence 3;
-  interview 2026-07-30, "finalization — 021 + 014 + 015", challenge C4
+  interview 2026-07-30, "finalization — 021 + 014 + 015", challenge C4;
+  interview 2026-09-15, "augment round — memos", challenge C8
 
 ### FEAT-016 — Consistency check & chapter flags
 - **Purpose:** LLM inspection of a book's chapters, summaries and state
@@ -655,6 +674,13 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
     — their owner-only / book-wide model inverted under per-author
     ownership; amending in place would have silently changed what a
     stable id means). Replaced by UC-098, UC-099, US-115, US-116.
+  - **2026-09-15 (memos):** FEAT-021 (memos) shares all four defining
+    properties with these prompts — per-author, per-book, private,
+    always applied. Stated difference: a memo records **what to
+    remember**; a prompt shapes **how the assistant writes**. And: the
+    assistant can create a memo, never a prompt. Accepted overlap, not a
+    duplicate. Unlike memos, which carry over on clone (FEAT-015,
+    US-133), these prompts do not.
 - **Source:** `[confirmed: user]` interview 2026-07-24, "augment round 7 —
   enforcing the architecture pass onto the spec", divergence 3; no-carry-
   over-on-clone per `[confirmed: user]` interview 2026-07-30, "challenges
@@ -662,7 +688,8 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   clauses per `docs/.cache/product/spec-plan.finalization.md` §D,
   docs/plans/021.per-author-system-prompt/,
   docs/plans/014.chapter-skeleton/,
-  docs/plans/015.chapter-writing-free-mode/ (2026-07-30)
+  docs/plans/015.chapter-writing-free-mode/ (2026-07-30); interview
+  2026-09-15, "augment round — memos", challenge C1
 
 ### FEAT-020 — Assistant modes & sub-agents
 - **Purpose:** Let the admin configure how the AI assistant behaves per
@@ -740,10 +767,70 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   mode set — not deferred, not an oversight. The user's reasoning:
   "browsing chapters is navigation, not authoring: a book has one open
   chapter and writing happens in it, not in the list."
+  **2026-09-15 (memos):** the memos list (FEAT-021) joins this non-goal
+  list — browsing one's own memos is navigation, not authoring; no
+  sixth mode is created. The **create-memo tool** (FEAT-021) is
+  registered in this feature's tool registry like any other tool and
+  granted per mode to the modes that author.
 - **Source:** `[confirmed: user]` interview 2026-07-24, "FEAT-020 —
   assistant modes & sub-agents (augment round 8)"; challenges C-r8-1..
   C-r8-5; interview 2026-07-24, "FEAT-020 — sub-agent model assignment
   (augment round 9)"; interview 2026-09-14, "augment round — the
-  assistant on a lore list", challenge C4
+  assistant on a lore list", challenge C4; interview 2026-09-15,
+  "augment round — memos", challenge CP5
+
+### FEAT-021 — Memos
+- **Purpose:** Standing notes an author keeps for a book, carried into
+  every run of their assistant without being retyped.
+- **Actors:** ACT-004, ACT-005 · **Priority:** must
+- **Status:** proposed
+- **Realized by:** UC-103, UC-104, UC-105, UC-106, UC-107, UC-108,
+  UC-109, US-123, US-124, US-125, US-126, US-127, US-128, US-129,
+  US-130, US-131, US-132
+- **Note:** Per-author **and** per-book — private absolutely: no other
+  member, including the book owner, reads another member's memos. A
+  sticky-note list; there is **no memo page**, just the list, reached
+  from the working page's **Memos** navigator entry (FEAT-013) — it
+  joins FEAT-020's non-goal list, navigation not authoring, no sixth
+  mode. **Body text only** — no title field; all management happens
+  through icons in the memo header. The author's order **is** the order
+  the assistant receives them in — narrows, does not reverse,
+  `vision.md`'s context-assembly non-goal (see there). Reorderable by
+  drag-and-drop **and** by arrows. A new memo appends last and is
+  focused immediately. Edited in place, saved on focus loss — no
+  explicit save action. Three states: **active** (in context) ·
+  **inactive** (still listed, visibly off, out of context — the
+  everyday switch) · **archived** (out of the working list, restorable,
+  following FEAT-017's codex pattern) — inactive and archived are two
+  deliberate axes, not one mechanism. Two creation paths: manual, and
+  the assistant via a **create-memo tool**; there is **no edit-memo
+  tool and no get-memos tool**, because every active memo is already
+  present in context. The assistant creates a memo only on direct
+  request — never unasked — mirroring US-121.AC-3's guardrail and its
+  caveat: prompt-enforced, not structural, so an administrator who
+  rewrites the mode prompt can weaken it. Active memos reach **every
+  one of FEAT-020's five modes and every delegated sub-agent** — the
+  widest reading of "always in context". **Accepted overlap with
+  FEAT-019** (both per-author, per-book, private, always applied): a
+  memo records **what to remember**, a prompt shapes **how the
+  assistant writes**; and the assistant can create a memo, never a
+  prompt. **Accepted overlap with FEAT-018**: same "creates outright on
+  direct request, no draft, no save step" guardrail, different object.
+  **Carries over on clone (FEAT-015)** — the cloner's own memos come
+  with them; other members' never do (nobody can read them). This
+  **diverges from FEAT-019**, whose prompts deliberately do not carry
+  over: a memo records book-shaped knowledge (what to remember), a
+  system prompt is personal style (how to write). **Not visible in
+  FEAT-011's moderation view** — privacy is absolute, matching
+  FEAT-019's prompts, unlike the codex (US-093); memos are still
+  destroyed when the book is destroyed, by FEAT-011's existing
+  book-granularity rule.
+- `_TBD:` no ceiling on memo count or length at MVP — nothing sheds
+  memos, so the set grows into every request indefinitely and the
+  author gets no signal when it crowds out chapter text. Accepted
+  knowingly.
+- **Source:** `[confirmed: user]` interview 2026-09-15, "augment round —
+  memos"; challenges C1..C11 (interview questions) and CP1..CP5 (challenge
+  register).
 
 <!-- product-spec:end -->

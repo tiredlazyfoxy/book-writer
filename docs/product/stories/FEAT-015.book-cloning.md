@@ -100,4 +100,21 @@
 - **Source:** `[inferred]` codex round 4 — the codex is per-book content
   (FEAT-017), consistent with the round-3 carry-over list (US-071); not
   separately asked.
+
+### US-133 — A clone carries the cloner's own memos
+- **Feature:** FEAT-015 · **Actor:** ACT-004, ACT-005 · **Realizes:**
+  UC-061, UC-062
+- **Status:** proposed
+- **Story:** As a cloner, I want my own memos to come with the clone, so
+  that the book-shaped knowledge I've built up isn't lost when I start
+  the new copy.
+- **Acceptance criteria:**
+  - **US-133.AC-1** — Given a book with memos belonging to the cloner,
+    when they clone it, then the clone contains copies of the cloner's
+    own memos as of the clone time.
+  - **US-133.AC-2** — Given a book with memos belonging to other
+    members, when it is cloned, then none of those other members' memos
+    are copied into the clone.
+- **Source:** `[confirmed: user]` interview 2026-09-15, "augment round —
+  memos", challenge C8.
 <!-- product-spec:end -->

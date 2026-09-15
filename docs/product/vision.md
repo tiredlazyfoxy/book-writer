@@ -67,6 +67,9 @@ product to work (challenge C2).
   writes as a draft before anything is saved. `[confirmed: user]` interview
   2026-07-23, "Augment round 5 — book-writer SPA layout & the working
   page", "the working page" / "context model — hybrid push/pull".
+- An author keeps standing notes for a book that their assistant carries
+  into every conversation without being retold. `[confirmed: user]`
+  interview 2026-09-15, "augment round — memos", challenge CP4.
 
 `[confirmed: user]` interview 2026-07-20, "features — the four capabilities, in order"
 
@@ -145,7 +148,17 @@ SPA layout & the working page".
 - Still deferred within generation, and treated as genuinely open, not
   settled: **prompt design, model-selection strategy, context assembly
   (ordering/truncation), token budgets, and chat storage** — architecture's
-  job, not this layer's. Also still deferred: the **character/place entity
+  job, not this layer's.
+  **Narrowed by the 2026-09-15 augment round (challenge CP3) — memos.**
+  This non-goal's "context assembly (ordering/truncation)" clause reads
+  as if no assembly detail is ever product's. FEAT-021 (memos) states one
+  observable promise: the assistant receives the author's active memos
+  in the order the author put them in. Where the memo block sits
+  relative to chapter text, summaries and state notes remains
+  architecture's, unchanged. Narrowed precisely, not reversed — recorded
+  here the same way C1 / C10 / C-r7-1 were. `[confirmed: user]` interview
+  2026-09-15, "augment round — memos", challenge CP3.
+  Also still deferred: the **character/place entity
   model** — state notes are free text with no entity backing this round;
   a direct consequence is that staleness cannot be flagged per subject.
   `[confirmed: user]` interview 2026-07-20, "Augment round 2", "summaries &

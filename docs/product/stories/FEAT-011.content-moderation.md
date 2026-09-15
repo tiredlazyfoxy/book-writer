@@ -70,4 +70,20 @@
     alongside its chapters, read-only.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 4",
   "codex": "Yes — it's book content."
+
+### US-134 — The moderation view excludes memos
+- **Feature:** FEAT-011 · **Actor:** ACT-001 · **Realizes:** UC-043
+- **Status:** proposed
+- **Story:** As an admin, I want the moderation view to never show a
+  member's memos, so that a member's private notes stay private even
+  under moderation.
+- **Acceptance criteria:**
+  - **US-134.AC-1** — Given any book regardless of visibility, when an
+    admin opens it in the moderation view, then no member's memos are
+    shown.
+- **Note:** Memos are still destroyed when the book is destroyed, by
+  FEAT-011's existing book-granularity rule — this criterion is about
+  visibility, not survival.
+- **Source:** `[confirmed: user]` interview 2026-09-15, "augment round —
+  memos", challenge C10.
 <!-- product-spec:end -->

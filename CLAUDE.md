@@ -4,7 +4,7 @@ LLM-assisted authoring of long-form texts (books and other large documents) — 
 
 > This file is the primary guidance for agents and contributors. It covers the tech stack, how to build and test, project layout, and the enforced conventions. Full detail lives in `docs/architecture/`.
 
-The book/document domain is **specified** in `docs/product/` — **20 features, 100 use-case ids and 118 story ids as of 2026-07-31** (four of those ids are tombstoned `withdrawn`; ids are never renumbered or reused). **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
+The book/document domain is **specified** in `docs/product/` — **21 features, 109 use-case ids and 134 story ids as of 2026-09-15** (four of those ids are tombstoned `withdrawn`; ids are never renumbered or reused). **Do not invent domain entities**: read `docs/product/quick-reference.md` (the sole canonical id registry) and cite the `FEAT-###` / `UC-###` / `US-###.AC-#` ids you implement.
 
 The domain's *architecture* is **designed as of 2026-07-24** — read it before touching book entities. `docs/architecture/domain-model.md` is the index over `domain-book.md`, `domain-chapter.md`, `domain-continuity.md`, `domain-codex.md` and `domain-chat.md`; alongside it sit `authorization.md` (book-scoped permissions), `retrieval.md` (the embedding pipeline) and `frontend-workspace.md` (the working page). Entities are drawn for `FEAT-006..018` whole, even though only the Stage-2 tables get built first.
 

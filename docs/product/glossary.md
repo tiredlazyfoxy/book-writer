@@ -156,6 +156,15 @@
 - **Tool (MCP)** — a system-registered backend function exposed to the
   assistant; not external web MCP. The admin selects a subset per mode
   or sub-agent (FEAT-020).
+- **Memo** — a standing note an author keeps for one book, carried into
+  every run of their assistant without being retyped; private to its
+  author, even from the book owner. Body text only, no title.
+- **Active (memo)** — in the author's list and included in the
+  assistant's context.
+- **Inactive (memo)** — still in the author's list, visibly off,
+  excluded from context — the everyday switch.
+- **Archived (memo)** — out of the working list entirely, restorable;
+  the only way a memo is ever removed — there is no delete.
 
 **Distinctions** — each pair is confusable, kept separate deliberately:
 - *Archive* (owner, reversible, never destroys) vs *quarantine* (admin,

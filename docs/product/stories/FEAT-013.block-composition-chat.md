@@ -333,11 +333,16 @@ renumbered.)
   - **US-105.AC-6** — Given a rendered chats list, when the author picks a
     chat from it, then the list stays where it is — the author is not
     taken away from it.
+  - **US-105.AC-7** — Given the navigator, when the author picks
+    **Memos**, then the author's own memos list (FEAT-021) renders in the
+    content pane.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
   "the working-page navigator". AC-4: `[confirmed: user]` interview
   2026-07-24, "augment round 7", divergence 2. AC-3 amended and AC-5/AC-6
   added: `[confirmed: user]` interview 2026-08-10, "finalization — plans
-  023 + 024"; challenge C-f2324-1.
+  023 + 024"; challenge C-f2324-1. AC-7 added: `[confirmed: user]`
+  interview 2026-09-15, "augment round — memos", collected brief: "A
+  separate left item on the menu."
 
 ### US-107 — Unsaved content-pane edits are retained and restored
 - **Feature:** FEAT-013 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-092

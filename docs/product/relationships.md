@@ -12,8 +12,8 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 | ACT-001 | FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-011, FEAT-020 |
 | ACT-002 | FEAT-002, FEAT-006 |
 | ACT-003 | FEAT-001 |
-| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019 |
-| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019 |
+| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021 |
+| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021 |
 | ACT-006 | FEAT-007 |
 
 **Depends on:**
@@ -88,6 +88,24 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
   proposal-mode state-note edit needs FEAT-010's proposal-holding
   mechanism; plan 016 refuses it because that mechanism does not
   exist. Mirrors the existing FEAT-013 → FEAT-010 edge.
+- FEAT-021 → FEAT-006 — **new, memos round:** a book must exist to scope
+  memos. Mirrors the existing FEAT-019 → FEAT-006 edge.
+- FEAT-021 → FEAT-007 — **new, memos round:** memos follow membership —
+  only a member of a book has memos in it. Mirrors FEAT-017 → FEAT-007.
+- FEAT-021 → FEAT-013 — **new, memos round:** memos reach the
+  assistant's context, and the memos list is a navigator entry on the
+  working page.
+- FEAT-021 → FEAT-020 — **new, memos round:** runtime edge, the
+  FEAT-012 → FEAT-020 pattern — the create-memo tool is registered in
+  FEAT-020's tool registry and granted per mode; without a grant the
+  tool is unreachable.
+- FEAT-015 → FEAT-021 — **new, memos round:** a clone carries the
+  cloner's own memos. Edge runs clone-ward, unlike FEAT-019, whose
+  prompts do NOT carry over.
+
+**No new edge FEAT-011 → FEAT-021.** FEAT-011 acts at book granularity
+only; memos die with a destroyed book by that existing rule, not by a
+memo-specific dependency — consistent with FEAT-011's own note.
 
 **Hosting (round 6, not a dependency edge):** the FEAT-013 navigator
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
@@ -180,8 +198,23 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
   (UC-029) — an archived public book is readable by direct link but
   unlisted. Deliberate, and consistent with UC-023's archive being
   preserved and reversible.
+- FEAT-021 / FEAT-019 — **accepted, memos round:** both per-author,
+  per-book, private, always applied. Stated difference: a memo records
+  **what to remember**, a prompt shapes **how the assistant writes**;
+  and the assistant can create a memo, never a prompt.
+- FEAT-021 / FEAT-018 — **accepted, memos round:** both "the assistant
+  creates an object outright, on direct request, no draft, no save
+  step" (US-121 precedent) — different object, same guardrail.
 
-**Conflicts:** None unresolved. Resolved: C17 — UC-036/US-038 amended in
+**Conflicts:** None unresolved. Resolved: CP3 (memos round) — the vision
+non-goal on context-assembly ordering (`vision.md`) vs. FEAT-021's
+author-order guarantee: narrowed, not reversed — product states only that
+active memos reach the assistant in the author's set order; where the
+memo block sits relative to chapter text, summaries and state notes stays
+`/architect`'s. **CP5 (memos round)** — FEAT-020's fixed set of five modes
+vs. the memos list joining the working-page navigator: resolved by
+resolving the memos list to no mode, alongside the 2026-09-14 non-goal
+list; FEAT-020's set of five is unchanged. C17 — UC-036/US-038 amended in
 place to gate closing on a clean close run (FEAT-012) (reworded
 2026-07-31 — the gate is the shipped clean run, not an approval; the
 conflict stays resolved). C21 — only the owner may clone a private book
