@@ -64,7 +64,25 @@ from app.services.tools import ToolDef
 # ``011.chat-panel`` shipped. Today it happens to equal the whole
 # ``services/tools.py:TOOL_REGISTRY``, which is why 011's turns are unaffected;
 # it stops being equal the moment step 009 adds registry entries.
-BASE_TOOL_NAMES: tuple[str, ...] = ("web_search",)
+#
+# **Two entries since 026 step 008** (``assistant-runtime.md`` →
+# "``BASE_TOOL_NAMES`` widens to two entries"). ``create_memo`` joins
+# ``web_search`` because product put memos OUTSIDE FEAT-020's mode set on
+# purpose: the memos list, book state, the chapters / variants / chats lists and
+# any ``planned`` or ``closed`` chapter all land in the no-mode case, so a
+# mode-gated-only ``create_memo`` would fail **on the memos list itself** — the
+# shape feature 025 had to fix for the lore lists. It is still seeded into all
+# five modes (``db/mode_tools.py:DEFAULT_MODE_TOOL_NAMES``), because **BASE does
+# not override a mode's allowlist**: an administrator who edits ``create_memo``
+# out of a mode still gets the visible refusal US-129.AC-5 requires.
+#
+# Widening the set is safe precisely because the tool **reads no subject**: it
+# writes into the book the route named, for the caller the route resolved
+# (``services/memo_tools.py``'s docstring). Nothing else here moves —
+# :class:`ResolvedSubject` gains no member, :func:`determine_mode` gains no
+# branch, and the three gating cases are unchanged (``026/context.md`` →
+# decision 11).
+BASE_TOOL_NAMES: tuple[str, ...] = ("web_search", "create_memo")
 
 
 @dataclass(frozen=True)
@@ -435,8 +453,14 @@ async def resolve_turn_tools(
       single place an allowed name with no registry entry is skipped and logged;
     - the mode's **synthetic** sub-agent delegation tools from
       :func:`app.services.subagent_delegation.build_delegation_tools`, with
-      ``parent`` carrying what a nested call inherits when a sub-agent has no
-      model assignment of its own. With **no** mode there are none at all.
+      ``parent`` carrying what a nested call inherits: the parent turn's
+      server, already-resolved key and model when a sub-agent has no model
+      assignment of its own, and — since 026 step 007 — the turn's
+      already-rendered ``MEMOS`` section, so a delegated sub-agent composes the
+      same memos the parent's own prompt carries without a second database read.
+      This function only **passes ``parent`` through**; nothing about mode
+      determination, the tool allowlist or :data:`BASE_TOOL_NAMES` takes any
+      part in it. With **no** mode there are no synthetic tools at all.
 
     Returning one list is the point: ``chat_turn`` hands it to
     ``build_tool_bindings`` in a single call, so ``tools_definitions`` and

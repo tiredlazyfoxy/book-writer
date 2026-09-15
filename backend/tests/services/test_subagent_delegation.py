@@ -6,7 +6,9 @@ Bound to the frozen skeleton (``status.md`` -> ``## Skeleton`` -> Step 008), in
     SUBAGENT_MAX_LOOPS = 3
     DELEGATION_TOOL_PREFIX = "ask_"
     @dataclass(frozen=True) class ParentTurn {
-        server: LlmServer; resolved_key: str | None; model: str }
+        server: LlmServer; resolved_key: str | None; model: str;
+        tool_context: ToolContext | None = None;
+        memos_section: str | None = None }   # the last field: 026 step 007
     class DelegationArgs(BaseModel) { task: str }
     def delegation_tool_name(sub_agent_name: str) -> str
     async def build_delegation_tools(mode_key: str | None,
@@ -557,18 +559,26 @@ async def test_no_mode_builds_no_synthetic_tools__DoD4(
 
 
 # ---------------------------------------------------------------------------
-# DoD-5 — the nested call gets the sub-agent's own system_prompt ALONE
+# DoD-5 — the nested call gets the sub-agent's own system_prompt, and of the
+# parent's layers only the MEMOS section (narrowed by 026 step 007)
 # ---------------------------------------------------------------------------
 
 
-# DoD-5 (assistant-config.md -> Sub-agent delegation): invoking a synthetic tool
-# runs a nested chat_with_tools whose `system` is the sub-agent's own
-# system_prompt alone -- the parent's composed base / mode / book prompt does not
-# appear in it.
-async def test_nested_system_is_the_subagent_prompt_alone__DoD5(
+# DoD-5 (assistant-config.md -> Sub-agent delegation, as narrowed by feature 026
+# step 007 -> DoD-2 / DoD-4): invoking a synthetic tool runs a nested
+# chat_with_tools whose `system` is the sub-agent's own system_prompt -- alone
+# when the parent turn carries no memo section, and otherwise that prompt plus
+# the `MEMOS` section and NOTHING else. The parent's composed base / mode /
+# author / chapter layers never appear in it: the sub-agent stays a
+# self-contained, admin-configured worker for BEHAVIOUR, while the author's
+# standing FACTS are honoured (026/007.context.md -> "What the narrowing is").
+async def test_nested_system_is_the_subagent_prompt_plus_memos_only__DoD5(
     db: DbConfig, monkeypatch
 ):
-    from app.services.prompt_composition import BASE_SYSTEM_PROMPT
+    from app.services.prompt_composition import (
+        BASE_SYSTEM_PROMPT,
+        compose_system_prompt,
+    )
 
     await _seed_mode("edit-character", "MODE_RULES_ABC")
     agent = await _seed_sub_agent(
@@ -578,6 +588,7 @@ async def test_nested_system_is_the_subagent_prompt_alone__DoD5(
     parent = await _parent_turn()
     factory = _install_factory(monkeypatch, _ClientFactory())
 
+    # Half one: no memo section carried -- the prompt alone, verbatim.
     built = await build_delegation_tools("edit-character", parent)
     tool = _find(built, "ask_continuity_checker")[0]
 
@@ -588,8 +599,35 @@ async def test_nested_system_is_the_subagent_prompt_alone__DoD5(
 
     system = factory.clients[0].calls[0]["system"]
     assert system == "SUBAGENT_RULES_ONLY"
-    assert BASE_SYSTEM_PROMPT not in (system or "")
-    assert "MODE_RULES_ABC" not in (system or "")
+
+    # Half two: a memo section carried on the parent turn -- the sub-agent's own
+    # prompt plus that one section, composed the way the parent's is.
+    with_memos = ParentTurn(
+        server=parent.server,
+        resolved_key=PARENT_KEY,
+        model=PARENT_MODEL,
+        memos_section="REMEMBER_THIS_MEMO",
+    )
+    built = await build_delegation_tools("edit-character", with_memos)
+    tool = _find(built, "ask_continuity_checker")[0]
+
+    assert await tool.callable(task="check the timeline") == NESTED_ANSWER
+
+    system = factory.clients[1].calls[0]["system"]
+    assert system == (
+        "SUBAGENT_RULES_ONLY\n\n"
+        + compose_system_prompt(memos="REMEMBER_THIS_MEMO")
+    )
+    assert "REMEMBER_THIS_MEMO" in system
+
+    # The surviving half of the original assertion, on BOTH nested systems: no
+    # base, mode, author or chapter layer threads through.
+    for nested in (client.calls[0]["system"] or "" for client in factory.clients):
+        assert "SUBAGENT_RULES_ONLY" in nested
+        assert BASE_SYSTEM_PROMPT not in nested
+        assert "MODE_RULES_ABC" not in nested
+        for marker in ("### BASE", "### MODE", "### AUTHOR", "### CHAPTER"):
+            assert marker not in nested
 
 
 # ---------------------------------------------------------------------------

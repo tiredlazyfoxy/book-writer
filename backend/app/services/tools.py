@@ -133,6 +133,7 @@ from app.services.codex_tools import (
     bind_create_codex_entry,
     bind_write_codex_draft,
 )
+from app.services.memo_tools import CreateMemoArgs, bind_create_memo
 from app.services.web_search import web_search
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard, see ToolContext
@@ -582,6 +583,33 @@ TOOL_REGISTRY: list[ToolDef] = [
         args_schema=CodexListFactsArgs,
         group="codex",
         binder=bind_codex_list_facts,
+    ),
+    # FEAT-021's single entry (026 step 008). Bound, like every entry since 013,
+    # and it takes the EXISTING ``"book"`` group — no new group, and the valid
+    # group set is not widened (``026/context.md`` → decision 9).
+    #
+    # Two firsts, both recorded in ``assistant-config.md``: it is the first bound
+    # entry that needs **no new ``ToolContext`` field** (``book_id`` and
+    # ``access.user_id`` are already there, so the context keeps the same fields
+    # it had), and the first whose callable **writes a row** instead of emitting
+    # a ``canvas`` frame and persisting nothing. The description says so to the
+    # model, because "saved immediately, no save step" is the one fact that
+    # separates it from every other write tool in this registry.
+    ToolDef(
+        name="create_memo",
+        description=(
+            "Save a new memo for the author of this conversation: one of their "
+            "own standing notes about this book, which they see every time they "
+            "work on it. Call it ONLY when the author has directly asked you to "
+            "remember or note something down — never on your own initiative. "
+            "The memo is SAVED immediately, at the end of their list; there is "
+            "no draft and no save step, and a wrong one has to be corrected by "
+            "hand. It is private to that author and belongs to the book they "
+            "are working in."
+        ),
+        args_schema=CreateMemoArgs,
+        group="book",
+        binder=bind_create_memo,
     ),
 ]
 

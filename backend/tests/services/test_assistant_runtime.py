@@ -773,6 +773,12 @@ async def test_mode_with_no_tool_rows_offers_nothing__DoD10(db: DbConfig, monkey
 # DoD-11 (context.md decision 6): with NO mode, exactly BASE_TOOL_NAMES is
 # allowed -- so web_search survives on the chats view and the book-state view, and
 # a null mode is NOT the whole registry.
+#
+# Re-bound by 026.memos step 008, whose DoD-6 widens BASE_TOOL_NAMES from one entry
+# to two (`web_search` AND `create_memo`), so the mode-less surfaces -- the memos
+# list included -- can reach the memo-creation tool. Only the literal expected set
+# below moves; every assertion here, including "a null mode is not the whole
+# registry", is unchanged in subject and in strength.
 @pytest.mark.parametrize("subject_kind", ["chats", "book-state"])
 async def test_no_mode_allows_exactly_base_tool_names__DoD11(
     db: DbConfig, monkeypatch, subject_kind
@@ -784,7 +790,7 @@ async def test_no_mode_allows_exactly_base_tool_names__DoD11(
     fake = _install_client(monkeypatch, _FakeClient(chunks=["ok"]))
 
     assert await assistant_runtime.allowed_tool_names(None) == BASE_TOOL_NAMES
-    assert set(BASE_TOOL_NAMES) == {"web_search"}
+    assert set(BASE_TOOL_NAMES) == {"web_search", "create_memo"}  # 026 step 008
 
     frames = await _run(context)
 

@@ -582,8 +582,17 @@ async def test_closing_chapter_resolves_close_chapter__DoD7(db: DbConfig):
 # DoD-8 (009.context.md -- FEAT-020's five modes name five activities, and
 # neither of these is one of them): a chapter in `planned` or `closed` resolves to
 # NO mode, and `allowed_tool_names` therefore returns the base allowlist --
-# concretely, exactly `("web_search",)`: not an empty list and not the whole
-# registry.
+# concretely, exactly `web_search` and `create_memo`: not an empty list and not the
+# whole registry.
+#
+# Re-bound by 026.memos step 008, whose DoD-6 widens BASE_TOOL_NAMES from one entry
+# to two and names a `planned` or `closed` chapter as one of the mode-less surfaces
+# that must therefore resolve an allowlist containing the memo-creation tool. Only
+# the expected value below moves; the test's own subject -- these two states
+# resolve to the BASE allowlist rather than to a mode's -- is unchanged, and so are
+# the two wrong answers it rules out. Membership is pinned rather than tuple order,
+# because the step fixes the base set's CONTENTS and leaves its order to the coder;
+# the `== BASE_TOOL_NAMES` assertion below still pins the value exactly.
 @pytest.mark.parametrize(
     "state",
     [ChapterState.planned, ChapterState.closed],
@@ -612,7 +621,8 @@ async def test_planned_and_closed_chapters_get_the_base_allowlist__DoD8(
     names = await assistant_runtime.allowed_tool_names(mode)
 
     # The concrete value, not the concept.
-    assert names == ("web_search",)
+    assert set(names) == {"web_search", "create_memo"}  # 026 step 008
+    assert len(names) == 2
     assert names == BASE_TOOL_NAMES
     # Neither of the two wrong answers: not empty, and not the whole registry.
     assert names != ()

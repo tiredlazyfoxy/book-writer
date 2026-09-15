@@ -945,6 +945,12 @@ async def test_no_path_in_any_of_the_four_tools_raises__DoD11(db: DbConfig):
 # `write-chapter`'s seeded tuple — eight names become twelve, and the derived
 # `len(...)` assertion moves with the set. `close-chapter` is untouched there, and
 # nothing here asserts anything about the other four modes.
+#
+# Widened the same two-part way by 026.memos step 008, whose DoD-7 appends
+# `create_memo` to ALL FIVE default tuples (`008.create-memo-tool.md` -> Interface
+# intent -> `backend/app/db/mode_tools.py`) — twelve names become thirteen, and the
+# derived `len(...)` assertion moves with the set. It stays an EXACT-set assertion,
+# never a "contains" check, and nothing else in this test changes.
 WRITE_CHAPTER_DEFAULT_TOOLS = {
     "web_search",
     "codex_search",
@@ -958,6 +964,7 @@ WRITE_CHAPTER_DEFAULT_TOOLS = {
     "codex_list_characters",  # 025
     "codex_list_locations",  # 025
     "codex_list_facts",  # 025
+    "create_memo",  # 026 step 008
 }
 
 

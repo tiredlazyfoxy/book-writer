@@ -2,9 +2,11 @@
 
 Originally feature 011, step 002. **Feature 021, step 004 renames the third
 layer**: the composer's book parameter becomes ``author`` and its section label
-becomes ``AUTHOR``, so the order is now base -> mode -> author -> chapter.
+becomes ``AUTHOR``. **Feature 026, step 006 inserts a FIFTH layer**: the author's
+active memos render as a ``MEMOS`` section at position 4, so the order is now
+base -> mode -> author -> memos -> chapter and the chapter layer is fifth.
 
-Bound to the frozen skeleton signature (status.md -> Skeleton -> Step 004):
+Bound to the frozen skeleton signature (status.md -> Skeleton -> Step 006):
 
     app.services.prompt_composition:
         BASE_SYSTEM_PROMPT: str
@@ -13,30 +15,38 @@ Bound to the frozen skeleton signature (status.md -> Skeleton -> Step 004):
             base: str | None = None,
             mode: str | None = None,
             author: str | None = None,
+            memos: str | None = None,
             chapter: str | None = None,
         ) -> str
 
 Expected values come from the SPEC ONLY — feature 011 step 002's DoD-1/DoD-2 (for
-the pre-existing coverage), feature 021 step 004's DoD-1/DoD-2/DoD-3, the step
-Interface intent, `021/context.md` decision 3 and `assistant-config.md` ->
-"System-prompt composition" — never from implementation internals.
+the pre-existing coverage), feature 021 step 004's DoD-1/DoD-2/DoD-3, feature 026
+step 006's Interface intent + DoD-4/DoD-5, `021/context.md` decision 3,
+`026/context.md` decision 7 and `assistant-config.md` -> "System-prompt
+composition" — never from implementation internals.
 
 Key spec facts asserted here:
     - The composer emits the non-empty layers in the FIXED order
-      base -> mode -> author -> chapter, each as its own section.
+      base -> mode -> author -> memos -> chapter, each as its own section.
     - Each surviving layer renders as ``### {LABEL}\\n{text.strip()}`` and the
       survivors are joined by a blank line; the third label is ``AUTHOR``.
     - An empty, whitespace-only or absent layer contributes NOTHING — no section,
-      no separator, no blank block; whitespace-only counts as empty.
+      no separator, no blank block; whitespace-only counts as empty. The rule
+      extends to the new memos layer unchanged.
     - There is no compatibility alias: the retired ``book=`` keyword raises
-      ``TypeError`` rather than silently binding (021 step 004, DoD-3).
+      ``TypeError`` rather than silently binding (021 step 004, DoD-3) — and 026
+      adds no alias for the inserted or the moved layer either.
+    - ``author`` is still the THIRD positional parameter (026 step 006, DoD-5) —
+      a property this feature preserves rather than breaks.
 
 The composer is pure (takes strings, reads no DB), so no fixtures are needed.
 Sentinels are chosen so they cannot collide with any plausible label/delimiter.
 
-NOTE on DoD ids: names ending ``__DoD1``/``__DoD2`` that pre-date this step carry
-feature 011 step 002's ids; the tests added below under the "021 step 004" banners
-carry feature 021 step 004's ids.
+NOTE on DoD ids: this file keeps its own historical numbering. Names ending
+``__DoD1``/``__DoD2`` carry feature 011 step 002's ids and ``__DoD3`` carries
+feature 021 step 004's id, including where feature 026 step 006 rewrote the
+assertion to the five-layer fact. Step 006's own numbering lives in
+``tests/services/test_memo_prompt_composition.py``.
 """
 
 import inspect
@@ -50,6 +60,7 @@ from app.services.prompt_composition import BASE_SYSTEM_PROMPT, compose_system_p
 _BASE = "ZZBASELAYERZZ"
 _MODE = "ZZMODELAYERZZ"
 _AUTHOR = "ZZAUTHORLAYERZZ"
+_MEMOS = "ZZMEMOSLAYERZZ"
 _CHAP = "ZZCHAPTERLAYERZZ"
 
 
@@ -60,32 +71,36 @@ def test_base_system_prompt_is_nonempty__DoD1():
     assert BASE_SYSTEM_PROMPT.strip() != ""
 
 
-# DoD-1 (feature 011 step 002): with all four layers non-empty, each appears in
-# the output exactly once and in the fixed order base -> mode -> author ->
-# chapter. (The third layer was `book=` until feature 021 step 004 renamed it.)
-def test_composes_all_four_layers_in_fixed_order__DoD1():
+# DoD-1 (feature 011 step 002): with all layers non-empty, each appears in the
+# output exactly once and in the fixed order. (The third layer was `book=` until
+# feature 021 step 004 renamed it; feature 026 step 006 inserted `memos` at
+# position 4, so there are now FIVE layers and `chapter` is last.)
+def test_composes_all_five_layers_in_fixed_order__DoD1():
     result = compose_system_prompt(
-        base=_BASE, mode=_MODE, author=_AUTHOR, chapter=_CHAP
+        base=_BASE, mode=_MODE, author=_AUTHOR, memos=_MEMOS, chapter=_CHAP
     )
 
     # Every layer is present...
     assert _BASE in result
     assert _MODE in result
     assert _AUTHOR in result
+    assert _MEMOS in result
     assert _CHAP in result
 
     # ...each exactly once (its own single section, not duplicated).
     assert result.count(_BASE) == 1
     assert result.count(_MODE) == 1
     assert result.count(_AUTHOR) == 1
+    assert result.count(_MEMOS) == 1
     assert result.count(_CHAP) == 1
 
     # ...and their first appearances are strictly ordered base < mode < author <
-    # chapter.
+    # memos < chapter.
     assert (
         result.index(_BASE)
         < result.index(_MODE)
         < result.index(_AUTHOR)
+        < result.index(_MEMOS)
         < result.index(_CHAP)
     )
 
@@ -125,14 +140,15 @@ def test_only_base_and_author_yields_exactly_two_sections__DoD2():
     assert result.count(_AUTHOR) == 1
     assert result.index(_BASE) < result.index(_AUTHOR)
 
-    # The two unpopulated slots contributed nothing.
+    # The unpopulated slots contributed nothing.
     assert _MODE not in result
+    assert _MEMOS not in result
     assert _CHAP not in result
 
-    # Adding empty/whitespace mode and chapter changes nothing — no third or fourth
-    # section, so the live case is exactly two sections.
+    # Adding empty/whitespace mode, memos and chapter changes nothing — no third,
+    # fourth or fifth section, so the live case is exactly two sections.
     padded = compose_system_prompt(
-        base=_BASE, mode="", author=_AUTHOR, chapter="   "
+        base=_BASE, mode="", author=_AUTHOR, memos="\t", chapter="   "
     )
     assert padded == result
 
@@ -148,7 +164,10 @@ def test_all_absent_yields_empty_string__DoD2():
 # empty across the board.
 def test_all_empty_or_whitespace_yields_empty_string__DoD2():
     assert (
-        compose_system_prompt(base="", mode="   ", author=None, chapter="\t\n") == ""
+        compose_system_prompt(
+            base="", mode="   ", author=None, memos="  \n ", chapter="\t\n"
+        )
+        == ""
     )
 
 
@@ -270,13 +289,14 @@ def test_old_book_keyword_raises_type_error__DoD3():
 
 # 021 step 004 DoD-3: the third parameter is named `author`, is keyword-bindable,
 # and no `book` parameter (nor a **kwargs catch-all that would swallow it)
-# survives.
+# survives. Feature 026 step 006 inserted `memos` fourth and moved `chapter` to
+# fifth; `author` stays third, and there is still no alias of any kind.
 def test_third_parameter_is_named_author__DoD3():
     params = inspect.signature(compose_system_prompt).parameters
 
     assert "author" in params
     assert "book" not in params
-    assert list(params) == ["base", "mode", "author", "chapter"]
+    assert list(params) == ["base", "mode", "author", "memos", "chapter"]
     assert not any(
         p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
     )
@@ -285,12 +305,25 @@ def test_third_parameter_is_named_author__DoD3():
     assert compose_system_prompt(author="A TEXT") == "### AUTHOR\nA TEXT"
 
 
-# 021 step 004 DoD-3: the positional order is unchanged, so the third positional
-# argument is still the third layer — now the author's.
+# 021 step 004 DoD-3, preserved by 026 step 006: the third positional argument is
+# still the author's layer. `base` and `mode` keep positions 1 and 2; the fourth
+# positional is now the memos layer and the fifth is the chapter layer.
 def test_third_positional_argument_is_the_author_layer__DoD3():
-    positional = compose_system_prompt("B TEXT", "M TEXT", "A TEXT", "C TEXT")
+    positional = compose_system_prompt("B TEXT", "M TEXT", "A TEXT")
 
     assert positional == compose_system_prompt(
-        base="B TEXT", mode="M TEXT", author="A TEXT", chapter="C TEXT"
+        base="B TEXT", mode="M TEXT", author="A TEXT"
     )
+    assert positional == "### BASE\nB TEXT\n\n### MODE\nM TEXT\n\n### AUTHOR\nA TEXT"
     assert "### AUTHOR\nA TEXT" in positional
+
+    full = compose_system_prompt("B TEXT", "M TEXT", "A TEXT", "ME TEXT", "C TEXT")
+
+    assert full == compose_system_prompt(
+        base="B TEXT",
+        mode="M TEXT",
+        author="A TEXT",
+        memos="ME TEXT",
+        chapter="C TEXT",
+    )
+    assert "### AUTHOR\nA TEXT" in full

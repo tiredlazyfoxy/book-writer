@@ -49,9 +49,27 @@ from app.models.mode_tool import ModeTool
 # set ``assistant-config.md`` names, and a close run reads the codex through
 # ``read_continuity_context``. Fresh installs only, for the same reason as above.
 #
+# All five modes carry ``create_memo`` (026 step 008). Unlike every other name
+# here it is seeded into ``close-chapter`` too: a memo is the AUTHOR's own
+# private standing note and not book content, so the runaway-write argument that
+# keeps ``create_codex_entry`` out of the close run does not apply — nothing a
+# memo touches is reviewed, shared or part of the book. It is prompt-gated
+# instead, by the "only on the author's direct request" guidance
+# ``db/assistant_modes.py`` seeds into all five prompts (US-130).
+#
+# Seeding it here reaches FRESH INSTALLS ONLY, for the same reason as the two
+# additions above: the seeder is idempotent per mode, so on an existing instance
+# an administrator adds ``create_memo`` to the five modes BY HAND in the
+# assistant-config editor (``026/context.md`` → decision 10 — a known
+# consequence of idempotent seeding, not a defect, and deliberately NOT worked
+# around with a backfill). ``assistant_runtime.BASE_TOOL_NAMES`` covers every
+# mode-less surface meanwhile, and these rows are what keep US-129.AC-5's
+# visible refusal reachable, BASE not overriding a mode's allowlist.
+#
 # Each tuple is in ``services/tools.py:TOOL_REGISTRY`` order, which is why
 # ``create_codex_entry`` trails ``write_codex_draft`` in the codex modes and
-# precedes the chapter tools in ``write-chapter``.
+# precedes the chapter tools in ``write-chapter``, and why ``create_memo`` — the
+# registry's last entry — trails every name in all five.
 DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
     "edit-character": (
         "web_search",
@@ -63,6 +81,7 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_list_characters",
         "codex_list_locations",
         "codex_list_facts",
+        "create_memo",
     ),
     "edit-location": (
         "web_search",
@@ -74,6 +93,7 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_list_characters",
         "codex_list_locations",
         "codex_list_facts",
+        "create_memo",
     ),
     "edit-fact": (
         "web_search",
@@ -85,6 +105,7 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_list_characters",
         "codex_list_locations",
         "codex_list_facts",
+        "create_memo",
     ),
     "write-chapter": (
         "web_search",
@@ -99,6 +120,7 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_list_characters",
         "codex_list_locations",
         "codex_list_facts",
+        "create_memo",
     ),
     "close-chapter": (
         "draft_chapter_summary",
@@ -106,6 +128,7 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "propose_active_notes",
         "raise_check_flag",
         "read_continuity_context",
+        "create_memo",
     ),
 }
 

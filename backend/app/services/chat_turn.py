@@ -75,7 +75,7 @@ import asyncio
 import functools
 import inspect
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -86,9 +86,11 @@ from pydantic import BaseModel
 
 from app.db import book_author_prompts, chapter_author_prompts, chat_messages
 from app.db import llm_servers as llm_servers_db
+from app.db import memos as memos_db
 from app.models.chapter import ChapterState
 from app.models.chat import Chat, ChatMessage
 from app.models.llm_server import LlmServer
+from app.models.memo import Memo
 from app.models.schemas.chats import (
     ChatSamplingParams,
     DeltaFrame,
@@ -458,16 +460,92 @@ def _wrap_tool_with_trace(
     return traced_tool
 
 
-async def compose_turn_system_prompt(context: TurnContext) -> str:
-    """Compose one turn's whole system prompt — the four layers, in order.
+# What goes between two memo bodies inside the one ``MEMOS`` section, so that
+# two memos can never read as one (026 step 006). Behaviour, not signature.
+_MEMO_SEPARATOR = "\n\n---\n\n"
+
+
+def render_memos_section(memos: Sequence[Memo]) -> str | None:
+    """Render one ``MEMOS`` section's text from the author's memos, in order.
+
+    The bridge between the memo rows and
+    :func:`~app.services.prompt_composition.compose_system_prompt`'s fourth
+    layer, which is a plain string and never learns what a memo is (026 step
+    006). Module-level and pure — no db read, no filtering by state — so it is
+    testable without fixtures:
+
+    - the rows are rendered **in the order given**; this function never sorts,
+      ranks, truncates or budgets, because a memo is authored and standing, not
+      retrieved (``assistant-runtime.md`` → "Memos are not context assembly");
+    - the **caller** supplies the already-filtered, already-ordered working
+      list — non-archived and ``active`` — because context membership is a
+      derived reading rule the turn applies, not something this renderer
+      re-derives;
+    - a memo whose ``body`` is blank after stripping contributes **nothing**:
+      an empty memo is a legitimate row (UC-103) and must not leave a stray
+      separator behind;
+    - when nothing survives — an empty sequence, or every body blank — the
+      return is ``None``, the composer's no-layer value, and the composer's own
+      "absent contributes nothing" rule does the rest.
+
+    Skeleton (026 step 006): the name, the parameter type and the return type
+    are frozen. The separator between two memo bodies is behaviour, not
+    signature, and is left to the coder — the only fixed requirement is that two
+    memos cannot read as one. A horizontal rule on its own line is the choice:
+    a memo body may itself contain blank lines, so a bare blank line would let
+    a two-paragraph memo and two memos read alike, while a rule cannot. A single
+    memo therefore renders as exactly its stripped body — the separator only
+    ever appears *between* bodies.
+    """
+    bodies = [memo.body.strip() for memo in memos if memo.body.strip()]
+    if not bodies:
+        return None
+    return _MEMO_SEPARATOR.join(bodies)
+
+
+@dataclass(frozen=True)
+class ComposedTurnPrompt:
+    """One turn's composed system prompt, plus the memos section inside it.
+
+    A frozen typed record (the :class:`TurnContext` / :class:`TurnFrame`
+    precedent — no free dictionaries), returned by
+    :func:`compose_turn_system_prompt`:
+
+    - ``system`` — the whole composed system prompt, exactly what used to be
+      that function's ``str`` return;
+    - ``memos_section`` — the **same** rendered ``MEMOS`` text that went into it
+      (``None`` when the author has nothing to contribute).
+
+    The second field exists because the memos section is rendered **exactly once
+    per turn** and is needed twice: by the composer here, and — from 026 step
+    007 — by :class:`~app.services.subagent_delegation.ParentTurn`, so parent and
+    every sub-agent see an identical set even if ``create_memo`` adds a row
+    mid-turn. Returning it keeps the value reachable from :func:`run_turn`
+    instead of private to this call, which is what makes a **second** db read
+    unnecessary (``context.md`` → decision 7).
+    """
+
+    system: str
+    memos_section: str | None
+
+
+async def compose_turn_system_prompt(
+    context: TurnContext,
+) -> ComposedTurnPrompt:
+    """Compose one turn's whole system prompt — the five layers, in order.
 
     The turn's side of :func:`~app.services.prompt_composition.compose_system_prompt`:
-    that module is a **pure** function over four already-loaded strings, so
+    that module is a **pure** function over five already-loaded strings, so
     somebody has to load them. This is that somebody, lifted out of
     :func:`run_turn` (015 step 013) so the composition is reachable — and
     testable — without opening a stream or calling ``chat_with_tools``.
 
-    The four layers, in the composer's fixed order:
+    Returns a :class:`ComposedTurnPrompt` rather than a bare ``str`` (026 step
+    006): the rendered ``MEMOS`` section is needed a second time, by delegation,
+    and returning it beside the prompt is what keeps the turn to **one** memos
+    read.
+
+    The five layers, in the composer's fixed order:
 
     1. ``base`` — :data:`~app.services.prompt_composition.BASE_SYSTEM_PROMPT`,
        always populated;
@@ -478,15 +556,24 @@ async def compose_turn_system_prompt(context: TurnContext) -> str:
        ``(chat.book_id, chat.author_id)``, read straight from
        :mod:`app.db.book_author_prompts` (021 step 004). ``Book.system_prompt``
        is **not** read: superseded and dormant;
-    4. ``chapter`` — **015 step 013, the new layer**: when, and only when, the
+    4. ``memos`` — **026 step 006, the new layer**: that same author's memos
+       for ``chat.book_id``, read straight from :mod:`app.db.memos` excluding
+       archived rows, filtered to the ``active`` ones **in memory** (context
+       membership is a derived reading rule, not a stored state), and rendered
+       into one section's text by :func:`render_memos_section`. The read is
+       **unconditional on the subject** — memos are not subject-scoped, the one
+       way this layer differs from layer 5's guarded read — and it happens
+       **exactly once per turn**;
+    5. ``chapter`` — **015 step 013**: when, and only when, the
        turn's resolved subject carries a chapter
        (``context.subject.chapter is not None``), the ``ChapterAuthorPrompt``
        row for ``(chapter.id, chat.author_id)``, read straight from
        :mod:`app.db.chapter_author_prompts`. ``Chapter.system_prompt`` is
        **not** read: superseded and dormant (014's D1).
 
-    **The identity is the chat's own author for both prompt layers** — layer 4
-    reuses layer 3's shape exactly: same identity, same direct ``db/`` read
+    **The identity is the chat's own author for every per-author layer** —
+    layers 4 and 5 reuse layer 3's shape exactly: same identity, same direct
+    ``db/`` read
     (``services → db`` is the sanctioned edge), and **no**
     :class:`~app.services.authz.BookAccess` is built for it. The reason is the
     one ``assistant-runtime.md`` states about layer 3: the turn is already
@@ -504,8 +591,14 @@ async def compose_turn_system_prompt(context: TurnContext) -> str:
     **nothing** — no section, no label, no separator, no blank block. That needs
     no code here: it is the composer's own skip rule for every layer.
 
-    ``services/prompt_composition.py`` is **not** touched — its fourth parameter
-    has been there since 011 and this only fills it.
+    ``services/prompt_composition.py`` gained its ``memos`` parameter in 026 step
+    006 and is otherwise untouched; the ``chapter`` parameter has been there
+    since 011 and this only fills it.
+
+    Skeleton (026 step 006): the return type is frozen as
+    :class:`ComposedTurnPrompt`, and the memos read is frozen as one direct
+    ``memos_db.list_for_author(chat.book_id, chat.author_id)`` call. Every other
+    layer keeps its behaviour.
     """
     chat = context.chat
 
@@ -515,7 +608,7 @@ async def compose_turn_system_prompt(context: TurnContext) -> str:
         chat.book_id, chat.author_id
     )
 
-    # Layer 4 — the caller's own chapter prompt, and only when the turn's
+    # Layer 5 — the caller's own chapter prompt, and only when the turn's
     # resolved subject IS a chapter. Same identity as layer 3 (the chat's own
     # author), same direct ``services → db`` read, no ``BookAccess``.
     chapter_prompt = None
@@ -524,14 +617,30 @@ async def compose_turn_system_prompt(context: TurnContext) -> str:
             context.subject.chapter.id, chat.author_id
         )
 
-    return prompt_composition.compose_system_prompt(
+    # Layer 4 — the chat's own author's active memos for this book, read and
+    # rendered exactly ONCE per turn (026 step 006). Same identity and same
+    # direct ``services → db`` read as layers 3 and 5, with no ``BookAccess``
+    # built — but **unconditional on the subject**, because memos are not
+    # subject-scoped. Archived rows are excluded at the read (the default), and
+    # the inactive ones are dropped **here, in memory**: context membership is a
+    # derived reading rule, not a stored state (``domain-book.md``). The rows
+    # arrive in ascending ordinal order and that order is passed through
+    # untouched — no sort, no rank, no budget, no truncation.
+    author_memos = await memos_db.list_for_author(chat.book_id, chat.author_id)
+    memos_section = render_memos_section(
+        [memo for memo in author_memos if memo.active]
+    )
+
+    system = prompt_composition.compose_system_prompt(
         base=prompt_composition.BASE_SYSTEM_PROMPT,
         mode=mode_prompt,
         author=author_prompt.system_prompt if author_prompt is not None else None,
+        memos=memos_section,
         chapter=(
             chapter_prompt.system_prompt if chapter_prompt is not None else None
         ),
     )
+    return ComposedTurnPrompt(system=system, memos_section=memos_section)
 
 
 async def _finalize_close_turn_if_needed(
@@ -736,11 +845,15 @@ async def run_turn(
     #     turn that carried no subject at all.
     mode_key = context.subject.mode_key
 
-    # 2. Compose the system prompt — all four layers, loaded and composed by
+    # 2. Compose the system prompt — all five layers, loaded and composed by
     #    :func:`compose_turn_system_prompt` (015 step 013), which is where the
-    #    base / mode / author reads now live and where the chapter layer joins
-    #    them.
-    system = await compose_turn_system_prompt(context)
+    #    base / mode / author reads now live and where the memos (026 step 006)
+    #    and chapter layers join them. The rendered MEMOS section comes back
+    #    beside the prompt so it can ride on ``ParentTurn`` without a second
+    #    read (026 step 007 binds to it).
+    composed = await compose_turn_system_prompt(context)
+    system = composed.system
+    memos_section = composed.memos_section
 
     # 3. Real mode-tool gating (013 step 007) plus the mode's synthetic sub-agent
     #    delegation tools (013 step 008), resolved in ONE place and bound in ONE
@@ -786,6 +899,13 @@ async def run_turn(
         # a bound one would be silently dropped from its nested call (013 step
         # 009's flagged consequence, resolved here).
         tool_context=tool_context,
+        # The MEMOS section step 2 above already rendered, handed over so every
+        # delegated sub-agent composes the SAME section the parent's own prompt
+        # carries. Rendered exactly once per turn and never re-read in
+        # ``subagent_delegation``: a second read could pick up a memo
+        # ``create_memo`` added mid-turn, and parent and child would then
+        # disagree about what the author asked to be remembered (026 step 007).
+        memos_section=memos_section,
     )
     tool_defs, tool_map = tools_service.build_tool_bindings(
         await assistant_runtime.resolve_turn_tools(mode_key, parent_turn),

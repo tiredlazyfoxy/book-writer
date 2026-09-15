@@ -39,6 +39,7 @@ import inspect
 
 from app.models.schemas.tools import WebSearchArgs
 from app.services import tools
+from app.services.memo_tools import CreateMemoArgs, bind_create_memo
 from app.services.web_search import web_search
 
 
@@ -82,6 +83,15 @@ from app.services.web_search import web_search
 # THIS test is unchanged:
 # the registry's contents are pinned rather than open-ended, `web_search` is still
 # its first entry, and the set is still EXACT.
+#
+# Widened once more by 026.memos step 008, which takes the registry from 18 entries
+# to 19: `create_memo` joins the catalogue under exactly that name, in the EXISTING
+# `"book"` group (`008.create-memo-tool.md` -> Interface intent ->
+# `backend/app/services/tools.py`; `026/context.md` -> decision 9). This is a FORCED
+# widening of a pre-existing exact set, not new coverage -- that entry's own
+# assertions are `test_create_memo_registry_entry__026_DoD10` below. The intent of
+# THIS test is unchanged: `web_search` is still its first entry and the set is still
+# EXACT.
 def test_registry_has_single_web_search_entry__DoD3():
     assert {t.name for t in tools.TOOL_REGISTRY} == {
         "web_search",
@@ -102,6 +112,7 @@ def test_registry_has_single_web_search_entry__DoD3():
         "codex_list_characters",  # 025
         "codex_list_locations",  # 025
         "codex_list_facts",  # 025
+        "create_memo",  # 026 step 008
     }
 
     entry = tools.TOOL_REGISTRY[0]
@@ -200,8 +211,14 @@ def test_resolve_only_unknown_names_yields_empty__DoD5():
 # edit again: a nineteenth entry added with no `group`, or with a typo'd one, is
 # exactly what this catches. The tool-for-tool assignment table is deliberately
 # NOT duplicated here (`025/plan.md` -> Test plan, DoD-18).
-def test_every_registry_entry_declares_a_valid_group__025_DoD6():
-    assert len(tools.TOOL_REGISTRY) == 18
+#
+# 026.memos step 008 adds the nineteenth entry -- the very case the count above was
+# written to catch -- so the count moves with it, and the invariant is now ALSO
+# 026's DoD-10 ("every registry entry still declares a valid group"): the new entry
+# takes the EXISTING `"book"` group, so the valid-group set is NOT widened
+# (`026/context.md` -> decision 9). Nothing else here changes.
+def test_every_registry_entry_declares_a_valid_group__025_DoD6__026_DoD10():
+    assert len(tools.TOOL_REGISTRY) == 19
 
     valid_groups = {"codex", "book", "web"}
     for entry in tools.TOOL_REGISTRY:
@@ -210,3 +227,28 @@ def test_every_registry_entry_declares_a_valid_group__025_DoD6():
 
     # All three groups are actually in use — the registry is not one flat group.
     assert {entry.group for entry in tools.TOOL_REGISTRY} == valid_groups
+
+
+# ---------------------------------------------------------------------------
+# 026.memos step 008 — DoD-10 (the `create_memo` registry entry)
+# ---------------------------------------------------------------------------
+
+
+# 026 DoD-10 (architecture — `quick-reference.md` -> TOOL_REGISTRY): the entry
+# declares the name `create_memo`, the group `"book"`, the args schema
+# `CreateMemoArgs`, and a BINDER with the plain callable left unset — the
+# exactly-one-of rule every context-bearing tool follows
+# (`008.create-memo-tool.md` -> Interface intent). The description is asserted
+# non-blank only: its WORDING is the coder's, not a test surface.
+def test_create_memo_registry_entry__026_DoD10():
+    matches = [entry for entry in tools.TOOL_REGISTRY if entry.name == "create_memo"]
+    assert len(matches) == 1, "create_memo is not a single registry entry"
+    entry = matches[0]
+
+    assert entry.group == "book"
+    assert entry.args_schema is CreateMemoArgs
+    assert entry.binder is bind_create_memo
+    assert entry.callable is None
+
+    assert isinstance(entry.description, str)
+    assert entry.description.strip() != ""

@@ -1,24 +1,37 @@
-"""Tests for the caller's own chapter prompt as composition layer 4
+"""Tests for the caller's own chapter prompt as the LAST composition layer
 (feature 015, step 013).
 
-Bound to the frozen skeleton (``status.md`` -> ``## Skeleton`` -> Step 013), in
-``app.services.chat_turn``::
+**Feature 026, step 006 inserts a ``MEMOS`` layer at position 4**, so the chapter
+prompt is the **fifth** layer, not the fourth, and ``compose_turn_system_prompt``
+returns the frozen ``ComposedTurnPrompt`` record rather than a bare ``str``. Both
+facts are rewritten below; everything else this file pins is preserved.
 
-    async def compose_turn_system_prompt(context: TurnContext) -> str
+Bound to the frozen skeleton (``status.md`` -> ``## Skeleton`` -> Step 013, as
+amended by Step 006), in ``app.services.chat_turn``::
 
-which loads the four layers and returns the composer's result:
+    @dataclass(frozen=True) class ComposedTurnPrompt:
+        system: str
+        memos_section: str | None
+    async def compose_turn_system_prompt(context: TurnContext)
+            -> ComposedTurnPrompt
+
+which loads the layers and returns the composer's result on ``.system``:
 
     1. base    -- ``prompt_composition.BASE_SYSTEM_PROMPT``
     2. mode    -- ``assistant_runtime.mode_system_prompt(context.subject.mode_key)``
     3. author  -- the ``(chat.book_id, chat.author_id)`` ``BookAuthorPrompt`` row
-    4. chapter -- NEW: when and only when ``context.subject.chapter`` is not
-                  ``None``, the ``(subject.chapter.id, chat.author_id)``
+    4. memos   -- 026: the chat author's active, non-archived memos for the
+                  chat's book, rendered into one section
+    5. chapter -- when and only when ``context.subject.chapter`` is not ``None``,
+                  the ``(subject.chapter.id, chat.author_id)``
                   ``ChapterAuthorPrompt`` row.
 
-and, untouched by this step (DoD-7), in ``app.services.prompt_composition``::
+and, in ``app.services.prompt_composition`` (DoD-7 -- the composer is not this
+step's to change; 026 step 006 inserts ``memos`` fourth while keeping ``author``
+third)::
 
     BASE_SYSTEM_PROMPT: str
-    def compose_system_prompt(base=None, mode=None, author=None,
+    def compose_system_prompt(base=None, mode=None, author=None, memos=None,
                               chapter=None) -> str
 
 Supporting frozen records used only to *call*: ``TurnContext`` (011/013/015 step
@@ -29,7 +42,13 @@ Supporting frozen records used only to *call*: ``TurnContext`` (011/013/015 step
 Expected values come from the SPEC ONLY -- ``013.chapter-prompt-composition.md``
 -> Interface intent + Definition of done (DoD-1..DoD-7), ``013.context.md``
 ("The composer already has the slot", "Whose prompt, and why no ``BookAccess``",
-"Testing"), and ``context.md`` -> D12 -- never from implementation internals.
+"Testing"), ``context.md`` -> D12, and -- for the two rewritten facts --
+``026/006.memos-prompt-layer.md`` -> Interface intent + DoD-4/DoD-5 and
+``026/context.md`` decision 7 -- never from implementation internals.
+
+DoD ids below are this file's own (feature 015 step 013), kept unrenumbered
+across the 026 rewrite; feature 026 step 006's numbering lives in
+``tests/services/test_memo_prompt_composition.py``.
 
 Test approach (``013.context.md`` -> "Testing"): **no LLM server is contacted**.
 The composition path is exercised **as a function** and the assertions are over
@@ -56,6 +75,7 @@ from app.db import (
     chats,
     codex_entries,
     llm_servers,
+    memos as memos_db,
     users,
 )
 from app.db.engine import DbConfig
@@ -68,6 +88,7 @@ from app.models.chapter_author_prompt import ChapterAuthorPrompt
 from app.models.chat import Chat
 from app.models.codex_entry import CodexEntry, CodexKind
 from app.models.llm_server import LlmServer
+from app.models.memo import Memo
 from app.models.user import User, UserRole
 from app.services import chat_turn
 from app.services.assistant_runtime import NO_SUBJECT, ResolvedSubject
@@ -81,6 +102,7 @@ AUTHOR_TEXT = "ZZAUTHORPROMPTZZ"
 CHAPTER_TEXT = "ZZOWNCHAPTERPROMPTZZ"
 OTHER_CHAPTER_TEXT = "ZZOTHERMEMBERCHAPTERPROMPTZZ"
 DORMANT_TEXT = "ZZDORMANTCOLUMNZZ"
+MEMO_TEXT = "ZZOWNMEMOBODYZZ"
 
 MODE_KEY = "write-chapter"
 CODEX_MODE_KEY = "edit-character"
@@ -90,7 +112,7 @@ CODEX_MODE_KEY = "edit-character"
 # Expected-string builders -- the composer's frozen rendering (013.context.md ->
 # "The composer already has the slot"; Skeleton -> Step 013): each non-blank
 # layer renders as `### <LABEL>\n<text.strip()>`, survivors joined by a blank
-# line, labels BASE / MODE / AUTHOR / CHAPTER in that fixed order.
+# line, labels BASE / MODE / AUTHOR / MEMOS / CHAPTER in that fixed order.
 # ---------------------------------------------------------------------------
 
 
@@ -221,6 +243,24 @@ async def _seed_chapter_prompt(
     )
 
 
+async def _seed_memo(book_id: int, user_id: int, body: str, ordinal: int) -> Memo:
+    """An active, non-archived memo written straight through db/memos.py.
+
+    026 step 006's layer 4. Seeded directly, because a spec for the prompt path
+    must not depend on the memo route family to reach a state.
+    """
+    return await memos_db.create(
+        Memo(
+            book_id=book_id,
+            user_id=user_id,
+            body=body,
+            ordinal=ordinal,
+            active=True,
+            archived=False,
+        )
+    )
+
+
 def _context(chat: Chat, server: LlmServer, subject=None) -> TurnContext:
     """The frozen record, built by hand -- no `prepare_turn`, no stream.
 
@@ -234,17 +274,32 @@ def _context(chat: Chat, server: LlmServer, subject=None) -> TurnContext:
     )
 
 
+async def _system(context: TurnContext) -> str:
+    """The composed system prompt string.
+
+    026 step 006 changed `compose_turn_system_prompt`'s return type from `str` to
+    the frozen `ComposedTurnPrompt` record (`system`, `memos_section`); `.system`
+    is the prompt these specs assert over. The assertions themselves are
+    unchanged -- only the binding moved.
+    """
+    composed = await chat_turn.compose_turn_system_prompt(context)
+    return composed.system
+
+
 # ---------------------------------------------------------------------------
-# DoD-1 -- the caller's own chapter prompt composes as the FOURTH layer, after
-# base, mode and author, in that order
+# DoD-1 -- the caller's own chapter prompt composes as the LAST layer, after
+# base, mode, author and (026 step 006) memos, in that order
 # ---------------------------------------------------------------------------
 
 
-# DoD-1: with all four layers populated, the composed prompt is exactly the four
-# sections in the fixed order base -> mode -> author -> chapter. Bound to the
-# whole string, not to presence, because a presence-only assertion would pass on
-# a wrong order (013.context.md -> "Testing").
-async def test_chapter_prompt_is_the_fourth_layer_in_order__DoD1(db: DbConfig):
+# DoD-1: with every layer populated, the composed prompt is the five sections in
+# the fixed order base -> mode -> author -> memos -> chapter, the chapter layer
+# LAST. Bound to the prefix, the suffix and the heading count rather than to
+# presence, because a presence-only assertion would pass on a wrong order
+# (013.context.md -> "Testing"). The exact bytes of a rendered memo section are
+# the coder's (026 step 006 leaves the per-memo rendering open), so the memos
+# section is pinned by heading, position and body instead.
+async def test_chapter_prompt_is_the_fifth_layer_in_order__DoD1(db: DbConfig):
     owner = await _seed_user("owner")
     book = await _seed_book(owner.id)
     server = await _seed_server()
@@ -253,23 +308,30 @@ async def test_chapter_prompt_is_the_fourth_layer_in_order__DoD1(db: DbConfig):
     await _seed_mode(MODE_KEY, MODE_TEXT)
     await _seed_author_prompt(book.id, owner.id, AUTHOR_TEXT)
     await _seed_chapter_prompt(chapter.id, owner.id, CHAPTER_TEXT)
+    await _seed_memo(book.id, owner.id, MEMO_TEXT, 1)
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter, mode_key=MODE_KEY)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
-    assert result == _expected(
+    prefix = _expected(
         BASE_SECTION,
         _section("MODE", MODE_TEXT),
         _section("AUTHOR", AUTHOR_TEXT),
-        _section("CHAPTER", CHAPTER_TEXT),
     )
+    assert result.startswith(prefix + "\n\n")
+    assert result.endswith("\n\n" + _section("CHAPTER", CHAPTER_TEXT))
+    assert result.count("### MEMOS") == 1
+    assert result.count("### CHAPTER") == 1
+    assert f"### MEMOS\n{MEMO_TEXT}" in result
+    assert result.count(CHAPTER_TEXT) == 1
 
 
 # DoD-1: the same fact stated as strict ordering -- the chapter text appears
-# exactly once, under a `### CHAPTER` heading, after the base, mode and author
-# sections. A layer emitted first, twice, or without its heading fails here.
-async def test_chapter_layer_follows_base_mode_and_author__DoD1(db: DbConfig):
+# exactly once, under a `### CHAPTER` heading, after the base, mode, author and
+# memos sections. A layer emitted first, twice, or without its heading fails
+# here.
+async def test_chapter_layer_follows_base_mode_author_and_memos__DoD1(db: DbConfig):
     owner = await _seed_user("owner")
     book = await _seed_book(owner.id)
     server = await _seed_server()
@@ -278,10 +340,11 @@ async def test_chapter_layer_follows_base_mode_and_author__DoD1(db: DbConfig):
     await _seed_mode(MODE_KEY, MODE_TEXT)
     await _seed_author_prompt(book.id, owner.id, AUTHOR_TEXT)
     await _seed_chapter_prompt(chapter.id, owner.id, CHAPTER_TEXT)
+    await _seed_memo(book.id, owner.id, MEMO_TEXT, 1)
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter, mode_key=MODE_KEY)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result.count(CHAPTER_TEXT) == 1
     assert f"### CHAPTER\n{CHAPTER_TEXT}" in result
@@ -289,6 +352,7 @@ async def test_chapter_layer_follows_base_mode_and_author__DoD1(db: DbConfig):
         result.index("### BASE")
         < result.index("### MODE")
         < result.index("### AUTHOR")
+        < result.index("### MEMOS")
         < result.index("### CHAPTER")
     )
 
@@ -316,7 +380,7 @@ async def test_co_author_turn_composes_only_the_co_authors_prompt__DoD2(db: DbCo
     chat = await _seed_chat(book.id, co_author.id, server.id)
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == _expected(BASE_SECTION, _section("CHAPTER", CHAPTER_TEXT))
     assert OTHER_CHAPTER_TEXT not in result
@@ -338,7 +402,7 @@ async def test_owner_never_reads_another_members_chapter_prompt__DoD2(db: DbConf
     chat = await _seed_chat(book.id, owner.id, server.id)
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == _expected(BASE_SECTION, _section("CHAPTER", CHAPTER_TEXT))
     assert OTHER_CHAPTER_TEXT not in result
@@ -358,7 +422,7 @@ async def test_another_members_row_alone_composes_no_chapter_layer__DoD2(db: DbC
     chat = await _seed_chat(book.id, owner.id, server.id)
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == BASE_SECTION
     assert OTHER_CHAPTER_TEXT not in result
@@ -385,7 +449,7 @@ async def test_absent_chapter_prompt_row_contributes_nothing__DoD3(db: DbConfig)
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter, mode_key=MODE_KEY)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == _expected(
         BASE_SECTION,
@@ -412,14 +476,14 @@ async def test_empty_chapter_prompt_matches_having_no_row__DoD3(db: DbConfig):
     await _seed_chapter_prompt(with_empty_row.id, owner.id, "")
     without_row = await _seed_chapter(book.id, ordinal=2)
 
-    empty_result = await chat_turn.compose_turn_system_prompt(
+    empty_result = await _system(
         _context(
             chat,
             server,
             ResolvedSubject(kind="chapter", chapter=with_empty_row, mode_key=MODE_KEY),
         )
     )
-    absent_result = await chat_turn.compose_turn_system_prompt(
+    absent_result = await _system(
         _context(
             chat,
             server,
@@ -449,28 +513,28 @@ async def test_empty_chapter_prompt_adds_no_separator__DoD3(db: DbConfig):
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == BASE_SECTION
 
 
 # ---------------------------------------------------------------------------
 # DoD-4 -- a turn whose subject is NOT a chapter composes exactly what it
-# composes today, with no fourth layer (the regression clause)
+# composes today, with no fifth (chapter) layer (the regression clause)
 # ---------------------------------------------------------------------------
 
 
 # DoD-4: a codex-entry subject, a list subject, a book-state subject, an explicit
 # no-subject and the record's default subject all compose base + mode + author
-# and no fourth layer -- even though the caller HOLDS a chapter prompt row in the
-# same book. The fourth layer applies when and only when the subject is a
-# chapter.
+# and no fifth (chapter) layer -- even though the caller HOLDS a chapter prompt
+# row in the same book. The fifth layer applies when and only when the subject is
+# a chapter.
 @pytest.mark.parametrize(
     "case",
     ["codex-entry", "chapters-list", "book-state", "no-subject", "default-subject"],
     ids=["codex_entry", "list", "book_state", "no_subject", "default_subject"],
 )
-async def test_non_chapter_subject_composes_no_fourth_layer__DoD4(
+async def test_non_chapter_subject_composes_no_fifth_layer__DoD4(
     db: DbConfig, case: str
 ):
     owner = await _seed_user("owner")
@@ -509,7 +573,7 @@ async def test_non_chapter_subject_composes_no_fourth_layer__DoD4(
         context = _context(chat, server)
         expected = _expected(BASE_SECTION, _section("AUTHOR", AUTHOR_TEXT))
 
-    result = await chat_turn.compose_turn_system_prompt(context)
+    result = await _system(context)
 
     assert result == expected
     assert "### CHAPTER" not in result
@@ -548,7 +612,7 @@ async def test_chapter_prompt_is_read_in_every_state__DoD5(
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == _expected(BASE_SECTION, _section("CHAPTER", CHAPTER_TEXT))
 
@@ -570,14 +634,14 @@ async def test_dormant_chapter_column_is_never_composed__DoD6(db: DbConfig):
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == BASE_SECTION
     assert DORMANT_TEXT not in result
     assert "### CHAPTER" not in result
 
 
-# DoD-6: when the caller DOES hold a row, that row is the fourth layer and the
+# DoD-6: when the caller DOES hold a row, that row is the fifth layer and the
 # dormant column still contributes nothing -- the column is superseded, not a
 # second source and not a fallback.
 async def test_dormant_column_is_ignored_when_a_row_exists__DoD6(db: DbConfig):
@@ -590,25 +654,33 @@ async def test_dormant_column_is_ignored_when_a_row_exists__DoD6(db: DbConfig):
 
     subject = ResolvedSubject(kind="chapter", chapter=chapter)
 
-    result = await chat_turn.compose_turn_system_prompt(_context(chat, server, subject))
+    result = await _system(_context(chat, server, subject))
 
     assert result == _expected(BASE_SECTION, _section("CHAPTER", CHAPTER_TEXT))
     assert DORMANT_TEXT not in result
 
 
 # ---------------------------------------------------------------------------
-# DoD-7 -- `services/prompt_composition.py` is unchanged: the fourth layer was
-# already there and this step only fills it (a pure preservation clause)
+# DoD-7 -- `services/prompt_composition.py` is unchanged: the chapter layer (now
+# the fifth) was already there and this step only fills it (a pure preservation
+# clause)
 # ---------------------------------------------------------------------------
 
 
-# DoD-7: the composer's signature is untouched -- four optional layers named
-# base / mode / author / chapter, in that positional order, each defaulting to
-# None, all keyword-bindable, with no **kwargs catch-all and no fifth parameter.
-def test_composer_signature_is_unchanged__DoD7():
+# DoD-7, reconciled with 026 step 006: the composer takes five optional layers
+# named base / mode / author / memos / chapter, in that positional order, each
+# defaulting to None, all keyword-bindable, with no **kwargs catch-all (and so no
+# compatibility alias). What this step's DoD-7 pinned and 026 PRESERVES is
+# asserted explicitly: `base` first, `mode` second and `author` STILL THIRD -- the
+# memos layer was inserted after the author layer, so no pre-existing positional
+# moved except the chapter layer, which is last either way.
+def test_composer_signature_keeps_author_third__DoD7():
     params = inspect.signature(compose_system_prompt).parameters
 
-    assert list(params) == ["base", "mode", "author", "chapter"]
+    assert list(params) == ["base", "mode", "author", "memos", "chapter"]
+    assert list(params).index("base") == 0
+    assert list(params).index("mode") == 1
+    assert list(params).index("author") == 2
     assert all(p.default is None for p in params.values())
     assert not any(
         p.kind
@@ -617,7 +689,7 @@ def test_composer_signature_is_unchanged__DoD7():
     )
 
 
-# DoD-7: the composer's behaviour is untouched -- the four labels, their fixed
+# DoD-7: the composer's behaviour is untouched -- the section labels, their fixed
 # order, the `### <LABEL>\n<text.strip()>` rendering and the blank-line join are
 # exactly as before this step.
 def test_composer_behaviour_is_unchanged__DoD7():
@@ -636,7 +708,7 @@ def test_composer_behaviour_is_unchanged__DoD7():
 # no section, no separator and no blank block.
 def test_composer_skip_rule_is_unchanged__DoD7():
     assert compose_system_prompt(
-        base="B TEXT", mode=None, author="", chapter="   \n\t "
+        base="B TEXT", mode=None, author="", memos="\t", chapter="   \n\t "
     ) == "### BASE\nB TEXT"
     assert compose_system_prompt() == ""
 

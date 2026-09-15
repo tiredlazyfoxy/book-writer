@@ -20,9 +20,9 @@ What this module is (``assistant-config.md`` → "Sub-agent delegation"):
   always carry identical key sets;
 - :func:`run_delegation` is what one such tool *does*: a nested, bounded
   ``chat_with_tools`` for that one sub-agent, with its own ``system_prompt``
-  **alone**, its own ``subagent_tool`` allowlist resolved against
-  ``TOOL_REGISTRY``, its own (or the parent's) model, and
-  :data:`SUBAGENT_MAX_LOOPS` rounds.
+  **plus the author's active memos and nothing else** (feature 026, step 007),
+  its own ``subagent_tool`` allowlist resolved against ``TOOL_REGISTRY``, its
+  own (or the parent's) model, and :data:`SUBAGENT_MAX_LOOPS` rounds.
 
 Three constraints shape every signature here:
 
@@ -46,10 +46,35 @@ Three constraints shape every signature here:
    resolved against ``TOOL_REGISTRY`` and nothing else can enter it — a synthetic
    delegation tool is never passed into a nested call.
 
+**This module performs no memos read of its own** (feature 026, step 007). It
+imports no memo module — neither the ``db/`` data-access module for that table
+nor ``chat_turn.py``'s section renderer — and reaches memo data by no other
+path: the
+author's active memos arrive **already rendered into one section's text** on
+:class:`ParentTurn`, or they do not arrive at all. Two reasons, the second
+load-bearing (``assistant-runtime.md`` → "The parked question is answered,
+narrowly"): one DB read per turn; and parent and every sub-agent are guaranteed
+an **identical** set even if ``create_memo`` adds one mid-turn — a second read
+could pick that memo up, and parent and child would then disagree about what the
+author asked to be remembered. The carried section is folded into the nested
+prompt through ``services/prompt_composition.py`` — the **same** composer the
+parent's prompt goes through — so the ``MEMOS`` label, the strip and the
+empty-layer skip rule are written once and read identically on both sides.
+
+The narrowing stops exactly there: a sub-agent gets its own prompt plus the
+``MEMOS`` section, **never** the base, mode, author or chapter layers. Threading
+the whole composition would end the sub-agent's self-contained
+admin-configured-worker property; threading memos alone keeps that property for
+**behaviour** while honouring the author's standing **facts**. Whether the
+author's *voice* belongs in delegated work stays open — it is not resolved here,
+in either direction.
+
 :class:`ParentTurn`, :data:`SUBAGENT_MAX_LOOPS`, :data:`DELEGATION_TOOL_PREFIX`
 and :class:`DelegationArgs` are the frozen declarative contract (013 step 008);
 :func:`delegation_tool_name`, :func:`build_delegation_tools` and
-:func:`run_delegation` are its behaviour.
+:func:`run_delegation` are its behaviour. Skeleton (026 step 007):
+:class:`ParentTurn`'s ``memos_section`` field and
+:func:`_compose_delegated_system`'s signature and composition shape are frozen.
 """
 
 import functools
@@ -64,6 +89,7 @@ from app.db import mode_subagents, sub_agents, subagent_tools
 from app.models.llm_server import LlmServer
 from app.models.sub_agent import SubAgent
 from app.services import llm_servers as llm_servers_service
+from app.services import prompt_composition
 from app.services import secrets
 from app.services.tools import (
     TOOL_REGISTRY,
@@ -107,6 +133,14 @@ _DELEGATION_FAILED_MESSAGE = (
     "Delegation error: the sub-agent '{name}' could not complete the task."
 )
 
+# The seam between a sub-agent's own prompt and the ``MEMOS`` section composed
+# after it (026 step 007) — the composer's own blank-line section join, so the
+# run-up to ``### MEMOS`` reads in the child exactly as it does in the parent's
+# five-layer prompt. This single separator is the ONLY byte this module chooses
+# about the section: its label, its strip and the empty-layer skip rule all
+# belong to ``services/prompt_composition.py`` and are never re-implemented here.
+_DELEGATED_SECTION_JOIN = "\n\n"
+
 
 @dataclass(frozen=True)
 class ParentTurn:
@@ -142,12 +176,26 @@ class ParentTurn:
       ``ParentTurn(server=…, resolved_key=…, model=…)`` construction keeps
       binding and keeps its current meaning (no context ⇒ bound tools skipped,
       exactly as before).
+
+    - ``memos_section`` — the author's active memos for this book, **already
+      rendered into one section's text** by ``services/chat_turn.py``'s section
+      renderer, and already composed into the parent's own five-layer prompt in
+      the same turn (026 step 007).
+      ``None`` when the author has no active memo whose body survives stripping.
+      It is **carried, never re-read**: this module reaches no memo data by any
+      other path (see the module docstring — one DB read per turn, and parent
+      and every sub-agent are guaranteed an identical set even if ``create_memo``
+      adds one mid-turn). **Defaulted and declared last**, so every existing
+      ``ParentTurn(server=..., resolved_key=..., model=...)`` construction keeps
+      binding and keeps its current meaning (no section ⇒ the sub-agent's own
+      prompt alone, exactly as before).
     """
 
     server: LlmServer
     resolved_key: str | None
     model: str
     tool_context: ToolContext | None = None
+    memos_section: str | None = None
 
 
 # Arguments for every synthetic delegation tool. The class docstring below is
@@ -341,8 +389,10 @@ async def run_delegation(sub_agent: SubAgent, parent: ParentTurn, task: str) -> 
        delegation**, not cached (``context.md``: ``LLMClient`` has no standalone
        ``close()``, so a cache would have to own client lifetimes across a whole
        turn);
-    4. calls ``chat_with_tools`` with the sub-agent's ``system_prompt``
-       **alone** — no base, mode, book or chapter composition — the resolved
+    4. calls ``chat_with_tools`` with the system prompt
+       :func:`_compose_delegated_system` builds — the sub-agent's own
+       ``system_prompt`` **plus the ``MEMOS`` section carried on** ``parent``,
+       and nothing else (no base, mode, author or chapter layer) — the resolved
        tool bindings and :data:`SUBAGENT_MAX_LOOPS`, and returns the final
        string to the parent.
 
@@ -397,13 +447,72 @@ async def _delegate(sub_agent: SubAgent, parent: ParentTurn, task: str) -> str:
             [{"role": "user", "content": task}],
             tools_definitions=tool_defs,
             tools=tool_map,
-            # The sub-agent's own prompt ALONE — no base / mode / book / chapter
-            # composition: a sub-agent is a self-contained configured worker
-            # (``assistant-config.md`` → "Sub-agent delegation").
-            system=sub_agent.system_prompt,
+            # The sub-agent's own prompt PLUS the author's active memos, and
+            # nothing else — no base / mode / author / chapter layer threads
+            # through. A sub-agent stays a self-contained configured worker for
+            # BEHAVIOUR (``assistant-config.md`` → "Sub-agent delegation") while
+            # the author's standing FACTS are honoured (026 step 007). The
+            # section is the one ``parent`` carried; this module renders and
+            # reads nothing of its own.
+            system=_compose_delegated_system(
+                sub_agent.system_prompt, parent.memos_section
+            ),
             # The module's OWN bound, independent of ``chat_turn.MAX_LOOPS``.
             max_loops=SUBAGENT_MAX_LOOPS,
         )
+
+
+def _compose_delegated_system(
+    sub_agent_prompt: str, memos_section: str | None
+) -> str:
+    """Build one delegated call's ``system``: the sub-agent's prompt + memos.
+
+    ``memos_section`` is the section :class:`ParentTurn` carried — rendered
+    exactly once per turn by ``services/chat_turn.py`` and already inside the
+    parent's own prompt. Nothing is rendered or read here (module docstring).
+
+    **Composed, not concatenated.** The section goes through
+    ``services/prompt_composition.py:compose_system_prompt`` — the *same*
+    composer the parent's five-layer prompt goes through — called with the
+    ``memos`` layer **alone** and no other layer:
+
+    - the ``MEMOS`` label, the strip and the empty-layer skip rule stay written
+      once, so the child's section is identical in shape to the parent's. A
+      hand-assembled heading here would work today and drift the first time the
+      composer's label or separator changes (``007.context.md`` → "compose, do
+      not concatenate");
+    - **no base / mode / author / chapter layer can thread through**, because
+      none is ever passed (DoD-2). Passing ``sub_agent_prompt`` as the
+      composer's ``base`` layer was rejected for exactly this reason: it would
+      render the sub-agent's own instructions under a ``BASE`` heading, which is
+      not "its own prompt alone";
+    - with **no** active memos the composer returns the empty string for a
+      blank or absent layer, and this function returns ``sub_agent_prompt``
+      **verbatim** — byte-identical to the pre-026 nested prompt, with no empty
+      section and no stray separator (DoD-4).
+
+    With a section, the two are joined by :data:`_DELEGATED_SECTION_JOIN`, the
+    composer's own blank-line section join. That separator is the only byte this
+    module chooses; everything else about the section belongs to the composer.
+
+    Pure and synchronous: no db read, no session, no clock.
+
+    Skeleton (026 step 007): the signature and the composition shape above are
+    frozen.
+    """
+    # The MEMOS layer ALONE — no base / mode / author / chapter argument is ever
+    # passed, so no other layer can thread into a nested call (DoD-2).
+    composed_memos = prompt_composition.compose_system_prompt(
+        memos=memos_section
+    )
+    if not composed_memos:
+        # The composer's own empty-layer skip rule answered "nothing to add" for
+        # an absent, empty or whitespace-only section. That rule is written once,
+        # there — never re-implemented here. Pre-026 behaviour, preserved
+        # byte-for-byte: the nested system is the sub-agent's own prompt alone,
+        # verbatim, with no empty section and no stray separator (DoD-4).
+        return sub_agent_prompt
+    return f"{sub_agent_prompt}{_DELEGATED_SECTION_JOIN}{composed_memos}"
 
 
 async def _subagent_tools(sub_agent: SubAgent) -> list[ToolDef]:
