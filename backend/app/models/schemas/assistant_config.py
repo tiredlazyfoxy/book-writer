@@ -47,6 +47,10 @@ class ToolResponse(BaseModel):
       ``mode_tool.tool_name`` / ``subagent_tool.tool_name`` and the value a
       selection request sends back.
     - ``description`` — the model-facing description, shown beside the checkbox.
+    - ``group`` — the registry's stable machine key (``"codex"`` / ``"book"`` /
+      ``"web"``) the admin picker groups the checkboxes by (025). The key
+      crosses the wire; its human-readable label never does — that is the
+      frontend's ``TOOL_GROUP_LABELS``.
 
     **Nothing else.** ``ToolDef.args_schema`` and ``ToolDef.callable`` are
     internal (UC-095 step 3 needs only a selectable label).
@@ -54,6 +58,7 @@ class ToolResponse(BaseModel):
 
     name: str
     description: str
+    group: str
 
 
 class ToolsListResponse(BaseModel):

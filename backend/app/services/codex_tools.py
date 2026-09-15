@@ -118,6 +118,14 @@ strings.
 Skeleton (fast/007): :class:`CreateCodexEntryArgs`, :func:`create_codex_entry`,
 :func:`bind_create_codex_entry` and the ``_CREATE_*`` constants are frozen; the
 tool's body is UNIMPLEMENTED.
+
+Skeleton (025): the four listing schemas (:class:`CodexListEntriesArgs`,
+:class:`CodexListCharactersArgs`, :class:`CodexListLocationsArgs`,
+:class:`CodexListFactsArgs`), the four tools (:func:`codex_list_entries`,
+:func:`codex_list_characters`, :func:`codex_list_locations`,
+:func:`codex_list_facts`), their binders and :func:`_excerpt` are frozen; the
+four tool bodies and ``_excerpt``'s body are UNIMPLEMENTED, and every string
+they return (header, empty sentence, error) is the coder's.
 """
 
 import functools
@@ -296,6 +304,42 @@ _MODE_KEY_CODEX_KINDS: dict[str, str] = {
 }
 
 
+# The four listing tools' strings (025). The same never-raise reasoning as every
+# constant above, and the same three-category vocabulary — with the split that
+# matters most here: an **empty codex is an ordinary outcome**, so it is a plain
+# sentence (the ``No codex entries found for "{query}".`` precedent), never a
+# ``"Codex error: "`` string. Prefixing it would make a book nobody has written a
+# codex for look like a malfunction the model should report or retry.
+#
+# ``{label}`` is the listing's own noun (``entries`` / ``character entries`` /
+# ``location entries`` / ``fact (lore) entries``), so the header names WHAT was
+# listed as well as how much of it, and the empty sentence names the kind that
+# has nothing in it. "lore" is the author's word for an unnamed ``fact``
+# (``context.md`` → Shared vocabulary); it appears in prose only — the enum value
+# filtered on stays ``fact``.
+_LIST_HEADER_MESSAGE = "This book's codex holds {count} {label}:"
+_LIST_EMPTY_MESSAGE = "This book's codex has no {label} yet."
+_LIST_FAILED_MESSAGE = "Codex error: this book's codex could not be listed."
+
+# Each listing's noun, singular and plural, keyed by the kind it filters on —
+# ``None`` being the whole codex. One table so the header and the empty sentence
+# cannot drift apart, and so a fifth kind would be one row rather than a fifth
+# tool's worth of literals.
+_LIST_LABELS: dict[CodexKind | None, tuple[str, str]] = {
+    None: ("entry", "entries"),
+    CodexKind.character: ("character entry", "character entries"),
+    CodexKind.location: ("location entry", "location entries"),
+    CodexKind.fact: ("fact (lore) entry", "fact (lore) entries"),
+}
+
+# One listing row: the id first — so a follow-up :func:`codex_read_entry` is
+# unambiguous, the same rule ``_entry_header`` follows — then the entry's name,
+# or a short body excerpt when it has none (a fact never does, US-078.AC-2).
+# **Never the body itself**: short form is the whole point, and the full text is
+# one ``codex_read_entry`` call away.
+_LIST_ROW = "entry_id={entry_id} | {label}"
+
+
 # Arguments for ``codex_search``. The class docstring below is **model-facing** —
 # ``llm.pydantic_to_openai_tool`` renders the schema through
 # ``model_json_schema()``, which carries it as the parameter object's
@@ -431,6 +475,56 @@ class CreateCodexEntryArgs(BaseModel):
             "The entry's content, written whole — this is what gets saved."
         )
     )
+
+
+# The four listing tools' argument schemas (025). Four **named, zero-field**
+# classes rather than one shared empty schema: ``llm.pydantic_to_openai_tool``
+# renders each through ``model_json_schema()``, which stamps the CLASS NAME into
+# the ``title`` of the parameters object the model actually sees, so one shared
+# class would give all four tools the same title — and every other tool in the
+# registry already carries its own schema class.
+#
+# The zero-field shape itself is the ``close_tools.py:ReadContinuityContextArgs``
+# precedent, and it is the point: the book comes off ``ToolContext.book_id`` (the
+# same hard cross-book filter every codex tool relies on), so there is nothing for
+# the model to supply, and the bound callable correspondingly has ZERO free
+# parameters — exactly what the ``llm`` client's ``inspect.signature`` validation
+# compares the schema against. ``ToolDef.args_schema`` is required, so the schema
+# is declared rather than omitted.
+class CodexListEntriesArgs(BaseModel):
+    """No fields: always lists this book's whole codex."""
+
+
+class CodexListCharactersArgs(BaseModel):
+    """No fields: always lists this book's character entries."""
+
+
+class CodexListLocationsArgs(BaseModel):
+    """No fields: always lists this book's location entries."""
+
+
+class CodexListFactsArgs(BaseModel):
+    """No fields: always lists this book's fact (lore) entries."""
+
+
+def _excerpt(text: str, limit: int = 60) -> str:
+    """``text`` as a one-line, length-bounded excerpt for a listing row (025).
+
+    Collapses whitespace runs to a single space, trims, takes the first ``limit``
+    characters and appends ``…`` **only** when the collapsed text was longer than
+    ``limit`` — an excerpt of exactly ``limit`` characters carries no ellipsis.
+
+    Deliberately NOT unified with the frontend's 120-character ``bodyExcerpt``
+    (``work/pages/CodexListPage.tsx``): different layer, different budget — a
+    human reading a list pane versus a model's context window.
+    """
+    # ``str.split()`` with no argument splits on runs of ANY whitespace and drops
+    # empties, so the join collapses and trims in one step — newlines and tabs
+    # included, which is what keeps a listing row to one line.
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[:limit]}…"
 
 
 def _parse_entry_id(entry_id: str) -> int | None:
@@ -1047,6 +1141,177 @@ async def create_codex_entry(
         return _CREATE_FAILED_MESSAGE
 
 
+def _render_listing_row(entry: CodexEntry) -> str:
+    """One short-form listing row for ``entry`` (025).
+
+    The entry's own name when it has one, a :func:`_excerpt` of its body when it
+    does not — the ``name is None`` case is a ``fact`` by design
+    (``domain-codex.md``), and an unnamed row with nothing to identify it would
+    be a bare id. A name that is blank rather than absent is treated as absent,
+    the same rule :func:`_entry_header` applies.
+    """
+    name = (entry.name or "").strip()
+    label = name if name else _excerpt(entry.body or "")
+    return _LIST_ROW.format(entry_id=entry.id, label=label)
+
+
+async def _render_codex_listing(
+    context: "ToolContext", kind: CodexKind | None
+) -> str:
+    """The shared body of the four listing tools (025).
+
+    One implementation because the four differ **only** in the ``kind`` they
+    filter on and the noun they call the result: they share the render contract,
+    the empty-listing sentence and the never-raise discipline, and four copies of
+    it could drift apart silently.
+
+    Reads ``db/codex_entries.py:list_by_book`` with ``context.book_id`` as the
+    hard cross-book filter and ``include_archived=False``, then renders the rows
+    **in that call's own order** — no ordering of this tool's own, and no cap: the
+    model asked what exists, and a truncated answer to that question is a wrong
+    one (``plan.md`` → "No cap, no pagination").
+
+    Every failure — a db error, an unreachable file, anything a caller did not
+    enumerate — becomes the ``"Codex error: "`` string, because a raising tool
+    aborts the whole parent turn.
+    """
+    singular, plural = _LIST_LABELS[kind]
+    try:
+        entries = await codex_entries.list_by_book(
+            context.book_id, kind=kind, include_archived=False
+        )
+    except Exception:
+        logger.warning(
+            "codex listing: book %s could not be listed (kind=%s)",
+            getattr(context, "book_id", None),
+            getattr(kind, "value", kind),
+            exc_info=True,
+        )
+        return _LIST_FAILED_MESSAGE
+
+    if not entries:
+        # An empty codex, and a kind nothing has been written for yet, are
+        # ordinary outcomes — a plain sentence, never an error string and never
+        # a bare header over nothing.
+        return _LIST_EMPTY_MESSAGE.format(label=plural)
+
+    try:
+        rows = [_render_listing_row(entry) for entry in entries]
+    except Exception:
+        logger.warning(
+            "codex listing: book %s could not be rendered (kind=%s)",
+            getattr(context, "book_id", None),
+            getattr(kind, "value", kind),
+            exc_info=True,
+        )
+        return _LIST_FAILED_MESSAGE
+
+    header = _LIST_HEADER_MESSAGE.format(
+        count=len(rows), label=singular if len(rows) == 1 else plural
+    )
+    return "\n".join([header, *rows])
+
+
+async def codex_list_entries(context: "ToolContext") -> str:
+    """List every entry in this book's codex in short form (025).
+
+    ``context`` is bound at build time by :func:`bind_codex_list_entries`, leaving **no**
+    model-supplied arguments: the book is ``context.book_id`` and nothing else
+    narrows the listing.
+
+    Calls ``db/codex_entries.py:list_by_book(context.book_id, kind=None,
+    include_archived=False)`` and renders its result in that call's own order —
+    this tool imposes no ordering and **no cap**. One line per entry: a named
+    entry as ``entry_id=<id> | <name>``, an unnamed one (a fact) as
+    ``entry_id=<id> | <excerpt>`` via :func:`_excerpt`. The full body is never
+    rendered; :func:`codex_read_entry` is how the model gets it.
+
+    Three outcomes, three string categories (the module's convention): the
+    rendered listing behind a header line naming what was listed and the count; a
+    **plain sentence** when nothing matched (an empty codex is an ordinary
+    outcome, never an error, following ``No codex entries found for "{query}".``);
+    and a ``"Codex error: "``-prefixed string on failure.
+
+    **It never raises** — a raising tool aborts the whole parent turn.
+    """
+    return await _render_codex_listing(context, None)
+
+
+async def codex_list_characters(context: "ToolContext") -> str:
+    """List this book's character entries in short form (025).
+
+    ``context`` is bound at build time by :func:`bind_codex_list_characters`, leaving **no**
+    model-supplied arguments: the book is ``context.book_id`` and nothing else
+    narrows the listing.
+
+    Calls ``db/codex_entries.py:list_by_book(context.book_id, kind=CodexKind.character,
+    include_archived=False)`` and renders its result in that call's own order —
+    this tool imposes no ordering and **no cap**. One line per entry: a named
+    entry as ``entry_id=<id> | <name>``, an unnamed one (a fact) as
+    ``entry_id=<id> | <excerpt>`` via :func:`_excerpt`. The full body is never
+    rendered; :func:`codex_read_entry` is how the model gets it.
+
+    Three outcomes, three string categories (the module's convention): the
+    rendered listing behind a header line naming what was listed and the count; a
+    **plain sentence** when nothing matched (an empty codex is an ordinary
+    outcome, never an error, following ``No codex entries found for "{query}".``);
+    and a ``"Codex error: "``-prefixed string on failure.
+
+    **It never raises** — a raising tool aborts the whole parent turn.
+    """
+    return await _render_codex_listing(context, CodexKind.character)
+
+
+async def codex_list_locations(context: "ToolContext") -> str:
+    """List this book's location entries in short form (025).
+
+    ``context`` is bound at build time by :func:`bind_codex_list_locations`, leaving **no**
+    model-supplied arguments: the book is ``context.book_id`` and nothing else
+    narrows the listing.
+
+    Calls ``db/codex_entries.py:list_by_book(context.book_id, kind=CodexKind.location,
+    include_archived=False)`` and renders its result in that call's own order —
+    this tool imposes no ordering and **no cap**. One line per entry: a named
+    entry as ``entry_id=<id> | <name>``, an unnamed one (a fact) as
+    ``entry_id=<id> | <excerpt>`` via :func:`_excerpt`. The full body is never
+    rendered; :func:`codex_read_entry` is how the model gets it.
+
+    Three outcomes, three string categories (the module's convention): the
+    rendered listing behind a header line naming what was listed and the count; a
+    **plain sentence** when nothing matched (an empty codex is an ordinary
+    outcome, never an error, following ``No codex entries found for "{query}".``);
+    and a ``"Codex error: "``-prefixed string on failure.
+
+    **It never raises** — a raising tool aborts the whole parent turn.
+    """
+    return await _render_codex_listing(context, CodexKind.location)
+
+
+async def codex_list_facts(context: "ToolContext") -> str:
+    """List this book's fact (lore) entries in short form (025).
+
+    ``context`` is bound at build time by :func:`bind_codex_list_facts`, leaving **no**
+    model-supplied arguments: the book is ``context.book_id`` and nothing else
+    narrows the listing.
+
+    Calls ``db/codex_entries.py:list_by_book(context.book_id, kind=CodexKind.fact,
+    include_archived=False)`` and renders its result in that call's own order —
+    this tool imposes no ordering and **no cap**. One line per entry: a named
+    entry as ``entry_id=<id> | <name>``, an unnamed one (a fact) as
+    ``entry_id=<id> | <excerpt>`` via :func:`_excerpt`. The full body is never
+    rendered; :func:`codex_read_entry` is how the model gets it.
+
+    Three outcomes, three string categories (the module's convention): the
+    rendered listing behind a header line naming what was listed and the count; a
+    **plain sentence** when nothing matched (an empty codex is an ordinary
+    outcome, never an error, following ``No codex entries found for "{query}".``);
+    and a ``"Codex error: "``-prefixed string on failure.
+
+    **It never raises** — a raising tool aborts the whole parent turn.
+    """
+    return await _render_codex_listing(context, CodexKind.fact)
+
+
 def bind_codex_search(context: "ToolContext") -> Callable[..., object]:
     """Bind ``context`` into :func:`codex_search` — the ``ToolDef.binder``.
 
@@ -1090,3 +1355,43 @@ def bind_create_codex_entry(context: "ToolContext") -> Callable[..., object]:
     and cannot.
     """
     return functools.partial(create_codex_entry, context)
+
+
+def bind_codex_list_entries(context: "ToolContext") -> Callable[..., object]:
+    """Bind ``context`` into :func:`codex_list_entries` — the ``ToolDef.binder``.
+
+    Returns a callable with **zero** free parameters, matching
+    :class:`CodexListEntriesArgs`' zero fields, for the same reason as
+    :func:`bind_codex_search`.
+    """
+    return functools.partial(codex_list_entries, context)
+
+
+def bind_codex_list_characters(context: "ToolContext") -> Callable[..., object]:
+    """Bind ``context`` into :func:`codex_list_characters` — the ``ToolDef.binder``.
+
+    Returns a callable with **zero** free parameters, matching
+    :class:`CodexListCharactersArgs`' zero fields, for the same reason as
+    :func:`bind_codex_search`.
+    """
+    return functools.partial(codex_list_characters, context)
+
+
+def bind_codex_list_locations(context: "ToolContext") -> Callable[..., object]:
+    """Bind ``context`` into :func:`codex_list_locations` — the ``ToolDef.binder``.
+
+    Returns a callable with **zero** free parameters, matching
+    :class:`CodexListLocationsArgs`' zero fields, for the same reason as
+    :func:`bind_codex_search`.
+    """
+    return functools.partial(codex_list_locations, context)
+
+
+def bind_codex_list_facts(context: "ToolContext") -> Callable[..., object]:
+    """Bind ``context`` into :func:`codex_list_facts` — the ``ToolDef.binder``.
+
+    Returns a callable with **zero** free parameters, matching
+    :class:`CodexListFactsArgs`' zero fields, for the same reason as
+    :func:`bind_codex_search`.
+    """
+    return functools.partial(codex_list_facts, context)

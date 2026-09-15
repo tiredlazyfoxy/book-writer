@@ -14,6 +14,7 @@ import {
 import { modeLabel } from "../../../api/assistantConfig";
 import type { AssistantMode, AssistantTool, SubAgent } from "../../../types/assistantConfig";
 import { ModeEditorDraft, submitModeEditor } from "./modeEditorDraft";
+import { ToolPicker } from "./ToolPicker";
 
 interface ModeEditorModalProps {
   opened: boolean;
@@ -35,11 +36,13 @@ interface ModeEditorModalProps {
  *
  * Body order: the `form` `<Alert color="red">` first (server errors are whole-form
  * here), the read-only mode label, the optional system-prompt `<Textarea>`, then the
- * two pickers (`ScrollArea.Autosize mah={360}` → `Stack gap="xs"` → one `Checkbox`
- * per entry; every toggle reassigns a fresh `Set`, since a `Set` mutated in place is
- * not observable to MobX). Both pickers render an explanatory line rather than a
- * blank box when they have nothing to offer — nothing here assumes the catalogue has
- * any particular size.
+ * two pickers. The tool picker is the shared, group-laid-out `<ToolPicker>` (025);
+ * the sub-agent one is still inline (`ScrollArea.Autosize mah={360}` → `Stack
+ * gap="xs"` → one `Checkbox` per entry) and deliberately stays that way. Every
+ * toggle reassigns a fresh `Set`, since a `Set` mutated in place is not observable
+ * to MobX. Both pickers render an explanatory line rather than a blank box when
+ * they have nothing to offer — nothing here assumes the catalogue has any
+ * particular size.
  */
 export const ModeEditorModal = observer(function ModeEditorModal({
   opened,
@@ -106,25 +109,12 @@ export const ModeEditorModal = observer(function ModeEditorModal({
           <Text size="sm" fw={500}>
             Tools
           </Text>
-          {tools.length === 0 ? (
-            <Text size="sm" c="dimmed">
-              No tools are available to select. This mode will run with no tools.
-            </Text>
-          ) : (
-            <ScrollArea.Autosize mah={360}>
-              <Stack gap="xs">
-                {tools.map((tool) => (
-                  <Checkbox
-                    key={tool.name}
-                    label={tool.name}
-                    description={tool.description}
-                    checked={draft.selectedTools.has(tool.name)}
-                    onChange={(e) => toggleTool(tool.name, e.currentTarget.checked)}
-                  />
-                ))}
-              </Stack>
-            </ScrollArea.Autosize>
-          )}
+          <ToolPicker
+            tools={tools}
+            selected={draft.selectedTools}
+            onToggle={toggleTool}
+            emptyMessage="No tools are available to select. This mode will run with no tools."
+          />
         </Stack>
 
         <Stack gap="xs">

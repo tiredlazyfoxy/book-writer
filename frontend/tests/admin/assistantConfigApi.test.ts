@@ -96,8 +96,12 @@ function methodOf(opts: ClientOpts): string {
   return (opts?.method ?? "GET").toUpperCase();
 }
 
-function makeTool(name: string, description: string): AssistantTool {
-  return { name, description };
+// `AssistantTool` gained a required `group` in 025.codex-listing-tools (its
+// `## Skeleton` / DoD-23): the wire object now carries three fields, so the
+// fixture declares one. The wire module passes the payload through untouched, so
+// no assertion in this file depends on the value.
+function makeTool(name: string, description: string, group = "codex"): AssistantTool {
+  return { name, description, group };
 }
 
 function makeMode(key: string): AssistantMode {

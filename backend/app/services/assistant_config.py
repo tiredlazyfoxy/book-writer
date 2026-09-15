@@ -127,12 +127,14 @@ async def list_tools() -> ToolsListResponse:
     or many entries — nothing may hard-code the count (the registry has grown
     since this surface was written and will keep changing).
 
-    Only ``name`` and ``description`` are surfaced; ``args_schema`` and
-    ``callable`` never reach the wire, nor does any key derived from them.
+    Only ``name``, ``description`` and ``group`` are surfaced; ``args_schema``
+    and ``callable`` never reach the wire, nor does any key derived from them.
     """
     return ToolsListResponse(
         items=[
-            ToolResponse(name=tool.name, description=tool.description)
+            ToolResponse(
+                name=tool.name, description=tool.description, group=tool.group
+            )
             for tool in TOOL_REGISTRY
         ]
     )

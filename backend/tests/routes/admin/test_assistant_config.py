@@ -751,9 +751,50 @@ async def test_tools_catalogue_name_and_description_only_admin_gated__DoD10_UC09
     items = body["items"]
     assert len(items) == len(ALL_TOOL_NAMES)
     assert {entry["name"] for entry in items} == set(ALL_TOOL_NAMES)
+    # Widened by 025.codex-listing-tools DoD-7: the catalogue entry now carries a
+    # THIRD field, `group`, and still nothing else (`025/plan.md` -> Interface ->
+    # `ToolResponse`). The clause this case is for -- the catalogue exposes exactly
+    # the fields the schema declares, no more -- is unchanged and still exact.
     for entry in items:
-        assert set(entry.keys()) == {"name", "description"}
+        assert set(entry.keys()) == {"name", "description", "group"}
 
+    forbidden = await http_client.get(TOOLS_URL, headers=_auth_header(author_token))
+    assert forbidden.status_code == 403
+
+    anonymous = await http_client.get(TOOLS_URL)
+    assert anonymous.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 025.codex-listing-tools — DoD-7: the catalogue carries each tool's `group`.
+# ---------------------------------------------------------------------------
+
+
+# 025 DoD-7: GET /tools returns `group` for EVERY tool, with the same values and in
+# the same declaration order as the registry, behind the unchanged admin-only
+# authorization (`025/plan.md` -> Interface -> `ToolResponse` / `list_tools()`).
+# The expectation is DERIVED from the registry -- never a literal table, which
+# DoD-18 deliberately leaves untested.
+async def test_tools_catalogue_carries_group_in_registry_order__025_DoD7(http_client):
+    _admin, admin_token = await _seed_admin()
+    _author, author_token = await _seed_author()
+
+    resp = await http_client.get(TOOLS_URL, headers=_auth_header(admin_token))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    ToolsListResponse.model_validate(body)
+
+    items = body["items"]
+    # Declaration order preserved, name AND group, pairwise.
+    assert [(entry["name"], entry["group"]) for entry in items] == [
+        (tool.name, tool.group) for tool in TOOL_REGISTRY
+    ]
+    # Every entry carries a non-blank group from the wire vocabulary.
+    for entry in items:
+        assert isinstance(entry["group"], str)
+        assert entry["group"] in {"codex", "book", "web"}
+
+    # Authorization is unchanged: admin-only, with the family's status codes.
     forbidden = await http_client.get(TOOLS_URL, headers=_auth_header(author_token))
     assert forbidden.status_code == 403
 
@@ -836,8 +877,12 @@ async def test_no_api_key_or_tool_internals_in_any_response__DoD12(http_client):
     assert tools.status_code == 200, tools.text
     responses.append(("GET /tools", tools.json()))
     # The args_schema / callable half, asserted directly on the catalogue shape.
+    # Widened by 025.codex-listing-tools (its DoD-7): the catalogue entry carries a
+    # third field, `group` -- a stable machine key, never a tool internal. The
+    # clause this sweep is for is unchanged and still EXACT: the catalogue exposes
+    # those fields and nothing else, so no args_schema or callable can leak.
     for entry in tools.json()["items"]:
-        assert set(entry.keys()) == {"name", "description"}
+        assert set(entry.keys()) == {"name", "description", "group"}
 
     created = await http_client.post(
         SUB_AGENTS_URL,

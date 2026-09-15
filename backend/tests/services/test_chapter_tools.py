@@ -939,6 +939,12 @@ async def test_no_path_in_any_of_the_four_tools_raises__DoD11(db: DbConfig):
 # from seven to eight -- the `len(...)` assertion below is derived from this set,
 # so it moves with it and still pins the seeded rows as a CLOSED set with no
 # duplicates. It stays an exact-set assertion, never a "contains" check.
+#
+# Widened the same two-part way by 025.codex-listing-tools, whose Interface
+# (`backend/app/db/mode_tools.py`) appends all four codex LISTING tool names to
+# `write-chapter`'s seeded tuple — eight names become twelve, and the derived
+# `len(...)` assertion moves with the set. `close-chapter` is untouched there, and
+# nothing here asserts anything about the other four modes.
 WRITE_CHAPTER_DEFAULT_TOOLS = {
     "web_search",
     "codex_search",
@@ -948,6 +954,10 @@ WRITE_CHAPTER_DEFAULT_TOOLS = {
     "set_chapter_text",
     "update_selection",
     "add_text",
+    "codex_list_entries",  # 025
+    "codex_list_characters",  # 025
+    "codex_list_locations",  # 025
+    "codex_list_facts",  # 025
 }
 
 

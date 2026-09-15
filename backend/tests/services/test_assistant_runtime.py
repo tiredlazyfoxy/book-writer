@@ -175,10 +175,14 @@ def _note_tool(text: str) -> str:
     return f"noted: {text}"
 
 
+# `group` is required with no default since 025.codex-listing-tools (its DoD-17 /
+# `## Skeleton`), so this synthetic catalogue entry declares one. `"book"` is a
+# valid registry group; the value carries no assertion here.
 _EXTRA_TOOL = ToolDef(
     name="note_tool",
     description="Record a short note for the author.",
     args_schema=_NoteArgs,
+    group="book",
     callable=_note_tool,
 )
 

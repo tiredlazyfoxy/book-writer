@@ -71,6 +71,17 @@ from app.services.web_search import web_search
 # `create_codex_entry` to be a TOOL_REGISTRY member with a binder (its own
 # assertions live in tests/services/test_codex_create_tool.py). As with every
 # widening above, this stays an EXACT-set assertion -- never a "contains" check.
+#
+# Widened once more by 025.codex-listing-tools, which takes the registry from 14
+# entries to 18: the four codex LISTING tools (`codex_list_entries` /
+# `codex_list_characters` / `codex_list_locations` / `codex_list_facts`) join the
+# catalogue under exactly those names (025/plan.md -> Interface -> "All 18
+# TOOL_REGISTRY entries"). This is a FORCED widening of a pre-existing exact set,
+# not new coverage: 025 deliberately leaves symbol-existence untested. Those tools'
+# own assertions live in tests/services/test_codex_list_tools.py. The intent of
+# THIS test is unchanged:
+# the registry's contents are pinned rather than open-ended, `web_search` is still
+# its first entry, and the set is still EXACT.
 def test_registry_has_single_web_search_entry__DoD3():
     assert {t.name for t in tools.TOOL_REGISTRY} == {
         "web_search",
@@ -87,6 +98,10 @@ def test_registry_has_single_web_search_entry__DoD3():
         "propose_active_notes",
         "raise_check_flag",
         "read_continuity_context",
+        "codex_list_entries",  # 025
+        "codex_list_characters",  # 025
+        "codex_list_locations",  # 025
+        "codex_list_facts",  # 025
     }
 
     entry = tools.TOOL_REGISTRY[0]
@@ -171,3 +186,27 @@ def test_resolve_unknown_name_is_skipped_not_raised__DoD5():
 # raised) — proving None (whole registry) is distinct from an empty selection.
 def test_resolve_only_unknown_names_yields_empty__DoD5():
     assert tools.resolve_tools(["ghost_tool", "another_ghost"]) == []
+
+
+# ---------------------------------------------------------------------------
+# 025.codex-listing-tools — DoD-6
+# ---------------------------------------------------------------------------
+
+
+# 025 DoD-6: ALL 18 TOOL_REGISTRY entries declare a `group`, and every declared
+# value is one of the three machine keys the wire contract allows
+# (`025/plan.md` -> Interface -> `backend/app/services/tools.py`; `025/context.md`
+# -> "Shared vocabulary" -> **group**). An invariant over a table a human will
+# edit again: a nineteenth entry added with no `group`, or with a typo'd one, is
+# exactly what this catches. The tool-for-tool assignment table is deliberately
+# NOT duplicated here (`025/plan.md` -> Test plan, DoD-18).
+def test_every_registry_entry_declares_a_valid_group__025_DoD6():
+    assert len(tools.TOOL_REGISTRY) == 18
+
+    valid_groups = {"codex", "book", "web"}
+    for entry in tools.TOOL_REGISTRY:
+        assert isinstance(entry.group, str), entry.name
+        assert entry.group in valid_groups, f"{entry.name} declares group={entry.group!r}"
+
+    # All three groups are actually in use — the registry is not one flat group.
+    assert {entry.group for entry in tools.TOOL_REGISTRY} == valid_groups

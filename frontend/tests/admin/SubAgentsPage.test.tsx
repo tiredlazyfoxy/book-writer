@@ -108,8 +108,12 @@ vi.mock("../../src/api/llmServers", async (importOriginal) => {
 
 /* ------------------------------------------------------------------ fixtures */
 
-function makeTool(name: string, description: string): AssistantTool {
-  return { name, description };
+// `AssistantTool` gained a required `group` in 025.codex-listing-tools (its
+// `## Skeleton` / DoD-23), so every fixture declares one. The three tools below
+// deliberately sit in three DIFFERENT groups, so the assertions in this file run
+// against a picker that really is grouped.
+function makeTool(name: string, description: string, group: string): AssistantTool {
+  return { name, description, group };
 }
 
 function makeMode(key: string): AssistantMode {
@@ -160,9 +164,9 @@ function makeServer(
   };
 }
 
-const WEB_SEARCH = makeTool("web_search", "Search the open internet.");
-const READ_CHAPTER = makeTool("read_chapter", "Read the text of a chapter.");
-const LIST_CODEX = makeTool("list_codex", "List the entries of a codex.");
+const WEB_SEARCH = makeTool("web_search", "Search the open internet.", "web");
+const READ_CHAPTER = makeTool("read_chapter", "Read the text of a chapter.", "book");
+const LIST_CODEX = makeTool("list_codex", "List the entries of a codex.", "codex");
 const ALL_TOOLS = [WEB_SEARCH, READ_CHAPTER, LIST_CODEX];
 
 // The five seeded mode keys and their frozen `MODE_LABELS` labels (step 006).
@@ -1183,5 +1187,75 @@ describe("the tool picker is catalogue-driven at any size (DoD-13)", () => {
     for (const tool of ALL_TOOLS) {
       expect(checkboxNamed(tool.name)).toBeInTheDocument();
     }
+  });
+});
+
+/* ----------------------------------------------- 025.codex-listing-tools -----*/
+
+/**
+ * 025.codex-listing-tools DoD-10, this modal's half. The clause is a contract TWO
+ * call sites must share identically, so the expected payload and the expected
+ * empty-catalogue sentence are written out from `025/plan.md` -> Interface
+ * (`ModeEditorModal.tsx` / `SubAgentFormModal.tsx`); `AssistantModesPage.test.tsx`
+ * asserts the SAME selection against the SAME `SHARED_SELECTION` value through the
+ * other modal. This is not DoD-13 over again: what is pinned here is that routing
+ * the selection through the SHARED picker changes neither the payload, nor the
+ * replace-not-mutate discipline, nor the empty-catalogue copy.
+ */
+const SUB_AGENT_EMPTY_MESSAGE =
+  "No tools are available to select. This sub-agent will run with no tools.";
+
+/** The shared worked selection: the codex tool and the web tool, not the book one. */
+const SHARED_SELECTION = ["list_codex", "web_search"];
+
+describe("the shared tool picker keeps this modal's contract (DoD-10)", () => {
+  it("DoD-10: a given selection saves as exactly that tool_names payload", async () => {
+    const user = userEvent.setup();
+    // NAMER carries no tools, so the checked set is exactly what is clicked.
+    renderModal(NAMER);
+
+    await user.click(checkboxNamed(LIST_CODEX.name));
+    await user.click(checkboxNamed(WEB_SEARCH.name));
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(vi.mocked(assistantConfigApi.updateSubAgent)).toHaveBeenCalledTimes(1),
+    );
+    const { id, body } = onlyUpdateCall();
+    expect(id).toBe(NAMER.id);
+    expect([...(body.tool_names ?? [])].sort()).toEqual([...SHARED_SELECTION].sort());
+  });
+
+  it("DoD-10: selectedTools is a Set<string> REPLACED on each toggle — the checkbox re-renders", async () => {
+    const user = userEvent.setup();
+
+    // The draft field is a string Set to begin with.
+    const draft = newDraft(CONTINUITY);
+    expect(typeof draft.selectedTools.has).toBe("function");
+    expect(draft.selectedTools.has(WEB_SEARCH.name)).toBe(true);
+    expect(Array.from(draft.selectedTools).every((name) => typeof name === "string")).toBe(true);
+
+    renderModal(CONTINUITY);
+
+    // A Set mutated in place would leave this `observer` subtree unchanged; the
+    // rendered checked state flipping BOTH ways is the replacement, observed.
+    expect(checkboxNamed(LIST_CODEX.name)).not.toBeChecked();
+    await user.click(checkboxNamed(LIST_CODEX.name));
+    expect(checkboxNamed(LIST_CODEX.name)).toBeChecked();
+    await user.click(checkboxNamed(LIST_CODEX.name));
+    expect(checkboxNamed(LIST_CODEX.name)).not.toBeChecked();
+
+    // Two toggles later the selection is exactly what it started as.
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(vi.mocked(assistantConfigApi.updateSubAgent)).toHaveBeenCalledTimes(1),
+    );
+    expect([...(onlyUpdateCall().body.tool_names ?? [])]).toEqual([WEB_SEARCH.name]);
+  });
+
+  it("DoD-10: an empty catalogue renders this modal's message verbatim, in full", () => {
+    renderModal(NAMER, { tools: [] });
+
+    expect(screen.getByText(SUB_AGENT_EMPTY_MESSAGE)).toBeInTheDocument();
   });
 });

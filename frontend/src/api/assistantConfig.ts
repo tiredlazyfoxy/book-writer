@@ -38,6 +38,21 @@ export const MODE_LABELS: Record<string, string> = {
 };
 
 /**
+ * Human-readable labels for the backend tool groups (`ToolDef.group`). Runtime
+ * const, so it lives here in the `.ts` api module rather than in
+ * `types/assistantConfig.d.ts`, exactly like {@link MODE_LABELS}. The machine keys
+ * cross the wire; these labels never do, and this is the one place they are
+ * spelled. There is deliberately no `"other"` key — `ToolPicker` supplies the
+ * literal `"Other"` heading for any group missing from this map, so an
+ * unrecognised group is rendered rather than dropped.
+ */
+export const TOOL_GROUP_LABELS: Record<string, string> = {
+  codex: "Codex access",
+  book: "Book access",
+  web: "Web access",
+};
+
+/**
  * Label lookup for a mode key. Degrades to the **raw key** for anything not in
  * {@link MODE_LABELS}, so an unexpected key renders rather than crashing.
  */

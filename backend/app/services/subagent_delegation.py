@@ -299,6 +299,12 @@ async def build_delegation_tools(
                     f"instructions."
                 ),
                 args_schema=DelegationArgs,
+                # ``group`` is required on ``ToolDef`` since 025. A synthetic
+                # delegation tool is never in ``TOOL_REGISTRY`` and therefore
+                # never reaches the admin catalogue or its grouped picker, so it
+                # carries its own key rather than borrowing one of the three
+                # registry groups (``codex`` / ``book`` / ``web``).
+                group="delegation",
                 # ``sub_agent`` and ``parent`` are bound here because the ``llm``
                 # client dispatches ``func(**kwargs)`` with no context argument;
                 # ``task`` stays the single free parameter.

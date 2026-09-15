@@ -42,6 +42,13 @@ from app.models.mode_tool import ModeTool
 # below is idempotent per mode, so an already-seeded database gets the tool only
 # when an administrator adds it in the assistant-config editor (D2/D3).
 #
+# The four AUTHORING modes also carry the four CODEX LISTING tools (025): a mode
+# that can search and read the codex should be able to see what is in it, which
+# is what keeps the model from inventing a duplicate of an entry it has never
+# been shown. ``close-chapter`` again does not — its five tools are the closing
+# set ``assistant-config.md`` names, and a close run reads the codex through
+# ``read_continuity_context``. Fresh installs only, for the same reason as above.
+#
 # Each tuple is in ``services/tools.py:TOOL_REGISTRY`` order, which is why
 # ``create_codex_entry`` trails ``write_codex_draft`` in the codex modes and
 # precedes the chapter tools in ``write-chapter``.
@@ -52,6 +59,10 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_read_entry",
         "write_codex_draft",
         "create_codex_entry",
+        "codex_list_entries",
+        "codex_list_characters",
+        "codex_list_locations",
+        "codex_list_facts",
     ),
     "edit-location": (
         "web_search",
@@ -59,6 +70,10 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_read_entry",
         "write_codex_draft",
         "create_codex_entry",
+        "codex_list_entries",
+        "codex_list_characters",
+        "codex_list_locations",
+        "codex_list_facts",
     ),
     "edit-fact": (
         "web_search",
@@ -66,6 +81,10 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "codex_read_entry",
         "write_codex_draft",
         "create_codex_entry",
+        "codex_list_entries",
+        "codex_list_characters",
+        "codex_list_locations",
+        "codex_list_facts",
     ),
     "write-chapter": (
         "web_search",
@@ -76,6 +95,10 @@ DEFAULT_MODE_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "set_chapter_text",
         "update_selection",
         "add_text",
+        "codex_list_entries",
+        "codex_list_characters",
+        "codex_list_locations",
+        "codex_list_facts",
     ),
     "close-chapter": (
         "draft_chapter_summary",

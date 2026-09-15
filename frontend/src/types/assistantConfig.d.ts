@@ -22,12 +22,17 @@ import type { ISODateString } from "./common";
 
 /**
  * One entry of the backend tool catalogue — `GET /api/admin/assistant-config/tools`
- * row. Mirrors backend `ToolResponse`, which carries **exactly two** fields: the
+ * row. Mirrors backend `ToolResponse`, which carries **exactly three** fields: the
  * `args_schema` and `callable` of the registry's `ToolDef` never cross the wire.
+ *
+ * `group` is the registry's stable machine key (`"codex"` / `"book"` / `"web"`)
+ * the admin picker groups by; its human-readable label is the frontend's
+ * (`TOOL_GROUP_LABELS` in `api/assistantConfig.ts`) and never crosses the wire.
  */
 export interface AssistantTool {
   name: string;
   description: string;
+  group: string;
 }
 
 /**

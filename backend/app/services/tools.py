@@ -117,9 +117,17 @@ from app.services.close_tools import (
 )
 from app.services.codex_tools import (
     CodexEntryReadArgs,
+    CodexListCharactersArgs,
+    CodexListEntriesArgs,
+    CodexListFactsArgs,
+    CodexListLocationsArgs,
     CodexSearchArgs,
     CreateCodexEntryArgs,
     WriteCodexDraftArgs,
+    bind_codex_list_characters,
+    bind_codex_list_entries,
+    bind_codex_list_facts,
+    bind_codex_list_locations,
     bind_codex_read_entry,
     bind_codex_search,
     bind_create_codex_entry,
@@ -257,6 +265,14 @@ class ToolDef:
     - ``description`` — the model-facing description; non-empty.
     - ``args_schema`` — a ``BaseModel`` subclass whose field names are exactly the
       callable's keyword parameters.
+    - ``group`` — the stable machine key the admin tool picker groups by
+      (``"codex"`` / ``"book"`` / ``"web"``), declared here at the registry
+      definition site. **Required, no default**, so adding a tool forces the
+      author to choose its group rather than letting it fall through a frontend
+      map. Display labels are the frontend's and never cross the wire; the
+      position — after ``args_schema``, before ``callable``/``binder`` — is
+      load-bearing, since a required dataclass field cannot follow a defaulted
+      one.
     - ``callable`` — the implementation, for a **context-free** tool. Typed
       loosely (``Callable[..., object]``) so a sync-or-async callable is accepted
       (``context.md`` → tool-callable binding).
@@ -275,6 +291,7 @@ class ToolDef:
     name: str
     description: str
     args_schema: type[BaseModel]
+    group: str
     callable: Callable[..., object] | None = None
     binder: ToolBinder | None = None
 
@@ -297,6 +314,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "compact list of result titles, snippets and links for a query."
         ),
         args_schema=WebSearchArgs,
+        group="web",
         callable=web_search,
     ),
     ToolDef(
@@ -307,6 +325,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "return each match's entry id, kind, name and the matching passage."
         ),
         args_schema=CodexSearchArgs,
+        group="codex",
         binder=bind_codex_search,
     ),
     ToolDef(
@@ -317,6 +336,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "codex search tool."
         ),
         args_schema=CodexEntryReadArgs,
+        group="codex",
         binder=bind_codex_read_entry,
     ),
     ToolDef(
@@ -329,6 +349,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "whole text at once — it replaces that part of the draft."
         ),
         args_schema=WriteCodexDraftArgs,
+        group="codex",
         binder=bind_write_codex_draft,
     ),
     # The codex CREATE entry (fast/007). Bound like its three neighbours, and
@@ -357,6 +378,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "has none. Create one entry per call."
         ),
         args_schema=CreateCodexEntryArgs,
+        group="codex",
         binder=bind_create_codex_entry,
     ),
     # The four chapter entries (015 step 010). All bound, all context-bearing,
@@ -375,6 +397,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "their unsaved draft is newer than what you get back."
         ),
         args_schema=ReadChapterTextArgs,
+        group="book",
         binder=bind_read_chapter_text,
     ),
     ToolDef(
@@ -387,6 +410,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "whether to keep it."
         ),
         args_schema=SetChapterTextArgs,
+        group="book",
         binder=bind_set_chapter_text,
     ),
     ToolDef(
@@ -401,6 +425,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "saved: it only appears in the author's editor."
         ),
         args_schema=UpdateSelectionArgs,
+        group="book",
         binder=bind_update_selection,
     ),
     ToolDef(
@@ -413,6 +438,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "in the author's editor."
         ),
         args_schema=AddTextArgs,
+        group="book",
         binder=bind_add_text,
     ),
     # The five CLOSE entries (016). All bound, all context-bearing, and — like
@@ -435,6 +461,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "chapter: the server decides that after this conversation ends."
         ),
         args_schema=DraftChapterSummaryArgs,
+        group="book",
         binder=bind_draft_chapter_summary,
     ),
     ToolDef(
@@ -447,6 +474,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "state notes are worked out from."
         ),
         args_schema=DraftChapterNotesArgs,
+        group="book",
         binder=bind_draft_chapter_notes,
     ),
     ToolDef(
@@ -460,6 +488,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "this before you finish or the close cannot complete."
         ),
         args_schema=ProposeActiveNotesArgs,
+        group="book",
         binder=bind_propose_active_notes,
     ),
     ToolDef(
@@ -473,6 +502,7 @@ TOOL_REGISTRY: list[ToolDef] = [
             "deals with it, so raise one only for a real inconsistency."
         ),
         args_schema=RaiseCheckFlagArgs,
+        group="book",
         binder=bind_raise_check_flag,
     ),
     ToolDef(
@@ -484,7 +514,74 @@ TOOL_REGISTRY: list[ToolDef] = [
             "the book. It takes no arguments and changes nothing."
         ),
         args_schema=ReadContinuityContextArgs,
+        group="book",
         binder=bind_read_continuity_context,
+    ),
+    # The four CODEX LISTING entries (025). Bound and context-bearing like their
+    # codex neighbours, and — like every feature since 015 — shipped selected in
+    # no existing mode: ``seed_default_mode_tools()`` skips a mode that already
+    # has rows, so on an existing database an admin must tick them.
+    #
+    # Every description names BOTH sibling codex tools on purpose: ``codex_search``
+    # so the model knows which question each answers (find the entries about a
+    # topic vs. enumerate what exists), and ``codex_read_entry`` because a listing
+    # row is short form — id plus name, or id plus a body excerpt — and the full
+    # text is one call away. ``codex_list_facts`` says "lore", the author's word
+    # for an unnamed fact, while the ``kind`` it filters on stays ``fact``: that
+    # vocabulary split is prose-only (``context.md`` → Shared vocabulary).
+    ToolDef(
+        name="codex_list_entries",
+        description=(
+            "List everything in this book's codex — its characters, locations "
+            "and facts — one short line per entry carrying that entry's id and "
+            "its name, or a short excerpt of its text when it has no name. Use "
+            "it to see what the codex already holds; use codex_search instead to "
+            "find the entries about a particular topic, and codex_read_entry to "
+            "read any one entry in full."
+        ),
+        args_schema=CodexListEntriesArgs,
+        group="codex",
+        binder=bind_codex_list_entries,
+    ),
+    ToolDef(
+        name="codex_list_characters",
+        description=(
+            "List every character in this book's codex, one short line per "
+            "entry carrying that character's entry id and name. Use it to see "
+            "who the book already has; use codex_search instead to find the "
+            "entries about a particular topic, and codex_read_entry to read any "
+            "one character in full."
+        ),
+        args_schema=CodexListCharactersArgs,
+        group="codex",
+        binder=bind_codex_list_characters,
+    ),
+    ToolDef(
+        name="codex_list_locations",
+        description=(
+            "List every location in this book's codex, one short line per entry "
+            "carrying that place's entry id and name. Use it to see which places "
+            "the book already has; use codex_search instead to find the entries "
+            "about a particular topic, and codex_read_entry to read any one "
+            "location in full."
+        ),
+        args_schema=CodexListLocationsArgs,
+        group="codex",
+        binder=bind_codex_list_locations,
+    ),
+    ToolDef(
+        name="codex_list_facts",
+        description=(
+            "List every fact in this book's codex — the book's lore — one short "
+            "line per entry carrying the entry's id and a short excerpt of its "
+            "text, a fact having no name. Use it to see what lore the book "
+            "already establishes; use codex_search instead to find the entries "
+            "about a particular topic, and codex_read_entry to read any one "
+            "entry in full."
+        ),
+        args_schema=CodexListFactsArgs,
+        group="codex",
+        binder=bind_codex_list_facts,
     ),
 ]
 

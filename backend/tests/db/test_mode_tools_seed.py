@@ -32,6 +32,13 @@ sets now also carry `create_codex_entry` in `edit-character`, `edit-location`,
 (`fast/007/plan.md` -> Interface intent -> "Seeded defaults" and DoD-8). Every
 other assertion here is feature 024's, unchanged.
 
+Widened again by 025.codex-listing-tools, which appends the four listing-tool
+names to the `edit-character`, `edit-location`, `edit-fact` and `write-chapter`
+tuples and leaves `close-chapter` alone (`025/plan.md` -> Interface ->
+`backend/app/db/mode_tools.py`). Only the expected tuples move; no new `[test]`
+DoD item lives in this file (025's DoD-14 is `[verify]`), and every assertion
+below is unchanged.
+
 The `system_prompt` WORDING is deliberately not tested (`plan.md` -> Test plan ->
 "Not tested"); only its non-blankness, which DoD-4 names.
 
@@ -56,12 +63,24 @@ CREATE_TOOL = "create_codex_entry"
 CREATE_TOOL_MODES = ("edit-character", "edit-location", "edit-fact", "write-chapter")
 NO_CREATE_TOOL_MODE = "close-chapter"
 
+# 025.codex-listing-tools widens four of the five default tuples: each of
+# `edit-character`, `edit-location`, `edit-fact` and `write-chapter` gains all four
+# listing-tool names; `close-chapter` is unchanged (`025/plan.md` -> Interface ->
+# `backend/app/db/mode_tools.py`, transcribed verbatim below).
+LIST_TOOLS = (
+    "codex_list_entries",
+    "codex_list_characters",
+    "codex_list_locations",
+    "codex_list_facts",
+)
+
 CODEX_TOOLS = (
     "web_search",
     "codex_search",
     "codex_read_entry",
     "write_codex_draft",
     CREATE_TOOL,
+    *LIST_TOOLS,
 )
 
 EXPECTED_TOOLS: dict[str, tuple[str, ...]] = {
@@ -77,6 +96,7 @@ EXPECTED_TOOLS: dict[str, tuple[str, ...]] = {
         "update_selection",
         "add_text",
         CREATE_TOOL,
+        *LIST_TOOLS,
     ),
     "close-chapter": (
         "draft_chapter_summary",

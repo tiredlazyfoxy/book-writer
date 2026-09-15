@@ -66,8 +66,9 @@ internals:
       constraints uq_mode_tool_mode_key_tool_name and
       uq_mode_subagent_mode_key_sub_agent_id are never violated;
     - DoD-11 (UC-095 step 3): the catalogue returns one entry per TOOL_REGISTRY
-      ToolDef, in registry order, carrying only `name` and `description` — no
-      args_schema, no callable, no key derived from either.
+      ToolDef, in registry order, carrying only its declared fields — `name`,
+      `description` and (since 025.codex-listing-tools) `group` — no args_schema,
+      no callable, no key derived from either.
     (DoD-12 is [manual/live] — no automated test.)
 
 Registry independence: TOOL_REGISTRY has exactly one entry today (`web_search`),
@@ -806,16 +807,23 @@ async def test_list_tools_mirrors_registry_in_order__DoD11_UC095():
         assert item.description == tool.description
 
 
-# DoD-11 (UC-095 step 3): a catalogue entry carries ONLY `name` and
-# `description` — no args_schema, no callable, and no key derived from either
+# DoD-11 (UC-095 step 3): a catalogue entry carries ONLY the catalogue's own
+# declared fields — no args_schema, no callable, and no key derived from either
 # anywhere in the payload. Asserted on the serialized payload (the wire shape) and
 # on the DTO itself, so an extra field cannot hide behind an alias or a private
 # attribute.
+#
+# Widened by 025.codex-listing-tools: `ToolResponse` declares a THIRD field,
+# `group` — a stable machine key declared at the registry definition site
+# (025/plan.md -> Interface -> `models/schemas/assistant_config.py`;
+# 025/context.md -> "Shared vocabulary" -> **group**), never a tool internal. Both
+# key sets move with it and both stay EXACT set equalities; the clause this case
+# defends — the catalogue exposes those fields and nothing else — is unchanged.
 async def test_list_tools_payload_exposes_only_name_and_description__DoD11_UC095():
     catalogue = await config_service.list_tools()
 
-    # The DTO's declared surface is exactly the two fields.
-    assert set(ToolResponse.model_fields) == {"name", "description"}
+    # The DTO's declared surface is exactly those three fields.
+    assert set(ToolResponse.model_fields) == {"name", "description", "group"}
 
     payload = catalogue.model_dump(mode="json")
 
@@ -823,7 +831,7 @@ async def test_list_tools_payload_exposes_only_name_and_description__DoD11_UC095
     assert set(payload) == {"items"}
 
     for entry in payload["items"]:
-        assert set(entry) == {"name", "description"}
+        assert set(entry) == {"name", "description", "group"}
         assert isinstance(entry["name"], str)
         assert isinstance(entry["description"], str)
 
