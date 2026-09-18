@@ -104,7 +104,7 @@ This is `docs/architecture/quick-reference.md` — **not** `docs/product/quick-r
 | `tool_call` | `ToolCallFrame{tool_name, arguments}` | **feature `024`** — a tool is about to run. Emitted **generically by the wrapper around every bound tool**, not by the tool itself (unlike `canvas`), so a new tool gets visibility for free. **Arguments arrive whole, not streamed** |
 | `tool_result` | `ToolResultFrame{tool_name, result, ok}` | **feature `024`** — that tool's outcome; `ok=false` is a tool that raised, converted to an error string. A **failed frame emission is swallowed** — the model, the trace and the caller still get the real result |
 
-  Frame semantics, the tool loop, mode gating and the canvas write live in **`assistant-runtime.md`**. Note the deployment requirement in `backend/features.md` — llama.cpp must run with `--reasoning-format none` or thinking is silently lost.
+  Frame semantics, the tool loop, mode gating and the canvas write live in **`assistant-runtime.md`**. Note the deployment requirement in `backend/features.md` — `--reasoning-format none` is **one of two supported configurations** (the other is structured `reasoning_content` on `llm-client v0.1.5`+); below `v0.1.5` an out-of-band server loses thinking silently.
 
 ### `/api/admin/assistant-config` (feature 012) — all `Depends(require_role(admin))`
 
@@ -278,7 +278,7 @@ A **new module**, holding all five reader DTOs together so the reader-safe proje
 
 | DTO | Shape |
 |-----|-------|
-| `ChatSamplingParams` | `temperature=0.8`, `top_p=0.95`, `top_k=40`, `repeat_penalty=1.1`, `min_p=0.05`, `max_tokens: int \| None = None`, `seed: int \| None = None`, `presence_penalty=0.0`, `frequency_penalty=0.0`, `enable_thinking=True`. **`top_k` / `repeat_penalty` / `min_p` are persisted but cannot reach either backend** under `llm-client` v0.1.4 — see `assistant-runtime.md` |
+| `ChatSamplingParams` | `temperature=0.8`, `top_p=0.95`, `top_k=40`, `repeat_penalty=1.1`, `min_p=0.05`, `max_tokens: int \| None = None`, `seed: int \| None = None`, `presence_penalty=0.0`, `frequency_penalty=0.0`, `enable_thinking=True`. **`top_k` / `repeat_penalty` / `min_p` are persisted but cannot reach either backend** under `llm-client` v0.1.5 — see `assistant-runtime.md` |
 | `CreateChatRequest` | all optional: `title`, `llm_server_id`, `model_name`, `sampling` |
 | `UpdateChatRequest` | all optional: `title`, `archived`, `llm_server_id`, `model_name`, `sampling` |
 | `ChatResponse` | `id: str`, `book_id: str`, `author_id: str`, `title: str`, `llm_server_id: str \| None`, `model_name: str \| None`, `sampling: ChatSamplingParams`, `archived: bool`, `created_at`, `modified_at` |

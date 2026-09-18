@@ -240,13 +240,13 @@ For a sub-agent with a **null** assignment, the runtime uses the **parent turn's
 
 **Known defect, recorded once rather than rediscovered:** the pre-existing `_create_client` / `list_models` path **still leaks its `aiohttp.ClientSession`**. It was deliberately out of scope for `011.chat-panel` and is **still open** — worth its own fix.
 
-### Two `llm-client` v0.1.4 constraints that shape every sampling decision
+### Two `llm-client` v0.1.5 constraints that shape every sampling decision
 
 Verified during `011.chat-panel`. These are dependency facts that silently change behaviour and would otherwise be re-discovered by whoever next touches sampling.
 
 - **(a) Options are filtered against a hardcoded allowlist** — `temperature`, `top_p`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `seed`, `enable_thinking`, `reasoning_effort`. Consequently **`top_k`, `repeat_penalty` and `min_p` are persisted by feature `011.chat-panel` but cannot reach either backend.** They go live with **no schema and no API change** if the dependency is patched — which is why they are stored anyway.
 - **(b) The allowlist always injects** `temperature=1.0` / `top_p=1.0` / `presence_penalty=0.0` / `frequency_penalty=0.0`. So **"unset means server default" is not expressible**, and there is **no `extra_body` escape hatch**.
-- **Sampling emission is backend-conditional:** params are sent only to a `llama-swap` server; an `openai` server gets none.
+- **Sampling emission is backend-conditional, in two arms:** a `llama-swap` server receives the **full sampling set**; an `openai` server receives **`enable_thinking` alone**. The second arm is `fast/011.tools-path-reasoning`'s change to `build_sampling_options`, a **narrow partial reversal** of `011.chat-panel`'s decision 4 / DoD-6. That decision still stands for everything else: the llama.cpp-specific params do not belong on an OpenAI endpoint. `enable_thinking` crosses alone because it is the one param in the set the OpenAI path genuinely supports — the `llm` library maps it to `reasoning_effort` for OpenAI models.
 
 ## The SSE frame vocabulary
 

@@ -10,7 +10,7 @@ This file is the index and holds the cross-cutting rules (layers, typing, depend
 
 - `backend/persistence.md` — relational storage & the deferred-schema startup lifecycle (including the mode seed on both first-run paths), gzip-JSONL import/export (codecs, the 19-entry `TABLE_REGISTRY`, natural-key ids, the gated JSON-in-TEXT pattern, credential policy), the LanceDB vector sidecar, and config/secrets including the web-search settings.
 - `backend/auth-ids.md` — the per-user-key JWT + bcrypt auth scheme and the system-wide snowflake entity-ID strategy (spec, string-at-JSON-boundary serialization, migration stance).
-- `backend/features.md` — the as-shipped route/DTO inventory: `User`/`LlmServer`, LLM-server connections (FEAT-004), database consistency & management (FEAT-005), the FEAT-020 admin config editor, the codex family, the retrieval subsystem, the per-author system prompt, and the `--reasoning-format none` deployment requirement.
+- `backend/features.md` — the as-shipped route/DTO inventory: `User`/`LlmServer`, LLM-server connections (FEAT-004), database consistency & management (FEAT-005), the FEAT-020 admin config editor, the codex family, the retrieval subsystem, the per-author system prompt, and the assistant-thinking deployment requirement (the two working server shapes).
 - `backend/book-domain.md` — the backend-side consequences of the book domain: the as-shipped module map, the 19-entry table registry in canonical FK order, the vector registry, Stage-4-columns-at-Stage-2, and the 409 concurrency rule.
 
 ## Layer separation (enforced)
@@ -86,7 +86,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "python-multipart>=0.0.20",
     "bcrypt>=4.0",
-    "llm-client @ git+https://github.com/Iezious/PythonLLMClient.git@v0.1.4",
+    "llm-client @ git+https://github.com/Iezious/PythonLLMClient.git@v0.1.5",
     "python-dotenv>=1.0",
     "lancedb>=0.6",
 ]
@@ -95,13 +95,13 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-asyncio>=0.25", "httpx>=0.28"]
 ```
 
-The `llm-client` entry is a **shared external library** — keep the git URL and `@v0.1.4` tag verbatim. It imports as the module `llm` and supports OpenAI-compatible and llama-swap backends.
+The `llm-client` entry is a **shared external library** — keep the git URL and `@v0.1.5` tag verbatim. It imports as the module `llm` and supports OpenAI-compatible and llama-swap backends.
 
 ## LLM client
 
 LLM communication goes exclusively through the `llm-client` dependency, imported as the module `llm`. It supports OpenAI-compatible servers and llama-swap. Tool schemas are generated from Pydantic models (`pydantic_to_openai_tool()`) rather than hand-written JSON. Do not make direct outbound HTTP calls to LLM providers from application code — route them through `llm`.
 
-**Deployment requirement — llama.cpp must run with `--reasoning-format none`.** Assistant thinking is visible only when the server inlines reasoning into `content`; the streaming tool loop in `llm-client` never reads `reasoning_content`, so out-of-band reasoning is discarded inside the library. A server without the flag **degrades silently to content-only** — no error, no log, just a missing feature. Full reasoning and the consequence for `services/chat_turn.py`: `backend/features.md` → "Deployment requirement".
+**Deployment requirement — assistant thinking needs one of two server shapes.** Either llama.cpp runs with **`--reasoning-format none`** and inlines reasoning into `content`, or the server sends structured `reasoning_content` and `llm-client` is at **`v0.1.5` or later** — from that release the streaming tool loop reads `reasoning_content` and re-emits it wrapped in `<think>` / `</think>`, so BookWriter's existing splitter consumes it unchanged. The silent-degradation trap survives only **below `v0.1.5`**: an out-of-band server against an older client **degrades silently to content-only** — no error, no log, just a missing feature. Full reasoning and the consequence for `services/chat_turn.py`: `backend/features.md` → "Deployment requirement".
 
 ## Schema evolution — the in-code additive-column seam
 

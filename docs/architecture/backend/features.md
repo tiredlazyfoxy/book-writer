@@ -4,17 +4,36 @@ Part of the backend architecture — see `../backend.md` for the index.
 
 These are the as-shipped records for the backend's shipped route families and subsystems: features 003/004/006/007 (the `User` and `LlmServer` domain models, LLM-server connections, database consistency & management), and features 011/012/013/021/014/015 (the FEAT-020 assistant configuration, the codex and retrieval subsystems, the per-author system prompt, the chapter skeleton, and the chapter writing surface).
 
-## Deployment requirement — llama.cpp must run with `--reasoning-format none`
+## Deployment requirement — assistant thinking needs one of two server shapes
 
 **Realizes:** FEAT-013 (operational constraint). Recorded first because it is invisible in code and its failure mode is silent.
 
-Assistant *thinking* is visible to an author **only when the llama.cpp server inlines reasoning into `content`** — that is, only when the server runs with `--reasoning-format none`. This is not a preference; it is the only shape BookWriter can consume.
+Assistant *thinking* reaches an author in **either of two working configurations**, and a deployment must land on one of them deliberately:
 
-The reason is inside the `llm-client` dependency. `chat_with_tools(stream=True)` routes through the library's `_stream_openai_tools_response`, which reads only `delta["tool_calls"]` and `delta["content"]` and **never** `delta["reasoning_content"]`. Reasoning sent out-of-band is therefore discarded *inside the library* and reaches neither the `on_delta` callback, nor the call's return value, nor the trace — there is no place in BookWriter's code where it could be recovered. The library does have a reasoning-aware parser, but it is reachable only from plain `chat()`, which has no tool loop and so cannot serve a turn.
+- **Inlined** — the llama.cpp server runs with **`--reasoning-format none`** and emits `<think>` / `</think>` inside `content`. Works on every `llm-client` version the project has used.
+- **Out-of-band** — the server emits structured `reasoning_content` deltas, and `llm-client` is at **`v0.1.5` or later**.
 
-The consequence, as shipped: BookWriter splits `<think>` / `</think>` **itself**, in `services/chat_turn.py`'s `ThinkSplitter`, out of the inlined content stream. A server configured **without** the flag does not error — it **degrades silently to content-only**, and the author simply never sees a thinking block. An operator has no signal that anything is wrong. That silent feature loss is why the requirement is documented at this level rather than left in a deployment script.
+Until `v0.1.5` only the first shape worked, and this section recorded the flag as mandatory. The reason was inside the dependency: `chat_with_tools(stream=True)` routes through the library's `_stream_openai_tools_response`, which read only `delta["tool_calls"]` and `delta["content"]` and never `delta["reasoning_content"]`, so out-of-band reasoning was discarded *inside the library* — it reached neither the `on_delta` callback, nor the call's return value, nor the trace. The library's reasoning-aware parser was reachable only from plain `chat()`, which has no tool loop and so cannot serve a turn.
+
+**`llm-client v0.1.5` closed that gap** (`fast/011.tools-path-reasoning`, which consumes it). `_stream_openai_tools_response` now reads `delta["reasoning_content"]` and streams it through `on_delta` **wrapped in `<think>` / `</think>`**, under a per-round `in_reasoning` state machine that opens the tag on the first reasoning delta of a round and closes it when content resumes. Structured out-of-band reasoning therefore works too.
+
+The consequence, as shipped: BookWriter splits `<think>` / `</think>` **itself**, in `services/chat_turn.py`'s `ThinkSplitter`, out of the content stream. **The splitter needed no change for the second configuration** — v0.1.5 emits the same tags, inline, into the same text stream the splitter was already built for. That is the whole reason the second shape costs BookWriter nothing but a version bump.
+
+The silent-degradation failure mode survives, but **scoped**: a server that sends reasoning out-of-band while the client is pinned **below `v0.1.5`** does not error — it **degrades silently to content-only**, and the author simply never sees a thinking block. An operator has no signal that anything is wrong. That silent feature loss is why the constraint is documented at this level rather than left in a deployment script; a deployment on `v0.1.5` or later is free of it either way.
+
+**Decision reversal — feature `024.chat-agent-loop`, D3.** D3 considered patching the `llm` dependency (~10 LoC) so the streaming tool loop would read `reasoning_content`, **rejected** it, and accepted the limitation as `[manual/live]`, "not claimed as delivered". The patch happened after all — **upstream**, in `llm-client v0.1.5` (`github.com/Iezious/PythonLLMClient`, commit `7c27d6b`) — so **D3 is reversed and the accepted limitation is retired**. Recorded here because a rejected option that later became the solution is exactly the kind of decision history that misleads when left unannotated; the plan folder `docs/plans/024.chat-agent-loop/` is a historical record and is not edited.
 
 The index-level pointer is in `../backend.md` → "LLM client".
+
+## Sampling emission to an `openai` server — a narrow partial reversal
+
+**Realizes:** FEAT-013 (operational constraint). Shipped by `fast/011.tools-path-reasoning`.
+
+`services/chat_turn.py`'s `build_sampling_options` now forwards **`enable_thinking`** to an **`openai`**-backend server — **and only that param**. A **`llama-swap`** server still receives the full sampling dump, unchanged.
+
+This is a **narrow, deliberate partial reversal of feature `011.chat-panel`'s decision 4 / DoD-6**, which emitted sampling params to `llama-swap` alone and nothing at all to `openai`. The original gate's reasoning is **preserved**: the llama.cpp-specific params — `top_k`, `repeat_penalty`, `min_p`, and the rest of the dump — still do not belong on an OpenAI endpoint, so decision 4 stands for them. `enable_thinking` crosses alone because it is the one param in the set the OpenAI path **genuinely supports**: the `llm` library maps it to `reasoning_effort` for OpenAI models.
+
+Stated as a reversal with its scope, rather than as a new rule, so a later reader does not read decision 4 as abandoned wholesale. The runtime-side statement of the same two-arm rule is in `../assistant-runtime.md` → "Two `llm-client` v0.1.5 constraints".
 
 ## Domain models
 
