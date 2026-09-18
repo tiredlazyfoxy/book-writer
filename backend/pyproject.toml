@@ -13,7 +13,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "python-multipart>=0.0.20",
     "bcrypt>=4.0",
-    "llm-client @ git+https://github.com/Iezious/PythonLLMClient.git@v0.1.4",
+    "llm-client @ git+https://github.com/Iezious/PythonLLMClient.git@v0.1.5",
     "python-dotenv>=1.0",
     "lancedb>=0.6",
 ]

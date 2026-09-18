@@ -33,10 +33,18 @@ at the bottom of this module; feature 011's ``__DoD11`` guard is superseded in
 place (same assertions, third-layer sentinel moved off the retired column onto
 the author's row). Sources: ``021/004.composition-switch.md`` -> Interface
 intent + DoD, ``021/context.md`` decisions 2 and 3.
+
+Extended by fast feature ``fast/011.tools-path-reasoning`` (DoD-1..DoD-5): the
+``llm-client`` pin moves to ``v0.1.5`` and ``build_sampling_options`` gains a
+second arm -- everything that is not ``llama-swap`` is treated as an
+OpenAI-compatible endpoint and receives ``enable_thinking`` and nothing else.
+Feature 011.chat-panel's old ``__DoD6`` guard (``openai`` -> ``{}``) is
+superseded in place; its llama-swap half survives as DoD-4.
 """
 
 import datetime
 import inspect
+import re
 from pathlib import Path
 
 import aiohttp
@@ -429,22 +437,127 @@ async def test_failure_terminates_with_single_error_frame__DoD5_US060_AC1(
 
 
 # ---------------------------------------------------------------------------
-# DoD-6 — sampling options only for llama-swap; none for openai
+# Feature fast/011.tools-path-reasoning — the two-arm sampling-options rule.
+#
+# Supersedes the old `test_sampling_options_llama_swap_only__DoD6` (feature
+# 011.chat-panel decision 4 / DoD-6), which asserted `openai` -> `{}`. That
+# blanket gate is reversed NARROWLY: `enable_thinking` — and it alone — now
+# crosses to an OpenAI-compatible endpoint. The llama-swap half of the old rule
+# is unchanged and is preserved below as DoD-4.
+#
+# Expected values come from `docs/plans/fast/011.tools-path-reasoning/plan.md`
+# -> Definition of done (DoD-1..DoD-5) and Interface intent.
 # ---------------------------------------------------------------------------
 
+# Every ChatSamplingParams field, from the frozen `## Skeleton` construction
+# reference (status.md -> "ChatSamplingParams — construction reference").
+_ALL_SAMPLING_FIELDS = {
+    "temperature",
+    "top_p",
+    "top_k",
+    "repeat_penalty",
+    "min_p",
+    "max_tokens",
+    "seed",
+    "presence_penalty",
+    "frequency_penalty",
+    "enable_thinking",
+}
 
-# DoD-6 (decision 4): build_sampling_options emits the chat's sampling params for
-# a llama-swap server and NOTHING for an openai server.
-def test_sampling_options_llama_swap_only__DoD6():
-    sampling = ChatSamplingParams(temperature=0.3, top_p=0.5)
+# The llama.cpp-specific params that must NEVER reach an OpenAI-compatible
+# endpoint (plan -> Interface intent; DoD-2).
+_LLAMA_ONLY_FIELDS = {"temperature", "top_p", "top_k", "repeat_penalty", "min_p"}
 
-    openai_opts = chat_turn.build_sampling_options(sampling, "openai")
-    assert openai_opts == {}
+# The `llm-client` git requirement, matched loosely enough that only the tag is
+# asserted (DoD-1).
+_LLM_CLIENT_REQ = re.compile(
+    r"github\.com/Iezious/PythonLLMClient[^\"'\s]*@(?P<tag>[A-Za-z0-9._-]+)"
+)
 
-    swap_opts = chat_turn.build_sampling_options(sampling, "llama-swap")
-    assert swap_opts != {}
-    assert swap_opts["temperature"] == 0.3
-    assert swap_opts["top_p"] == 0.5
+
+# DoD-1: backend/pyproject.toml pins the llm-client git dependency at tag
+# v0.1.5, and carries no reference to the superseded v0.1.4.
+def test_llm_client_pinned_at_v015__DoD1():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+
+    tags = [m.group("tag") for m in _LLM_CLIENT_REQ.finditer(text)]
+
+    assert tags, "no github.com/Iezious/PythonLLMClient git requirement found"
+    assert set(tags) == {"v0.1.5"}
+    assert "@v0.1.4" not in text
+
+
+# DoD-2: an `openai` server gets a mapping whose key set is EXACTLY
+# {"enable_thinking"} — not empty, and none of the llama.cpp-specific params.
+def test_sampling_options_openai_carries_enable_thinking_only__DoD2():
+    sampling = ChatSamplingParams(temperature=0.3, top_p=0.5, top_k=17)
+
+    opts = chat_turn.build_sampling_options(sampling, "openai")
+
+    assert opts != {}
+    assert set(opts) == {"enable_thinking"}
+    assert not (set(opts) & _LLAMA_ONLY_FIELDS)
+
+
+# DoD-3: the forwarded `enable_thinking` reflects the PASSED sampling object
+# rather than a constant — True stays True, False stays False.
+def test_sampling_options_openai_enable_thinking_reflects_params__DoD3():
+    on = chat_turn.build_sampling_options(
+        ChatSamplingParams(enable_thinking=True), "openai"
+    )
+    off = chat_turn.build_sampling_options(
+        ChatSamplingParams(enable_thinking=False), "openai"
+    )
+
+    assert on["enable_thinking"] is True
+    assert off["enable_thinking"] is False
+
+
+# DoD-4 (preservation clause — feature 011.chat-panel decision 4 still stands
+# for the llama.cpp params): a `llama-swap` server still gets the FULL dump,
+# every ChatSamplingParams field, with the values from the passed object.
+def test_sampling_options_llama_swap_full_dump_unchanged__DoD4():
+    sampling = ChatSamplingParams(
+        temperature=0.3,
+        top_p=0.5,
+        top_k=17,
+        repeat_penalty=1.4,
+        min_p=0.02,
+        max_tokens=256,
+        seed=99,
+        presence_penalty=0.25,
+        frequency_penalty=0.75,
+        enable_thinking=False,
+    )
+
+    opts = chat_turn.build_sampling_options(sampling, "llama-swap")
+
+    assert set(opts) == _ALL_SAMPLING_FIELDS
+    assert opts["temperature"] == 0.3
+    assert opts["top_p"] == 0.5
+    assert opts["top_k"] == 17
+    assert opts["repeat_penalty"] == 1.4
+    assert opts["min_p"] == 0.02
+    assert opts["max_tokens"] == 256
+    assert opts["seed"] == 99
+    assert opts["presence_penalty"] == 0.25
+    assert opts["frequency_penalty"] == 0.75
+    assert opts["enable_thinking"] is False
+
+
+# DoD-5: a backend_type that is neither "llama-swap" nor "openai" takes the
+# OpenAI-compatible arm — key set exactly {"enable_thinking"}, no raise, not
+# empty. The function stays total; there is no third arm.
+@pytest.mark.parametrize("backend_type", ["", "vllm", "LLAMA-SWAP", "unknown-backend"])
+def test_sampling_options_unknown_backend_takes_openai_arm__DoD5(backend_type: str):
+    sampling = ChatSamplingParams(temperature=0.3, enable_thinking=True)
+
+    opts = chat_turn.build_sampling_options(sampling, backend_type)
+
+    assert opts != {}
+    assert set(opts) == {"enable_thinking"}
+    assert opts["enable_thinking"] is True
 
 
 # ---------------------------------------------------------------------------

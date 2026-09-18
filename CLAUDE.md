@@ -52,6 +52,9 @@ Agents (coder, fast-coder, verifiers, fixers) read commands from this section. I
 - **Backend tests**: `cd backend && .venv/Scripts/python -m pytest`
   - No separate static type-check is configured for the backend.
   - **Python path convention**: always invoke Python via `.venv/Scripts/python` (Windows venv layout); never call `python` from PATH inside this project.
+- **Backend dependency reinstall** (after changing a pin in `backend/pyproject.toml`): `cd backend && uv pip install --python .venv/Scripts/python.exe --reinstall-package <name> "<the pyproject requirement string>"`
+  - There is **no lock file** for the backend — editing the pin alone changes nothing at runtime, so this step is required for the change to take effect. Verify with `cd backend && .venv/Scripts/python -c "import importlib.metadata as m; print(m.version('<name>'))"`.
+  - `--reinstall-package` matters for a `git+...@<tag>` requirement: uv caches by URL, so a moved or re-pointed tag can otherwise resolve to the cached build. The standalone uv is at `C:/Users/serge/.local/bin/uv.exe`.
 - **Frontend dev server**: `cd frontend && npm run dev` (Vite on port 8194)
 - **Frontend build (= typecheck + bundle)**: `cd frontend && npm run build`
   - Internally runs `tsc && vite build`. Treat this as the frontend typecheck-and-bundle command.

@@ -247,17 +247,27 @@ def build_sampling_options(
 ) -> dict[str, object]:
     """Build the ``options`` mapping passed to ``chat_with_tools`` for a turn.
 
-    Returns the sampling params **only for a ``"llama-swap"`` server**; an
-    ``"openai"`` server gets **none** (an empty mapping) — user decision 4 /
-    DoD-6. The ``llm`` library filters whatever is passed against its own
-    allowlist, so ``top_k`` / ``repeat_penalty`` / ``min_p`` are dropped inside the
-    dependency today even when emitted (``context.md`` → the option allowlist);
-    they are still carried per decision 5 and go live the moment the dependency is
-    patched.
+    Two arms:
 
+    - ``"llama-swap"`` — the **full** sampling dump, every
+      :class:`~app.models.schemas.chats.ChatSamplingParams` field, including the
+      llama.cpp-specific ``top_k`` / ``repeat_penalty`` / ``min_p``.
+    - **anything else** (in practice ``"openai"``; the write edge in
+      ``llm_servers`` accepts only those two values, so this arm keeps the
+      function total) — ``enable_thinking`` **and nothing else**, taken from the
+      passed sampling object.
+
+    The blanket "OpenAI servers get no sampling options" rule of feature
+    ``011.chat-panel`` decision 4 / DoD-6 **still stands for every other param**:
+    the llama.cpp-specific ones do not belong on an OpenAI endpoint. Feature
+    ``fast/011.tools-path-reasoning`` reverses it **narrowly**, for
+    ``enable_thinking`` alone, because that is the one param in the set the
+    OpenAI path genuinely supports — the ``llm`` library maps it to
+    ``reasoning_effort`` for OpenAI models, which is what makes assistant
+    thinking reach the chat pane from an ``openai``-backend server.
     """
     if backend_type != "llama-swap":
-        return {}
+        return {"enable_thinking": sampling.enable_thinking}
     return sampling.model_dump()
 
 
