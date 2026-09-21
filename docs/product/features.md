@@ -430,6 +430,10 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   Book state, resolves to **no mode** — browsing one's own memos is
   navigation, not authoring; it joins FEAT-020's 2026-09-14 non-goal
   list. No sixth mode is created.
+  **Side-chats round (2026-09-20):** a composition chat hosts side chats
+  (FEAT-022) — a side chat lives inside a composition chat and follows
+  its privacy, persistence and archive rules unchanged; hosting, not a
+  new capability of this feature.
 - **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2 —
   continuity & block composition", "block composition chat" / "generation
   context"; codex round 4; interview 2026-07-23, "Augment round 5 —
@@ -441,7 +445,8 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
   "FEAT-020 — sub-agent model assignment (augment round 9)"; interview
   2026-07-30, "finalization — 021 + 014 + 015", challenge C1; interview
   2026-09-14, "augment round — the assistant on a lore list", challenge C2;
-  interview 2026-09-15, "augment round — memos"
+  interview 2026-09-15, "augment round — memos"; interview 2026-09-20,
+  "augment round — side chats"
 
 ### FEAT-014 — Chapter variants & fixes
 - **Purpose:** Let an owner correct a chapter after reopening while
@@ -832,5 +837,43 @@ that change keeps its blank prompts until they are filled in (see FEAT-020's
 - **Source:** `[confirmed: user]` interview 2026-09-15, "augment round —
   memos"; challenges C1..C11 (interview questions) and CP1..CP5 (challenge
   register).
+
+### FEAT-022 — Side chats
+- **Purpose:** Let an author take a side task inside a composition chat —
+  the brief's example: creating a location while writing a chapter — with
+  the whole conversation so far in view, and return to the main task
+  without the detour following them.
+- **Actors:** ACT-004, ACT-005 · **Priority:** must
+- **Status:** proposed
+- **Realized by:** UC-110, UC-111, UC-112, UC-113, UC-114, UC-115,
+  US-135, US-136, US-137, US-138, US-139, US-140, US-141
+- **Note:** Lives only inside a composition chat (FEAT-013 hosts it;
+  privacy, persistence and archive are FEAT-013's, unchanged). **One
+  level** — at most one active side chat per chat; start is refused
+  otherwise (C2). While active, the assistant is told the main
+  conversation **and** the side chat. On **finish** it collapses into one
+  group in the history, expandable to read, **not resumable** — a new
+  topic starts a new side chat (C7) — and its messages no longer reach
+  the assistant in later main-line turns. **Nothing carries over** on
+  finish (stated assumption, CS3): whatever it produced lives where it
+  was saved. **Inject** — from an active or a finished side chat,
+  one-way — turns its messages into ordinary main-line messages in
+  place; they reach the assistant again (C6). **Delete** — active or
+  finished (D8), behind a confirmation — removes the conversation
+  permanently, the **second sanctioned exception to archive-only** (CS4,
+  alongside FEAT-011's destroy), and never touches anything saved during
+  it (D4). Every side-chat action is unavailable while the assistant is
+  answering (D1). Inside a side chat, the assistant's mode, tools and
+  canvas writes follow the content pane exactly as in the main line
+  (D3) — a side chat changes what the assistant is told about the
+  conversation, nothing else. A chat may hold any number of finished
+  side chats (D5); a side chat inherits the chat's privacy, no new rule
+  (D6). **Side-chats round (2026-09-20):** hosted by FEAT-013 — see that
+  feature's note.
+- `_TBD:` the cost of today's workaround (a second chat, or the detour
+  staying in view) is asserted, not evidenced (CS7). `_TBD:` what the
+  collapsed header shows to tell finished side chats apart (D7).
+- **Source:** `[confirmed: user]` interview 2026-09-20, "augment round —
+  side chats" (brief, C1..C7, D1..D8) and challenges CS1..CS10.
 
 <!-- product-spec:end -->

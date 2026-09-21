@@ -165,11 +165,22 @@
   excluded from context — the everyday switch.
 - **Archived (memo)** — out of the working list entirely, restorable;
   the only way a memo is ever removed — there is no delete.
+- **Side chat** — a detour inside a composition chat: while active, the
+  assistant sees the conversation so far and the side chat; once
+  finished it collapses and leaves the assistant's view. One level; one
+  active at a time.
+- **Finished side chat** — a collapsed, readable, non-resumable group in
+  the chat's history that the assistant is no longer told about; can be
+  injected or deleted.
+- **Inject (side chat)** — turning a side chat's messages back into
+  ordinary main-line messages in place, one-way; they reach the
+  assistant again.
 
 **Distinctions** — each pair is confusable, kept separate deliberately:
 - *Archive* (owner, reversible, never destroys) vs *quarantine* (admin,
-  reversible takedown) vs *destroy* (admin, permanent — the single
-  sanctioned exception to archive-only).
+  reversible takedown) vs *destroy* (admin, permanent) vs *side-chat
+  delete* (author, permanent, part of a chat) — destroy and side-chat
+  delete are the two sanctioned exceptions to archive-only.
 - *Private* (members only) vs *public* (read-only to any logged-in user).
 - *Free mode* (applies on save) vs *proposal mode* (owner applies later) —
   same edit unit, different gate.

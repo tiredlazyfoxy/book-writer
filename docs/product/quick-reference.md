@@ -42,6 +42,7 @@ tables. This file is exempt from the line budget.
 | FEAT-019 | Per-author system prompts | must | delivered |
 | FEAT-020 | Assistant modes & sub-agents | must | delivered |
 | FEAT-021 | Memos | must | proposed |
+| FEAT-022 | Side chats | must | proposed |
 
 ## Use cases
 
@@ -156,6 +157,12 @@ tables. This file is exempt from the line budget.
 | UC-107 | Archive and restore a memo | FEAT-021 | ACT-004, ACT-005 | proposed |
 | UC-108 | Assistant creates a memo on request | FEAT-021 | ACT-004, ACT-005 | proposed |
 | UC-109 | Active memos reach every assistant run | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-110 | Start a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-111 | Finish a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-112 | Inject a side chat into the main conversation | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-113 | Delete a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-114 | Leave and return with a side chat active | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-115 | What the assistant is told while and after a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
 
 ## Stories
 
@@ -295,4 +302,11 @@ tables. This file is exempt from the line budget.
 | US-132 | Memos reach every mode and every sub-agent | FEAT-021 | proposed |
 | US-133 | A clone carries the cloner's own memos | FEAT-015 | proposed |
 | US-134 | The moderation view excludes memos | FEAT-011 | proposed |
+| US-135 | Author starts a side chat in the middle of a conversation | FEAT-022 | proposed |
+| US-136 | The assistant sees the whole conversation while a side chat is active | FEAT-022 | proposed |
+| US-137 | Author finishes a side chat and it collapses, readable but closed | FEAT-022 | proposed |
+| US-138 | A finished side chat no longer reaches the assistant | FEAT-022 | proposed |
+| US-139 | Author injects a side chat and its messages become ordinary | FEAT-022 | proposed |
+| US-140 | Author deletes a side chat after confirming; saved work survives | FEAT-022 | proposed |
+| US-141 | A side chat survives leaving and returning | FEAT-022 | proposed |
 <!-- product-spec:end -->

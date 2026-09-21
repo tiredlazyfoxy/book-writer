@@ -70,6 +70,10 @@ product to work (challenge C2).
 - An author keeps standing notes for a book that their assistant carries
   into every conversation without being retold. `[confirmed: user]`
   interview 2026-09-15, "augment round — memos", challenge CP4.
+- An author can take a side task inside one conversation, with
+  everything said so far in view, and return without the detour
+  lingering in the assistant's view. `[confirmed: user]` interview
+  2026-09-20, "augment round — side chats", challenge CS8.
 
 `[confirmed: user]` interview 2026-07-20, "features — the four capabilities, in order"
 
@@ -158,6 +162,16 @@ SPA layout & the working page".
   architecture's, unchanged. Narrowed precisely, not reversed — recorded
   here the same way C1 / C10 / C-r7-1 were. `[confirmed: user]` interview
   2026-09-15, "augment round — memos", challenge CP3.
+  **Narrowed a second time by the 2026-09-20 augment round (challenge
+  CS1) — side chats.** This non-goal's "chat storage" clause reads as if
+  no promise about what the assistant is or isn't told is ever product's.
+  FEAT-022 (side chats) states two observable promises: a finished side
+  chat's messages no longer reach the assistant, and they remain readable
+  in the history unless deleted. How the transcript is assembled, stored
+  or marked stays architecture's. Narrowed precisely, not reversed —
+  recorded here the same way C1 / C10 / C-r7-1 / CP3 were. `[confirmed:
+  user]` interview 2026-09-20, "augment round — side chats", challenge
+  CS1.
   Also still deferred: the **character/place entity
   model** — state notes are free text with no entity backing this round;
   a direct consequence is that staleness cannot be flagged per subject.

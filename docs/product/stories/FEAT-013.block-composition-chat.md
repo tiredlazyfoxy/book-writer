@@ -173,6 +173,10 @@ renumbered.)
   - **US-095.AC-3** — Given the author is viewing their chats list, when
     they ask to see archived chats, then their archived chats are shown
     (restoring one is US-096).
+- **Note (side-chats round, 2026-09-20):** a finished side chat (FEAT-022)
+  is part of a chat's history and appears collapsed within the "full
+  prior history" this story's AC-2 describes; a deleted side chat is
+  gone from it. Criteria unchanged.
 - **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
   "the working page — two-pane, chat + content": "Like Claude's chat
   manager — chats are stored, continuable... picker lives inside the chat

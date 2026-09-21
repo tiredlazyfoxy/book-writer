@@ -12,8 +12,8 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 | ACT-001 | FEAT-002, FEAT-003, FEAT-004, FEAT-005, FEAT-006, FEAT-011, FEAT-020 |
 | ACT-002 | FEAT-002, FEAT-006 |
 | ACT-003 | FEAT-001 |
-| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021 |
-| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021 |
+| ACT-004 | FEAT-006, FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-011, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021, FEAT-022 |
+| ACT-005 | FEAT-007, FEAT-008, FEAT-009, FEAT-010, FEAT-012, FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018, FEAT-019, FEAT-021, FEAT-022 |
 | ACT-006 | FEAT-007 |
 
 **Depends on:**
@@ -102,10 +102,20 @@ permanent line-budget headroom (`features.md` never splits). Id registry:
 - FEAT-015 → FEAT-021 — **new, memos round:** a clone carries the
   cloner's own memos. Edge runs clone-ward, unlike FEAT-019, whose
   prompts do NOT carry over.
+- FEAT-022 → FEAT-013 — **new, side-chats round:** a side chat lives
+  inside a composition chat; its privacy, persistence and archive are
+  FEAT-013's, inherited and not repeated. Book and membership edges
+  (FEAT-006, FEAT-007) are inherited through FEAT-013 too, not repeated.
 
 **No new edge FEAT-011 → FEAT-021.** FEAT-011 acts at book granularity
 only; memos die with a destroyed book by that existing rule, not by a
 memo-specific dependency — consistent with FEAT-011's own note.
+
+**No new edge FEAT-022 → FEAT-020.** Side chats add no tool, no mode and
+no sub-agent; the assistant's mode inside a side chat follows the
+content pane exactly as in the main line (D3). **No new edge FEAT-015 →
+FEAT-022.** Chats do not carry over on clone today (no FEAT-015 →
+FEAT-013 edge exists), so side chats inherit that absence.
 
 **Hosting (round 6, not a dependency edge):** the FEAT-013 navigator
 (UC-090) hosts FEAT-017 (codex), FEAT-008/FEAT-009 (chapters) and
@@ -205,6 +215,10 @@ FEAT-017 → FEAT-012 → FEAT-013 → FEAT-018. FEAT-013's round-5 expansion
 - FEAT-021 / FEAT-018 — **accepted, memos round:** both "the assistant
   creates an object outright, on direct request, no draft, no save
   step" (US-121 precedent) — different object, same guardrail.
+- UC-113 (delete a side chat) / UC-082 (archive a chat) — **accepted,
+  side-chats round:** stated difference — delete removes part of one
+  chat, permanently; archive hides a whole chat, reversibly. Different
+  granularity, different reversibility.
 
 **Conflicts:** None unresolved. Resolved: CP3 (memos round) — the vision
 non-goal on context-assembly ordering (`vision.md`) vs. FEAT-021's
