@@ -91,6 +91,7 @@ function makeChat(overrides: Partial<ChatResponse> = {}): ChatResponse {
     archived: false,
     created_at: "2026-01-01T00:00:00Z",
     modified_at: "2026-01-01T00:00:00Z",
+    active_side_chat_id: null,
     ...overrides,
   };
 }

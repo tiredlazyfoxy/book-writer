@@ -67,6 +67,7 @@ const CHAT: ChatResponse = {
   archived: false,
   created_at: "2026-01-01T00:00:00Z",
   modified_at: "2026-01-01T00:00:00Z",
+  active_side_chat_id: null,
 };
 
 /** An active chat with a typed prompt, in the given turn state. */

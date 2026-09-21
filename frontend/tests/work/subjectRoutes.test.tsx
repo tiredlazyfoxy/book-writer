@@ -321,6 +321,7 @@ describe("the /chats deep link renders the chats list page (023.chat-ux-revision
                 archived: false,
                 created_at: "2026-03-01T00:00:00Z",
                 modified_at: "2026-03-01T00:00:00Z",
+                active_side_chat_id: null,
               },
             ],
       ),

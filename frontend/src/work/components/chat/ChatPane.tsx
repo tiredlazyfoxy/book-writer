@@ -7,23 +7,33 @@ import {
   Combobox,
   Group,
   Loader,
+  Modal,
   Popover,
   Stack,
   Text,
   Title,
   useCombobox,
 } from "@mantine/core";
-import { IconAdjustmentsHorizontal, IconPlus } from "@tabler/icons-react";
+import {
+  IconAdjustmentsHorizontal,
+  IconArrowFork,
+  IconMessageCheck,
+  IconPlus,
+} from "@tabler/icons-react";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { ComposerResizeHandle } from "./ComposerResizeHandle";
 import {
   createChatInstant,
+  deleteSideChat,
+  dismissDeleteSideChat,
+  finishSideChat,
   modelOptionKey,
   pickChatModel,
   retryChatTurn,
   sendChatTurn,
+  startSideChat,
   stopChatTurn,
   type ChatPaneState,
 } from "./chatPaneState";
@@ -128,6 +138,32 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
     stopChatTurn(state);
   };
 
+  // THE SIDE-CHAT SLOT (027). One control, two identities: `activeSideChatId` is
+  // the SERVER's pointer on the active chat, so the slot shows Finish after a
+  // reload with no client-side memory involved (US-141.AC-1). The D1 gating
+  // (streaming / a close running / an action in flight / no active chat) lives
+  // entirely in the `can…` computeds — the pane adds no gate of its own.
+  const sideChatActive = state.activeSideChatId !== null;
+
+  const handleStartSideChat = () => {
+    void startSideChat(state, bookId);
+  };
+  const handleFinishSideChat = () => {
+    void finishSideChat(state, bookId);
+  };
+
+  // The pending id is read AT CLICK TIME, never captured at render: the confirm
+  // slot is the single source of which side chat is being deleted, and the delete
+  // effect clears it itself on both outcomes.
+  const handleConfirmDeleteSideChat = () => {
+    const pendingSideChatId = state.sideChatDeleteConfirm;
+    if (pendingSideChatId === null) return;
+    void deleteSideChat(state, bookId, pendingSideChatId);
+  };
+  const handleDismissDeleteSideChat = () => {
+    dismissDeleteSideChat(state);
+  };
+
   const paneLoading = state.chatsStatus === "idle" || state.chatsStatus === "loading";
 
   return (
@@ -139,6 +175,39 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
     // itself — a flex item's automatic minimum is its content height, which would
     // otherwise let the column outgrow the aside.
     <Stack gap="sm" h="100%" mih={0}>
+      {/* THE DELETE CONFIRMATION (027, US-140.AC-1). A plain `@mantine/core`
+          `Modal` — `@mantine/modals` is not installed — following the
+          `ChapterPage` close confirmation. Opened purely by the pending id, so the
+          per-group Delete icon posts nothing at all: it only fills the slot.
+
+          The affirmative is named "Delete side chat" and NOT the bare word
+          "Delete", and the title names the action, because Mantine's own dismiss
+          control is named "Close". */}
+      <Modal
+        opened={state.sideChatDeleteConfirm !== null}
+        onClose={handleDismissDeleteSideChat}
+        title="Delete this side chat?"
+      >
+        <Stack gap="sm">
+          <Text size="sm">
+            The side chat&apos;s messages are removed permanently. This cannot be
+            undone.
+          </Text>
+          <Text size="sm" c="dimmed">
+            Anything saved while it ran — codex entries, chapter edits, memos — is
+            kept.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={handleDismissDeleteSideChat}>
+              Keep it
+            </Button>
+            <Button color="red" onClick={handleConfirmDeleteSideChat}>
+              Delete side chat
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
       <Group justify="space-between" wrap="nowrap" gap="xs">
         <Title order={5} lineClamp={1}>
           {state.activeChat ? state.activeChat.title : "Chats"}
@@ -236,6 +305,28 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
             </Popover.Dropdown>
           </Popover>
 
+          {/*
+            SWAP, DO NOT HIDE: one element whose accessible name, icon, disabled
+            state and handler all switch. Rendering both and hiding one would leave
+            both names in the accessibility tree, and "no control named Finish side
+            chat" is a criterion (DoD-1/DoD-2). It stays OUT of the `openedPanel`
+            discriminator — it opens no popover.
+          */}
+          <ActionIcon
+            variant="subtle"
+            onClick={sideChatActive ? handleFinishSideChat : handleStartSideChat}
+            disabled={
+              sideChatActive ? !state.canFinishSideChat : !state.canStartSideChat
+            }
+            aria-label={sideChatActive ? "Finish side chat" : "Start side chat"}
+          >
+            {sideChatActive ? (
+              <IconMessageCheck size={18} stroke={1.5} />
+            ) : (
+              <IconArrowFork size={18} stroke={1.5} />
+            )}
+          </ActionIcon>
+
           <ActionIcon variant="light" onClick={handleNewChat} aria-label="New chat">
             <IconPlus size={18} stroke={1.5} />
           </ActionIcon>
@@ -250,6 +341,16 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
       {state.serverErrors.model && <Alert color="red">{state.serverErrors.model}</Alert>}
 
       {state.serverErrors.form && <Alert color="red">{state.serverErrors.form}</Alert>}
+
+      {/*
+        THE SIDE-CHAT ACTION ERROR ONLY (D-F). The turn's own error lives in the
+        composer and the pane's load error is the `chatsStatus` branch below;
+        neither is touched. A failed action leaves `chats` / `messages` as the
+        server last described them, so the banner is the whole of the report.
+      */}
+      {state.sideChatActionStatus === "error" && (
+        <Alert color="red">{state.sideChatActionError}</Alert>
+      )}
 
       {/*
         023: the chat LIST is gone from this pane — `ChatList` now belongs to the
@@ -271,7 +372,7 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
       */}
       {state.activeChat && (
         <>
-          <MessageList state={state} />
+          <MessageList state={state} bookId={bookId} />
           <ComposerResizeHandle state={state} />
           <Composer
             state={state}

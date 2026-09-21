@@ -83,7 +83,44 @@ export interface RenderedMessage {
    * row still in flight carries `result: null` / `ok: null`.
    */
   toolTrace: ToolTraceRow[];
+  /**
+   * The side chat this message belongs to (027), or `null` for a main-line row.
+   * For a persisted message it is the row's `side_chat_id`; the in-flight bubble
+   * carries {@link ChatPaneState.activeSideChatId} so it lands inside the active
+   * group. {@link ChatPaneState.renderedTranscript} groups on contiguous runs of
+   * equal values (027 → D-B).
+   */
+  sideChatId: string | null;
 }
+
+/**
+ * A main-line row of the rendered transcript (027) — one persisted message or
+ * the in-flight bubble, outside any side chat.
+ */
+export type RenderedTranscriptMessageItem = {
+  kind: "message";
+  message: RenderedMessage;
+};
+
+/**
+ * One side chat in the rendered transcript (027) — a contiguous run of
+ * {@link RenderedMessage}s sharing a non-null `sideChatId`, in position order.
+ * `active` is whether it is the chat's `active_side_chat_id`; `expanded` is
+ * always `true` for the active group and `expandedSideChats[id] ?? false`
+ * (collapsed by default) for a finished one.
+ */
+export type RenderedTranscriptSideChatItem = {
+  kind: "sideChat";
+  sideChatId: string;
+  messages: RenderedMessage[];
+  active: boolean;
+  expanded: boolean;
+};
+
+/** One item of {@link ChatPaneState.renderedTranscript} — discriminated on `kind`. */
+export type RenderedTranscriptItem =
+  | RenderedTranscriptMessageItem
+  | RenderedTranscriptSideChatItem;
 
 /**
  * One row of the tool-call trace as the pane renders it (024) — the live and the
@@ -302,6 +339,42 @@ export class ChatPaneState implements CloseTurnController {
    */
   expandedToolCallRows: Record<string, boolean> = {};
 
+  /**
+   * Per finished-side-chat expansion (027), keyed by side-chat id — collapsed by
+   * default (US-137.AC-1). The group-level twin of {@link expandedToolCallRows}.
+   * The ACTIVE group ignores this map: it is always expanded.
+   *
+   * Written only through {@link toggleSideChatGroup} (the external-effect
+   * convention), as a whole new object per write, never by the component.
+   */
+  expandedSideChats: Record<string, boolean> = {};
+
+  // --- Side-chat actions (027 step 005) ---
+
+  /**
+   * The side-chat ACTION trio's status (027) — `busy` while one of
+   * {@link startSideChat} / {@link finishSideChat} / {@link injectSideChat} /
+   * {@link deleteSideChat} is in flight, `error` after an `ApiError` refusal,
+   * `idle` otherwise. There is deliberately NO `data` member: every action's
+   * result is a chat and/or a message array that already lives in `chats` /
+   * `messages` — a parallel copy would be a second source of truth (D-F).
+   *
+   * Read by {@link ChatPaneState.sideChatActionsEnabled}: while `busy` every
+   * side-chat control is disabled and every effect refuses to start (D1).
+   */
+  sideChatActionStatus: "idle" | "busy" | "error" = "idle";
+  /** The failed side-chat action's author-facing message (set when `sideChatActionStatus === "error"`). */
+  sideChatActionError: string | null = null;
+
+  /**
+   * THE SIDE CHAT AWAITING DELETE CONFIRMATION (027 → US-140.AC-1) — its id while
+   * the confirmation is open, `null` otherwise. Written only through
+   * {@link requestDeleteSideChat} / {@link dismissDeleteSideChat} and cleared by
+   * {@link deleteSideChat} on BOTH outcomes, so the modal never stays open over
+   * an error banner.
+   */
+  sideChatDeleteConfirm: string | null = null;
+
   /** The composer's pending prompt text (cleared only once a send is accepted). */
   pendingPrompt = "";
 
@@ -517,6 +590,51 @@ export class ChatPaneState implements CloseTurnController {
   }
 
   /**
+   * The active chat's `active_side_chat_id` (027) — the side chat currently
+   * receiving messages — or `null` when there is no active chat or the chat is on
+   * its main line.
+   */
+  get activeSideChatId(): string | null {
+    return this.activeChat?.active_side_chat_id ?? null;
+  }
+
+  /**
+   * WHETHER ANY SIDE-CHAT CONTROL MAY ACT (027 → product D1) — the ONE predicate
+   * every side-chat control reads. `false` when there is no active chat, while
+   * `turnStatus === "streaming"`, while {@link ChatPaneState.closeTurnActive} is
+   * not `null`, or while `sideChatActionStatus === "busy"`; `true` otherwise.
+   *
+   * Phrased "is a close active at all", never "does the close's book match" —
+   * the {@link ChatPaneState.isComposerReadOnly} rule (no book id on this class).
+   * Pure.
+   */
+  get sideChatActionsEnabled(): boolean {
+    if (this.activeChat === null) return false;
+    if (this.turnStatus === "streaming") return false;
+    if (this.closeTurnActive !== null) return false;
+    if (this.sideChatActionStatus === "busy") return false;
+    return true;
+  }
+
+  /**
+   * Whether `Start side chat` may act (027 → UC-110 precondition):
+   * {@link ChatPaneState.sideChatActionsEnabled} and no side chat is active
+   * (`activeSideChatId === null`). Pure.
+   */
+  get canStartSideChat(): boolean {
+    return this.sideChatActionsEnabled && this.activeSideChatId === null;
+  }
+
+  /**
+   * Whether `Finish side chat` may act (027 → UC-111 precondition):
+   * {@link ChatPaneState.sideChatActionsEnabled} and a side chat IS active
+   * (`activeSideChatId !== null`). Pure.
+   */
+  get canFinishSideChat(): boolean {
+    return this.sideChatActionsEnabled && this.activeSideChatId !== null;
+  }
+
+  /**
    * WHETHER THE AUTHOR HAS AN UNSAVED SETTINGS EDIT (023) — `true` when
    * `settingsDraft`'s `optionKey` / `temperature` diverge from
    * {@link ChatPaneState.activeChat}'s persisted model pair / temperature,
@@ -656,6 +774,7 @@ export class ChatPaneState implements CloseTurnController {
       content: m.content,
       reasoning: m.reasoning,
       streaming: false,
+      sideChatId: m.side_chat_id,
       // THE SEAM (024). This getter is the ONLY place the persisted trace becomes
       // renderable, and it re-derives from `this.messages` — so once `finishTurn`
       // swaps the reloaded array in, the trace the author watched during the turn
@@ -676,9 +795,55 @@ export class ChatPaneState implements CloseTurnController {
         // The live buffer, read directly: a row still in flight carries
         // `result: null` / `ok: null` and renders as pending.
         toolTrace: this.streamingToolTrace,
+        // The in-flight bubble belongs to whatever side chat is active, so it
+        // lands INSIDE that group rather than trailing the transcript.
+        sideChatId: this.activeSideChatId,
       });
     }
     return rendered;
+  }
+
+  /**
+   * The rendered transcript (027) — {@link renderedMessages} walked once and
+   * folded into main-line `message` items and contiguous `sideChat` groups: a
+   * `message` item per null-`sideChatId` row, and a new `sideChat` item whenever
+   * the `sideChatId` differs from the previous row's (`A → B` opens a second
+   * group; `A → null` closes one). `active` is `sideChatId === activeSideChatId`;
+   * `expanded` is `true` for the active group and `expandedSideChats[id] ?? false`
+   * otherwise. Never checks or repairs contiguity (027 → D-B).
+   */
+  get renderedTranscript(): RenderedTranscriptItem[] {
+    const items: RenderedTranscriptItem[] = [];
+    const activeId = this.activeSideChatId;
+    // The group currently being filled, or `null` when the walk is on the main
+    // line. A run breaks on ANY change of id, so `A → B` opens a second group
+    // with no main-line row between them.
+    let open: RenderedTranscriptSideChatItem | null = null;
+
+    for (const message of this.renderedMessages) {
+      const sideChatId = message.sideChatId;
+      if (sideChatId === null) {
+        open = null;
+        items.push({ kind: "message", message });
+        continue;
+      }
+      if (open === null || open.sideChatId !== sideChatId) {
+        const active: boolean = sideChatId === activeId;
+        open = {
+          kind: "sideChat",
+          sideChatId,
+          messages: [],
+          active,
+          // The active group is always open; a finished one is collapsed until
+          // the author expands it (US-137.AC-1).
+          expanded: active ? true : (this.expandedSideChats[sideChatId] ?? false),
+        };
+        items.push(open);
+      }
+      open.messages.push(message);
+    }
+
+    return items;
   }
 
   /**
@@ -1301,6 +1466,9 @@ export async function sendChatTurn(
     reasoning: null,
     position: state.messages.length,
     created_at: null,
+    // 027: an optimistic user row typed while a side chat is active belongs to
+    // that group, exactly as the server will stamp the persisted row.
+    side_chat_id: state.activeSideChatId,
     // 024: a user message never carries a tool trace.
     tool_trace: null,
   };
@@ -1480,6 +1648,237 @@ export function stopChatTurn(state: ChatPaneState): void {
 export function toggleToolCallRow(state: ChatPaneState, rowKey: string): void {
   runInAction(() => {
     state.expandedToolCallRows[rowKey] = !(state.expandedToolCallRows[rowKey] ?? false);
+  });
+}
+
+/**
+ * Flip one finished side chat's expansion (027) — `state.expandedSideChats[sideChatId]`,
+ * writing a WHOLE NEW OBJECT inside `runInAction` (never a key in place).
+ *
+ * An EXTERNAL effectful operation `(state, args)` per the project's MobX rules, the
+ * {@link toggleToolCallRow} twin. Collapsed is the default, so an absent key reads
+ * as `false` and the first toggle expands it. Toggling the ACTIVE group's key is
+ * harmless: {@link ChatPaneState.renderedTranscript} ignores the map for it.
+ */
+export function toggleSideChatGroup(state: ChatPaneState, sideChatId: string): void {
+  runInAction(() => {
+    state.expandedSideChats = {
+      ...state.expandedSideChats,
+      [sideChatId]: !(state.expandedSideChats[sideChatId] ?? false),
+    };
+  });
+}
+
+/**
+ * Start a side chat on the active chat (027 → UC-110 steps 1–2, US-135).
+ *
+ * Guards INSIDE the function on {@link ChatPaneState.canStartSideChat} and on an
+ * active chat id — when either fails it returns without calling the api (the
+ * component's `disabled` is presentation; this guard is what makes D1 hold).
+ * Otherwise: `sideChatActionStatus = "busy"` (clearing `sideChatActionError`),
+ * call `chatsApi.startSideChat(bookId, activeChatId, signal)`; on success REPLACE
+ * the matching entry of `state.chats` (by id) with the returned `ChatResponse`
+ * — a whole-object replace, never a field patch — so `activeSideChatId` flips,
+ * then `"idle"`. On `ApiError`: `"error"` + the error's message, `chats` /
+ * `messages` untouched. Any other rejection propagates.
+ *
+ * All observable writes inside `runInAction`, before and after the await.
+ */
+export async function startSideChat(
+  state: ChatPaneState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chatId = state.activeChatId;
+  if (!state.canStartSideChat || chatId === null) return;
+
+  runInAction(() => {
+    state.sideChatActionStatus = "busy";
+    state.sideChatActionError = null;
+  });
+
+  try {
+    const updated = await chatsApi.startSideChat(bookId, chatId, signal);
+    runInAction(() => {
+      state.chats = state.chats.map((c) => (c.id === updated.id ? updated : c));
+      state.sideChatActionStatus = "idle";
+    });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.sideChatActionError = err.message;
+        state.sideChatActionStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Finish the active side chat (027 → UC-111, US-137.AC-1 — the client half).
+ *
+ * Guards INSIDE the function on {@link ChatPaneState.canFinishSideChat} (which
+ * implies an active chat and a non-null `activeSideChatId`); when it fails it
+ * returns without calling the api. Otherwise: `"busy"`, call
+ * `chatsApi.finishSideChat(bookId, activeChatId, activeSideChatId, signal)`; on
+ * success replace the matching entry of `state.chats` with the returned chat
+ * (the pointer is now `null`) and go `"idle"`. **`state.messages` is untouched**
+ * — the group becomes "finished" purely through
+ * {@link ChatPaneState.renderedTranscript} (finished = not the pointer, D-A).
+ * On `ApiError`: `"error"` + message; anything else propagates.
+ */
+export async function finishSideChat(
+  state: ChatPaneState,
+  bookId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chatId = state.activeChatId;
+  const sideChatId = state.activeSideChatId;
+  if (!state.canFinishSideChat || chatId === null || sideChatId === null) return;
+
+  runInAction(() => {
+    state.sideChatActionStatus = "busy";
+    state.sideChatActionError = null;
+  });
+
+  try {
+    const updated = await chatsApi.finishSideChat(bookId, chatId, sideChatId, signal);
+    runInAction(() => {
+      state.chats = state.chats.map((c) => (c.id === updated.id ? updated : c));
+      state.sideChatActionStatus = "idle";
+    });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.sideChatActionError = err.message;
+        state.sideChatActionStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Inject a side chat's messages into the main line (027 → UC-113, US-139.AC-1 —
+ * the client half). Works on the active OR a finished side chat.
+ *
+ * Guards INSIDE the function on {@link ChatPaneState.sideChatActionsEnabled}
+ * and an active chat id; when either fails it returns without calling the api.
+ * Otherwise: `"busy"`, call `chatsApi.injectSideChat(bookId, activeChatId,
+ * sideChatId, signal)`; on success SWAP `state.messages` WHOLE with the
+ * response's `messages` (never `push` / `splice`) and replace the matching
+ * `state.chats` entry with the response's `chat`, then `"idle"`. On
+ * `ApiError`: `"error"` + message, `chats` / `messages` untouched; anything
+ * else propagates.
+ */
+export async function injectSideChat(
+  state: ChatPaneState,
+  bookId: string,
+  sideChatId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chatId = state.activeChatId;
+  if (!state.sideChatActionsEnabled || chatId === null) return;
+
+  runInAction(() => {
+    state.sideChatActionStatus = "busy";
+    state.sideChatActionError = null;
+  });
+
+  try {
+    const detail = await chatsApi.injectSideChat(bookId, chatId, sideChatId, signal);
+    runInAction(() => {
+      state.messages = detail.messages;
+      state.chats = state.chats.map((c) => (c.id === detail.chat.id ? detail.chat : c));
+      state.sideChatActionStatus = "idle";
+    });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.sideChatActionError = err.message;
+        state.sideChatActionStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Delete a side chat's messages permanently (027 → UC-112, US-140.AC-3 — the
+ * client half). Works on the active OR a finished side chat.
+ *
+ * Guards INSIDE the function on {@link ChatPaneState.sideChatActionsEnabled}
+ * and an active chat id; when either fails it returns without calling the api.
+ * Otherwise: `"busy"`, call `chatsApi.deleteSideChat(bookId, activeChatId,
+ * sideChatId, signal)` (204, nothing comes back), then RELOAD the chat through
+ * the existing `chatsApi.getChat(bookId, activeChatId, signal)` — the
+ * {@link finishTurn} reload idiom — and swap `state.messages` WHOLE with the
+ * reload's `messages` and replace the matching `state.chats` entry with the
+ * reload's `chat`, then `"idle"`. On `ApiError` (from either call): `"error"` +
+ * message, `chats` / `messages` untouched; anything else propagates.
+ *
+ * `sideChatDeleteConfirm` is cleared to `null` on BOTH outcomes — leaving the
+ * modal open over an error banner would show two conflicting states.
+ */
+export async function deleteSideChat(
+  state: ChatPaneState,
+  bookId: string,
+  sideChatId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const chatId = state.activeChatId;
+  if (!state.sideChatActionsEnabled || chatId === null) return;
+
+  runInAction(() => {
+    state.sideChatActionStatus = "busy";
+    state.sideChatActionError = null;
+  });
+
+  try {
+    await chatsApi.deleteSideChat(bookId, chatId, sideChatId, signal);
+    const detail = await chatsApi.getChat(bookId, chatId, signal);
+    runInAction(() => {
+      state.messages = detail.messages;
+      state.chats = state.chats.map((c) => (c.id === detail.chat.id ? detail.chat : c));
+      state.sideChatDeleteConfirm = null;
+      state.sideChatActionStatus = "idle";
+    });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      runInAction(() => {
+        state.sideChatDeleteConfirm = null;
+        state.sideChatActionError = err.message;
+        state.sideChatActionStatus = "error";
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Open the delete confirmation for one side chat (027 → US-140.AC-1): set
+ * `state.sideChatDeleteConfirm = sideChatId` inside `runInAction`. Calls NO api
+ * and touches nothing else — the delete itself is {@link deleteSideChat}, run
+ * only once the author confirms.
+ */
+export function requestDeleteSideChat(state: ChatPaneState, sideChatId: string): void {
+  runInAction(() => {
+    state.sideChatDeleteConfirm = sideChatId;
+  });
+}
+
+/**
+ * Dismiss the delete confirmation (027 → US-140.AC-2, `Keep it`): set
+ * `state.sideChatDeleteConfirm = null` inside `runInAction`. Calls NO api and
+ * leaves `messages` / `chats` unchanged.
+ */
+export function dismissDeleteSideChat(state: ChatPaneState): void {
+  runInAction(() => {
+    state.sideChatDeleteConfirm = null;
   });
 }
 
@@ -1683,6 +2082,9 @@ export async function startCloseTurn(
     reasoning: null,
     position: state.messages.length,
     created_at: null,
+    // 027: an optimistic user row typed while a side chat is active belongs to
+    // that group, exactly as the server will stamp the persisted row.
+    side_chat_id: state.activeSideChatId,
     // 024: a user message never carries a tool trace.
     tool_trace: null,
   };

@@ -41,6 +41,12 @@ class Chat(SQLModel, table=True):
       :class:`ChatSamplingParams` is the only reader/writer of this column.
     - ``archived`` — ``bool = False``; archived, not destroyed (UC-082).
     - ``created_at`` / ``modified_at`` — nullable, app-set timestamps.
+    - ``active_side_chat_id`` — nullable int (027, FEAT-022 / D-A): the id of
+      the side chat currently receiving messages, or ``None`` when the chat is
+      on its main line. Non-null means a side chat is active and **every new
+      row is stamped with that id**. At most one per chat (one level). No FK —
+      a side chat has no row of its own; the id is minted by the service with
+      ``generate_id`` and lives only here and on ``ChatMessage.side_chat_id``.
     """
 
     __tablename__ = "chats"
@@ -57,6 +63,7 @@ class Chat(SQLModel, table=True):
     archived: bool = False
     created_at: datetime | None = Field(default=None)
     modified_at: datetime | None = Field(default=None)
+    active_side_chat_id: int | None = Field(default=None)
 
 
 class ChatMessage(SQLModel, table=True):
@@ -78,6 +85,14 @@ class ChatMessage(SQLModel, table=True):
       ``Chat.sampling_params`` (``backend/persistence.md``): written via
       ``ToolTrace(...).to_column()``, read via ``ToolTrace.parse_column(...)`` —
       those two are the column's only reader and writer.
+    - ``side_chat_id`` — nullable int (027, FEAT-022 / D-A): ``None`` means the
+      row is on the chat's main line; a value means the row belongs to the side
+      chat with that id, and rows sharing an id form one side chat. **No FK, no
+      index.** "Finished" is DERIVED, not stored: a side chat is finished iff
+      rows carry its id and it is not the chat's ``Chat.active_side_chat_id``
+      — there is no ``finished_at`` and no status column. ``position`` stays
+      one flat ordinal per chat; side chats are contiguous runs by construction
+      (D-B), never checked or repaired.
     """
 
     __tablename__ = "chat_messages"
@@ -90,3 +105,4 @@ class ChatMessage(SQLModel, table=True):
     position: int
     created_at: datetime | None = Field(default=None)
     tool_trace: str | None = Field(default=None)
+    side_chat_id: int | None = Field(default=None)

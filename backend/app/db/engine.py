@@ -135,6 +135,8 @@ async def init_engine(config: DbConfig) -> None:
 ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     # (table, column)
     ("chat_messages", "tool_trace"),  # feature 024 — ChatMessage.tool_trace
+    ("chat_messages", "side_chat_id"),  # feature 027 — ChatMessage.side_chat_id
+    ("chats", "active_side_chat_id"),  # feature 027 — Chat.active_side_chat_id
 )
 
 

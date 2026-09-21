@@ -33,6 +33,7 @@ import json
 from datetime import datetime, timezone
 
 from app.db import chat_messages, chats, llm_servers
+from app.ids import generate_id
 from app.models.chat import Chat, ChatMessage
 from app.models.schemas.chats import (
     ChatDetailResponse,
@@ -56,6 +57,11 @@ class ChatErrorReason(str, enum.Enum):
     every validation reason (``invalid_model_pair`` / ``unknown_or_inactive_server``
     / ``model_not_enabled`` / ``invalid_sampling``) → 400. Mirrors the shape of
     :class:`app.services.llm_servers.LlmServerErrorReason`.
+
+    Side chats (027, FEAT-022; ``context.md`` → D-D): ``side_chat_already_active``
+    → 409 (start while the pointer is set), ``side_chat_not_found`` → 404 (an id
+    neither the pointer nor carried by any row, or a non-numeric wire id — never
+    a 422), ``side_chat_not_active`` → 409 (finish on a finished side chat).
     """
 
     chat_not_found = "chat-not-found"
@@ -63,6 +69,9 @@ class ChatErrorReason(str, enum.Enum):
     unknown_or_inactive_server = "unknown-or-inactive-server"
     model_not_enabled = "model-not-enabled"
     invalid_sampling = "invalid-sampling"
+    side_chat_already_active = "side-chat-already-active"
+    side_chat_not_found = "side-chat-not-found"
+    side_chat_not_active = "side-chat-not-active"
 
 
 class ChatError(Exception):
@@ -111,6 +120,11 @@ def _to_chat_response(chat: Chat) -> ChatResponse:
         archived=chat.archived,
         created_at=chat.created_at,
         modified_at=chat.modified_at,
+        active_side_chat_id=(
+            str(chat.active_side_chat_id)
+            if chat.active_side_chat_id is not None
+            else None
+        ),
     )
 
 
@@ -132,6 +146,9 @@ def _to_message_response(message: ChatMessage) -> ChatMessageResponse:
         reasoning=message.reasoning,
         position=message.position,
         created_at=message.created_at,
+        side_chat_id=(
+            str(message.side_chat_id) if message.side_chat_id is not None else None
+        ),
         tool_trace=ToolTrace.parse_column(message.tool_trace),
     )
 
@@ -143,6 +160,18 @@ def _parse_chat_id(chat_id: str) -> int:
         return int(chat_id)
     except (ValueError, TypeError):
         raise ChatError(ChatErrorReason.chat_not_found, "Chat not found.")
+
+
+def _parse_side_chat_id(side_chat_id: str) -> int:
+    """Coerce a wire ``side_chat_id`` string to ``int``; a non-numeric id is
+    treated as a missing side chat (``side_chat_not_found`` → 404, never a 422 —
+    the codex ``entry_not_found`` precedent; 027 D-D). The :func:`_parse_chat_id`
+    twin; step 003's inject / delete reuse it.
+    """
+    try:
+        return int(side_chat_id)
+    except (ValueError, TypeError):
+        raise ChatError(ChatErrorReason.side_chat_not_found, "Side chat not found.")
 
 
 async def _validate_model_pair(
@@ -288,6 +317,129 @@ async def update_chat(
         chat.sampling_params = req.sampling.model_dump_json()
     chat = await chats.update(chat)
     return _to_chat_response(chat)
+
+
+async def start_side_chat(access: authz.BookAccess, chat_id: str) -> ChatResponse:
+    """Open a side chat on the owned chat and return its refreshed
+    :class:`ChatResponse` with ``active_side_chat_id`` set (UC-110, US-141.AC-1;
+    027 D-D).
+
+    Resolves the chat through :func:`_resolve_owned_chat` (missing / other book /
+    other author → ``chat_not_found`` → 404, never 403). Refuses with
+    ``side_chat_already_active`` (409) when ``Chat.active_side_chat_id`` is
+    already non-null (US-135.AC-2). Otherwise mints a new id with
+    ``app.ids.generate_id()`` **in this service** — no row exists for a side
+    chat, so no model ``default_factory`` can mint it — sets the pointer, persists
+    through ``db/chats.update`` (which bumps ``modified_at``) and maps the row.
+    **Allowed on a chat with zero messages** (UC-110 alternate flow). Touches no
+    message row.
+    """
+    chat = await _resolve_owned_chat(access, _parse_chat_id(chat_id))
+    if chat.active_side_chat_id is not None:
+        raise ChatError(
+            ChatErrorReason.side_chat_already_active,
+            "A side chat is already active on this chat.",
+        )
+    chat.active_side_chat_id = generate_id()
+    chat = await chats.update(chat)
+    return _to_chat_response(chat)
+
+
+async def finish_side_chat(
+    access: authz.BookAccess, chat_id: str, side_chat_id: str
+) -> ChatResponse:
+    """Close the active side chat on the owned chat and return its refreshed
+    :class:`ChatResponse` with ``active_side_chat_id`` cleared (UC-111,
+    US-137.AC-1, US-138.AC-2; 027 D-D).
+
+    Resolves the chat through :func:`_resolve_owned_chat` (→ ``chat_not_found``,
+    404). Parses ``side_chat_id`` with :func:`_parse_side_chat_id` (non-numeric →
+    ``side_chat_not_found``, 404). Existence is **pointer first, rows second**:
+    the id exists iff ``chat.active_side_chat_id == sid`` **or**
+    ``chat_messages.side_chat_exists(chat.id, sid)`` — so an active side chat with
+    zero rows finishes cleanly. An id that exists nowhere → ``side_chat_not_found``
+    (404); one carried by rows but not the pointer (a finished side chat) →
+    ``side_chat_not_active`` (409). Otherwise clears the pointer, persists through
+    ``db/chats.update`` and maps the row. **Touches no message row** — the rows
+    keep their ``side_chat_id``; "finished" is derived (D-A).
+    """
+    chat = await _resolve_owned_chat(access, _parse_chat_id(chat_id))
+    sid = _parse_side_chat_id(side_chat_id)
+    if chat.active_side_chat_id == sid:
+        chat.active_side_chat_id = None
+        chat = await chats.update(chat)
+        return _to_chat_response(chat)
+    if await chat_messages.side_chat_exists(chat.id, sid):
+        raise ChatError(
+            ChatErrorReason.side_chat_not_active,
+            "This side chat is not the active one.",
+        )
+    raise ChatError(ChatErrorReason.side_chat_not_found, "Side chat not found.")
+
+
+async def inject_side_chat(
+    access: authz.BookAccess, chat_id: str, side_chat_id: str
+) -> ChatDetailResponse:
+    """Inject a side chat into the main line of the owned chat and return the
+    refreshed :class:`ChatDetailResponse` (UC-112, US-139.AC-1; 027 D-D).
+
+    Resolves the chat through :func:`_resolve_owned_chat` (missing / other book /
+    other author → ``chat_not_found``, 404). Parses ``side_chat_id`` with
+    :func:`_parse_side_chat_id` (non-numeric → ``side_chat_not_found``, 404).
+    Existence is checked **before** any mutation, pointer first, rows second: the
+    id exists iff ``chat.active_side_chat_id == sid`` **or**
+    ``chat_messages.side_chat_exists(chat.id, sid)``; otherwise
+    ``side_chat_not_found`` (404). Then ``chat_messages.clear_side_chat(chat.id,
+    sid)`` — the rows become ordinary main-line rows **in place**: ``side_chat_id``
+    set ``NULL``, ``position`` and relative order untouched (one-way; product C6).
+    Clears ``Chat.active_side_chat_id`` **only if** it equalled ``sid``, and
+    persists through ``db/chats.update`` **in every case** — a finished side chat's
+    pointer does not move, but ``modified_at`` must still bump (D-D). An active
+    side chat with zero rows just clears the pointer (``clear_side_chat`` → ``0``
+    is not a 404 signal). Returns exactly what :func:`get_chat` returns — the chat
+    plus **all** rows in ``position`` order, through the same mapping.
+    """
+    chat = await _resolve_owned_chat(access, _parse_chat_id(chat_id))
+    sid = _parse_side_chat_id(side_chat_id)
+    was_active = chat.active_side_chat_id == sid
+    if not was_active and not await chat_messages.side_chat_exists(chat.id, sid):
+        raise ChatError(ChatErrorReason.side_chat_not_found, "Side chat not found.")
+    await chat_messages.clear_side_chat(chat.id, sid)
+    if was_active:
+        chat.active_side_chat_id = None
+    await chats.update(chat)
+    return await get_chat(access, chat_id)
+
+
+async def delete_side_chat(
+    access: authz.BookAccess, chat_id: str, side_chat_id: str
+) -> None:
+    """Permanently delete a side chat's rows from the owned chat (UC-113,
+    US-140.AC-3, US-140.AC-4; 027 D-D). Returns nothing — the route answers 204.
+
+    Same resolution and existence check as :func:`inject_side_chat`
+    (``chat_not_found`` / ``side_chat_not_found`` → 404, checked **before** any
+    mutation). Then ``chat_messages.delete_by_side_chat(chat.id, sid)`` — the
+    chat family's **first hard delete**, sanctioned by D-D (the second exception
+    to archive-only after FEAT-011's destroy; see the ``db/chat_messages.py``
+    module docstring). Writes **no table other than ``chat_messages``** (plus the
+    ``chats`` pointer): a codex entry, chapter change or memo saved during the
+    side chat is untouched. Surviving rows are **not renumbered** — gaps in
+    ``position`` are tolerated by ``next_position`` (max+1). Clears
+    ``Chat.active_side_chat_id`` **only if** it equalled ``sid``, and persists
+    through ``db/chats.update`` in every case so ``modified_at`` bumps. An active
+    side chat with zero rows just clears the pointer (``delete_by_side_chat`` →
+    ``0`` is not a 404 signal).
+    """
+    chat = await _resolve_owned_chat(access, _parse_chat_id(chat_id))
+    sid = _parse_side_chat_id(side_chat_id)
+    was_active = chat.active_side_chat_id == sid
+    if not was_active and not await chat_messages.side_chat_exists(chat.id, sid):
+        raise ChatError(ChatErrorReason.side_chat_not_found, "Side chat not found.")
+    await chat_messages.delete_by_side_chat(chat.id, sid)
+    if was_active:
+        chat.active_side_chat_id = None
+    await chats.update(chat)
 
 
 async def list_model_options(access: authz.BookAccess) -> ModelOptionListResponse:

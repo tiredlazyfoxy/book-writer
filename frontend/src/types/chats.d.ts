@@ -68,6 +68,14 @@ export interface ChatResponse {
   archived: boolean;
   created_at: ISODateString | null;
   modified_at: ISODateString | null;
+  /**
+   * The id of the side chat currently receiving messages (027), or `null` when the
+   * chat is on its main line. Required-nullable like `llm_server_id`: the backend
+   * field has no default and is always present on the wire. Non-null means every
+   * new message lands in that side chat; "finished" is derived (a group whose id
+   * is not this one), never stored.
+   */
+  active_side_chat_id: string | null;
 }
 
 /**
@@ -103,6 +111,12 @@ export interface ChatMessageResponse {
   reasoning: string | null;
   position: number;
   created_at: ISODateString | null;
+  /**
+   * The side chat this row belongs to (027), or `null` for a main-line message.
+   * Required-nullable, never omitted. Rows sharing an id form one side chat and
+   * are always a contiguous run in position order (027 → D-B).
+   */
+  side_chat_id: string | null;
   tool_trace: ToolTraceEntry[] | null;
 }
 

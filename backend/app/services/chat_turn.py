@@ -829,6 +829,11 @@ async def run_turn(
 
     """
     chat = context.chat
+    # 027 (D-C): read the active side-chat pointer ONCE, here, before any await.
+    # Every row this turn writes and the history it replays use this one value, so
+    # a finish arriving from another tab mid-turn cannot split the turn across the
+    # side chat and the main line.
+    active_side_chat_id = chat.active_side_chat_id
     server = context.server
     now = datetime.now(timezone.utc)
 
@@ -845,6 +850,7 @@ async def run_turn(
                 reasoning=None,
                 position=position,
                 created_at=now,
+                side_chat_id=active_side_chat_id,
             )
         )
 
@@ -935,7 +941,7 @@ async def run_turn(
     }
 
     # 4. The message history to replay (includes the just-persisted user message).
-    history = await chat_messages.list_by_chat_ordered(chat.id)
+    history = await chat_messages.list_transcript(chat.id, active_side_chat_id)
     messages: list[dict[str, str]] = [
         {"role": m.role, "content": m.content} for m in history
     ]
@@ -1058,6 +1064,7 @@ async def run_turn(
             position=position,
             created_at=datetime.now(timezone.utc),
             tool_trace=trace_column,
+            side_chat_id=active_side_chat_id,
         )
     )
     # 016: the deterministic post-turn step, run ONCE at natural completion and

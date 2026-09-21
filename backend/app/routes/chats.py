@@ -56,6 +56,12 @@ _CHAT_ERROR_STATUS: dict[chats_service.ChatErrorReason, int] = {
     ),
     chats_service.ChatErrorReason.model_not_enabled: status.HTTP_400_BAD_REQUEST,
     chats_service.ChatErrorReason.invalid_sampling: status.HTTP_400_BAD_REQUEST,
+    # 027 side chats (D-D): the 409 idiom is ``routes/books.py`` archive/unarchive.
+    chats_service.ChatErrorReason.side_chat_already_active: (
+        status.HTTP_409_CONFLICT
+    ),
+    chats_service.ChatErrorReason.side_chat_not_found: status.HTTP_404_NOT_FOUND,
+    chats_service.ChatErrorReason.side_chat_not_active: status.HTTP_409_CONFLICT,
 }
 
 
@@ -253,6 +259,108 @@ async def title_chat(
     """
     try:
         return await chat_titling.maybe_title_chat(access, chat_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chats_service.ChatError as err:
+        raise _map_chat_error(err)
+
+
+@router.post(
+    "/{book_id}/chats/{chat_id}/side-chats",
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_side_chat(
+    chat_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChatResponse:
+    """Open a side chat on an owned chat
+    (``POST /api/books/{book_id}/chats/{chat_id}/side-chats`` → 201, the chat
+    with ``active_side_chat_id`` set; UC-110 / US-141.AC-1, 027 D-D).
+
+    Declared **after** the static ``model-options`` route, alongside ``turn`` /
+    ``title``. No body. A chat owned by another author answers 404 (US-061
+    inherited); a second start while one is active answers 409
+    (``side_chat_already_active``).
+    """
+    try:
+        return await chats_service.start_side_chat(access, chat_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chats_service.ChatError as err:
+        raise _map_chat_error(err)
+
+
+@router.post("/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}/finish")
+async def finish_side_chat(
+    chat_id: str,
+    side_chat_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChatResponse:
+    """Close the active side chat on an owned chat
+    (``POST /api/books/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}/finish``
+    → 200, the chat with ``active_side_chat_id`` cleared; UC-111 / US-137.AC-1,
+    027 D-D).
+
+    No body. ``side_chat_id`` is the wire string id; the service parses it (a
+    non-numeric id is 404, never 422). 404 ``side_chat_not_found`` for an id
+    nobody carries; 409 ``side_chat_not_active`` for a finished side chat. Message
+    rows are never touched by this route.
+    """
+    try:
+        return await chats_service.finish_side_chat(access, chat_id, side_chat_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chats_service.ChatError as err:
+        raise _map_chat_error(err)
+
+
+@router.post("/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}/inject")
+async def inject_side_chat(
+    chat_id: str,
+    side_chat_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> ChatDetailResponse:
+    """Inject a side chat into the main line of an owned chat
+    (``POST /api/books/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}/inject``
+    → 200, the chat plus **all** its position-ordered messages — the same shape as
+    ``GET …/chats/{chat_id}``; UC-112 / US-139.AC-1, 027 D-D).
+
+    No body. ``side_chat_id`` is the wire string id; the service parses it (a
+    non-numeric id is 404, never 422). 404 ``side_chat_not_found`` for an id
+    nobody carries; a chat owned by another author answers 404 (US-061
+    inherited). The rows' ``side_chat_id`` become null in place; the pointer is
+    cleared only if it was the active one.
+    """
+    try:
+        return await chats_service.inject_side_chat(access, chat_id, side_chat_id)
+    except authz.BookAuthorizationError as err:
+        raise _map_authz_error(err)
+    except chats_service.ChatError as err:
+        raise _map_chat_error(err)
+
+
+@router.delete(
+    "/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_side_chat(
+    chat_id: str,
+    side_chat_id: str,
+    access: authz.BookAccess = Depends(authz.book_access),
+) -> None:
+    """Permanently delete a side chat's messages from an owned chat
+    (``DELETE /api/books/{book_id}/chats/{chat_id}/side-chats/{side_chat_id}`` →
+    **204**, no body; UC-113 / US-140.AC-3, 027 D-D — the chat family's first hard
+    delete, the ``routes/chapters.py`` ``delete_chapter`` 204 precedent).
+
+    No body in, no body out. ``side_chat_id`` is the wire string id; the service
+    parses it (a non-numeric id is 404, never 422). 404 ``side_chat_not_found``
+    for an id nobody carries; a chat owned by another author answers 404 (US-061
+    inherited). Only ``chat_messages`` rows are removed; surviving rows are not
+    renumbered; the pointer is cleared only if it was the active one.
+    """
+    try:
+        await chats_service.delete_side_chat(access, chat_id, side_chat_id)
     except authz.BookAuthorizationError as err:
         raise _map_authz_error(err)
     except chats_service.ChatError as err:

@@ -1,5 +1,5 @@
 import { observer } from "mobx-react-lite";
-import { ActionIcon, Alert, Button, Group, Stack, Textarea } from "@mantine/core";
+import { ActionIcon, Alert, Button, Group, Stack, Text, Textarea } from "@mantine/core";
 import { IconPlayerStop, IconSend } from "@tabler/icons-react";
 import type { ChatPaneState } from "./chatPaneState";
 
@@ -85,6 +85,18 @@ export const Composer = observer(function Composer({
             </Button>
           </Group>
         </Alert>
+      )}
+
+      {/*
+        027: A HINT, NOT A GATE. Where the next message lands is decided by the
+        server's `active_side_chat_id` at turn start, so the composer needs no rule
+        of its own — US-137.AC-3 holds by construction, and the input and Send stay
+        exactly as enabled as they were. One line of text, nothing else.
+      */}
+      {state.activeSideChatId !== null && (
+        <Text size="xs" c="dimmed">
+          Replying in the side chat
+        </Text>
       )}
 
       <Textarea

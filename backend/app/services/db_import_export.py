@@ -1008,6 +1008,11 @@ def _chat_to_dict(chat: Chat) -> dict[str, object]:
         "modified_at": (
             chat.modified_at.isoformat() if chat.modified_at else None
         ),
+        "active_side_chat_id": (
+            str(chat.active_side_chat_id)
+            if chat.active_side_chat_id is not None
+            else None
+        ),
     }
 
 
@@ -1022,6 +1027,7 @@ def _dict_to_chat(data: dict[str, object]) -> Chat:
     """
     raw_id = data.get("id")
     raw_server_id = data.get("llm_server_id")
+    raw_side_chat_id = data.get("active_side_chat_id")
     created_at = data.get("created_at")
     modified_at = data.get("modified_at")
     chat = Chat(
@@ -1034,6 +1040,9 @@ def _dict_to_chat(data: dict[str, object]) -> Chat:
         archived=data.get("archived", False),
         created_at=datetime.fromisoformat(created_at) if created_at else None,
         modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
+        active_side_chat_id=(
+            int(raw_side_chat_id) if raw_side_chat_id is not None else None
+        ),
     )
     sampling_params = data.get("sampling_params")
     if sampling_params is not None:
@@ -1066,6 +1075,9 @@ def _chat_message_to_dict(message: ChatMessage) -> dict[str, object]:
             message.created_at.isoformat() if message.created_at else None
         ),
         "tool_trace": message.tool_trace,
+        "side_chat_id": (
+            str(message.side_chat_id) if message.side_chat_id is not None else None
+        ),
     }
 
 
@@ -1082,6 +1094,7 @@ def _dict_to_chat_message(data: dict[str, object]) -> ChatMessage:
     what a message with no tool calls carries anyway.
     """
     raw_id = data.get("id")
+    raw_side_chat_id = data.get("side_chat_id")
     created_at = data.get("created_at")
     return ChatMessage(
         id=int(raw_id) if raw_id is not None else None,
@@ -1092,6 +1105,7 @@ def _dict_to_chat_message(data: dict[str, object]) -> ChatMessage:
         position=data["position"],
         created_at=datetime.fromisoformat(created_at) if created_at else None,
         tool_trace=data.get("tool_trace"),
+        side_chat_id=int(raw_side_chat_id) if raw_side_chat_id is not None else None,
     )
 
 

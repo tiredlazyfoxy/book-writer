@@ -136,6 +136,7 @@ function makeChat(id: string, title: string, modifiedAt: string): ChatResponse {
     archived: false,
     created_at: modifiedAt,
     modified_at: modifiedAt,
+    active_side_chat_id: null,
   };
 }
 

@@ -115,6 +115,11 @@ class ChatResponse(BaseModel):
 
     Built by hand in the service mapper (never dumped from the ORM). Ids are
     ``str``; ``sampling`` is the parsed :class:`ChatSamplingParams`.
+
+    ``active_side_chat_id`` (027, FEAT-022) is the chat's active side-chat id as
+    a decimal string, or ``None`` when the chat is on its main line. **Required
+    and nullable** (the ``llm_server_id`` shape) — an omitted pointer must never
+    be mistaken for "no side chat".
     """
 
     model_config = ConfigDict(protected_namespaces=())
@@ -129,6 +134,7 @@ class ChatResponse(BaseModel):
     archived: bool
     created_at: UtcDateTime | None
     modified_at: UtcDateTime | None
+    active_side_chat_id: str | None
 
 
 class ChatListResponse(BaseModel):
@@ -250,6 +256,11 @@ class ChatMessageResponse(BaseModel):
     producing this message — ``None`` for user messages and for an assistant turn
     during which no tool ran. It **defaults to ``None``** so every pre-024 caller
     that builds this DTO still binds unchanged.
+
+    ``side_chat_id`` (027, FEAT-022) is the side chat this row belongs to as a
+    decimal string, or ``None`` for a main-line row. **Required and nullable**;
+    filled by ``services/chats.py::_to_message_response``, the single mapper
+    behind both the ``done`` frame and the detail reload (D-E).
     """
 
     id: str
@@ -259,6 +270,7 @@ class ChatMessageResponse(BaseModel):
     reasoning: str | None
     position: int
     created_at: UtcDateTime | None
+    side_chat_id: str | None
     tool_trace: list[ToolTraceEntry] | None = None
 
 

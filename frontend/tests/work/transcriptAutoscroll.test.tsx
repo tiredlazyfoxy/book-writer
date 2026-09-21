@@ -215,6 +215,7 @@ const CHAT: ChatResponse = {
   archived: false,
   created_at: "2026-01-01T00:00:00Z",
   modified_at: "2026-01-01T00:00:00Z",
+  active_side_chat_id: null,
 };
 
 function makeMessage(id: string, role: string, content: string, position: number): ChatMessageResponse {
@@ -226,6 +227,7 @@ function makeMessage(id: string, role: string, content: string, position: number
     reasoning: null,
     position,
     created_at: "2026-01-01T00:00:00Z",
+    side_chat_id: null,
     tool_trace: null,
   };
 }

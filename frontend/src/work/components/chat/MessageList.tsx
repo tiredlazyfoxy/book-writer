@@ -1,21 +1,17 @@
 import { observer } from "mobx-react-lite";
-import { Box, Paper, ScrollArea, Stack, Text } from "@mantine/core";
-import Markdown from "react-markdown";
-import { ThinkingBlock } from "./ThinkingBlock";
-import { ToolCallTrace } from "./ToolCallTrace";
-import {
-  attachTranscriptViewport,
-  noteTranscriptScroll,
-  toggleToolCallRow,
-} from "./chatPaneState";
+import { ScrollArea, Stack } from "@mantine/core";
+import { MessageRow } from "./MessageRow";
+import { SideChatGroup } from "./SideChatGroup";
+import { attachTranscriptViewport, noteTranscriptScroll } from "./chatPaneState";
 import type { ChatPaneState } from "./chatPaneState";
 
 /**
  * The conversation transcript for the active chat. Renders
- * `state.renderedMessages`: user messages as a bubble, assistant messages
- * through `react-markdown`, each assistant message that carries reasoning preceded
- * by a {@link import("./ThinkingBlock").ThinkingBlock}, plus the in-flight
- * assistant bubble fed from the streaming buffers.
+ * `state.renderedTranscript` through {@link import("./MessageRow").MessageRow}:
+ * user messages as a bubble, assistant messages through `react-markdown`, each
+ * assistant message that carries reasoning preceded by a
+ * {@link import("./ThinkingBlock").ThinkingBlock}, plus the in-flight assistant
+ * bubble fed from the streaming buffers.
  *
  * IT FILLS, IT DOES NOT CAP (feedback F1). This region consumes whatever vertical
  * space is left between `ChatPane`'s header and its composer and scrolls INSIDE
@@ -47,12 +43,28 @@ import type { ChatPaneState } from "./chatPaneState";
  * growth signature. This leaf still holds no effect — it only hands its scrolling
  * viewport element to the pane state (`viewportRef`) and reports scroll position
  * (`onScrollPositionChange`), both plain props. The leaf rule is unchanged.
+ *
+ * SIDE CHATS (027 → step 006). The list maps `state.renderedTranscript` and
+ * branches on `kind`: `"message"` → {@link import("./MessageRow").MessageRow}
+ * (key `item.message.key`), `"sideChat"` →
+ * {@link import("./SideChatGroup").SideChatGroup} (key `item.sideChatId`). The
+ * group's Inject action needs the book id, which `ChatPaneState` deliberately
+ * does not hold (`frontend-workspace.md` → the no-book-id rule), so it arrives
+ * as a PROP from `ChatPane` — no context, no hook.
  */
 export interface MessageListProps {
   state: ChatPaneState;
+  /**
+   * The current book id, passed through to each `SideChatGroup`. OPTIONAL ONLY
+   * AS A FORWARD-ONLY SPLIT, not a design: `ChatPane.tsx` is step 007's source
+   * file, so step 007 wires `<MessageList state={state} bookId={bookId} />`; until
+   * then the side-chat Inject / Delete controls render disabled when it is
+   * absent (the `026` memos-placeholder idiom).
+   */
+  bookId?: string;
 }
 
-export const MessageList = observer(function MessageList({ state }: MessageListProps) {
+export const MessageList = observer(function MessageList({ state, bookId }: MessageListProps) {
   return (
     <ScrollArea
       type="auto"
@@ -78,80 +90,18 @@ export const MessageList = observer(function MessageList({ state }: MessageListP
       }}
     >
       <Stack gap="sm" p="xs">
-        {state.renderedMessages.map((msg) => {
-          if (msg.role === "user") {
-            return (
-              <Box
-                key={msg.key}
-                data-role="user"
-                // The right-offset mechanism F2 preserves: the row is the flex
-                // container, the bubble is the item pushed to its end.
-                style={{ display: "flex", justifyContent: "flex-end" }}
-              >
-                <Paper
-                  // Theme tokens, never a hard-coded colour: `filled` resolves to a
-                  // different shade per colour scheme and `contrast` is the text
-                  // colour Mantine itself pairs with it, so the bubble stays legible
-                  // in both light and dark.
-                  bg="var(--mantine-primary-color-filled)"
-                  c="var(--mantine-primary-color-contrast)"
-                  px="sm"
-                  py={6}
-                  radius="md"
-                  // 70%, not 85%: in a narrow aside the bubble has to be visibly
-                  // narrower than the assistant's full-width body to read as one.
-                  style={{ maxWidth: "70%" }}
-                >
-                  <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                    {msg.content}
-                  </Text>
-                </Paper>
-              </Box>
-            );
-          }
-
-          const hasReasoning = msg.reasoning !== null && msg.reasoning !== "";
-          const expanded = msg.streaming
-            ? state.liveThinkingExpanded
-            : (state.expandedReasoning[msg.key] ?? false);
-          const toggle = () => {
-            if (msg.streaming) {
-              state.liveThinkingExpanded = !state.liveThinkingExpanded;
-            } else {
-              state.expandedReasoning[msg.key] = !(state.expandedReasoning[msg.key] ?? false);
-            }
-          };
-
-          // F3: no `Divider`, no "Assistant" label — the wrapping `Stack` and its
-          // `data-role` stay, and the thinking region and markdown body are as
-          // delivered.
-          return (
-            <Stack key={msg.key} gap={4} data-role="assistant">
-              {hasReasoning && (
-                <ThinkingBlock
-                  text={msg.reasoning ?? ""}
-                  expanded={expanded}
-                  onToggle={toggle}
-                />
-              )}
-              {/* 024: the tool-call trace sits in the same per-message slot as the
-                  thinking region and above the body — what the assistant DID
-                  before it answered, in call order. It renders `null` when the
-                  message has no trace, so it needs no condition here, and its
-                  expansion map is keyed by (message key, row index), which the
-                  in-flight bubble's sentinel key serves unchanged. */}
-              <ToolCallTrace
-                rows={msg.toolTrace}
-                expanded={state.expandedToolCallRows}
-                rowKeyPrefix={msg.key}
-                onToggle={(rowKey) => toggleToolCallRow(state, rowKey)}
-              />
-              <Box className="chat-markdown" fz="sm">
-                <Markdown>{msg.content}</Markdown>
-              </Box>
-            </Stack>
-          );
-        })}
+        {state.renderedTranscript.map((item) =>
+          item.kind === "message" ? (
+            <MessageRow key={item.message.key} state={state} message={item.message} />
+          ) : (
+            <SideChatGroup
+              key={item.sideChatId}
+              state={state}
+              bookId={bookId}
+              group={item}
+            />
+          ),
+        )}
       </Stack>
     </ScrollArea>
   );

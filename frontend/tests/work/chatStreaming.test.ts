@@ -105,6 +105,7 @@ function makeChat(
     archived: false,
     created_at: modifiedAt,
     modified_at: modifiedAt,
+    active_side_chat_id: null,
   };
 }
 
@@ -127,6 +128,7 @@ function makeMessage(
     reasoning,
     position,
     created_at: "2026-01-01T00:00:00Z",
+    side_chat_id: null,
     tool_trace: toolTrace,
   };
 }

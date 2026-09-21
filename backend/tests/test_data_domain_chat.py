@@ -449,6 +449,7 @@ CHAT_FIELDS = {
     "archived",
     "created_at",
     "modified_at",
+    "active_side_chat_id",  # feature 027 — side-chat columns
 }
 # Amended again by feature 024 (chat-agent-loop): `plan.md` -> `## Interface`
 # declares `ChatMessage.tool_trace: str | None = Field(default=None)` — the
@@ -463,6 +464,7 @@ CHAT_MESSAGE_FIELDS = {
     "position",
     "created_at",
     "tool_trace",
+    "side_chat_id",  # feature 027 — side-chat columns
 }
 
 

@@ -125,6 +125,73 @@ export async function titleChat(
 }
 
 /**
+ * `POST /api/books/{bookId}/chats/{chatId}/side-chats` (027) — start a side chat
+ * on the chat. **No body**: the server mints the id and sets the chat's
+ * `active_side_chat_id`. Returns the chat with the pointer set (`201`).
+ */
+export async function startSideChat(
+  bookId: string,
+  chatId: string,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
+  return request<ChatResponse>(`${BASE}/${bookId}/chats/${chatId}/side-chats`, {
+    method: "POST",
+    signal,
+  });
+}
+
+/**
+ * `POST /api/books/{bookId}/chats/{chatId}/side-chats/{sideChatId}/finish` (027) —
+ * finish the active side chat. **No body.** Returns the chat with the pointer
+ * cleared; the rows stay stamped, so the group renders collapsed.
+ */
+export async function finishSideChat(
+  bookId: string,
+  chatId: string,
+  sideChatId: string,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
+  return request<ChatResponse>(
+    `${BASE}/${bookId}/chats/${chatId}/side-chats/${sideChatId}/finish`,
+    { method: "POST", signal },
+  );
+}
+
+/**
+ * `POST /api/books/{bookId}/chats/{chatId}/side-chats/{sideChatId}/inject` (027) —
+ * make the side chat's rows ordinary main-line messages, in place. **No body.**
+ * Returns the chat plus its full position-ordered messages (the `getChat` shape).
+ */
+export async function injectSideChat(
+  bookId: string,
+  chatId: string,
+  sideChatId: string,
+  signal?: AbortSignal,
+): Promise<ChatDetailResponse> {
+  return request<ChatDetailResponse>(
+    `${BASE}/${bookId}/chats/${chatId}/side-chats/${sideChatId}/inject`,
+    { method: "POST", signal },
+  );
+}
+
+/**
+ * `DELETE /api/books/{bookId}/chats/{chatId}/side-chats/{sideChatId}` (027) —
+ * remove the side chat's rows permanently. Resolves `void` on the `204`
+ * (`client.request` returns `undefined` for a 204).
+ */
+export async function deleteSideChat(
+  bookId: string,
+  chatId: string,
+  sideChatId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return request<void>(`${BASE}/${bookId}/chats/${chatId}/side-chats/${sideChatId}`, {
+    method: "DELETE",
+    signal,
+  });
+}
+
+/**
  * Typed callbacks for the four turn-stream frames, narrowed from `streamPost`'s
  * raw `unknown` payloads so no `any` reaches the state layer:
  * - `onThinking` / `onDelta` carry the frame's text chunk (both arrive via
