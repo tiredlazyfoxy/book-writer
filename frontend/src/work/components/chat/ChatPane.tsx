@@ -12,6 +12,7 @@ import {
   Stack,
   Text,
   Title,
+  Tooltip,
   useCombobox,
 } from "@mantine/core";
 import {
@@ -291,15 +292,30 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
             width={260}
             withArrow
           >
-            <Popover.Target>
-              <ActionIcon
-                variant="subtle"
-                onClick={() => togglePanel("settings")}
-                aria-label="Chat settings"
-              >
-                <IconAdjustmentsHorizontal size={18} stroke={1.5} />
-              </ActionIcon>
-            </Popover.Target>
+            {/*
+              THE TOOLTIP WRAPS `Popover.Target`, NOT THE OTHER WAY AROUND. Both
+              components clone their child to attach a ref, so the nesting order
+              decides which props reach the button. THIS order keeps everything:
+              `Tooltip` clones the target (forwarding its ref and its hover
+              handlers through it), and `Popover.Target` then clones the icon, so
+              the button still carries `aria-haspopup` / `aria-expanded` /
+              `aria-controls` and its own `onClick` — which is what toggles this
+              controlled popover. Nesting the other way (target outside) also
+              opens the popover, but the target's aria props would land on the
+              tooltip's own box instead of the button, because `Tooltip` forwards
+              unknown props there rather than to its child.
+            */}
+            <Tooltip label="Chat settings" position="bottom" withArrow>
+              <Popover.Target>
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => togglePanel("settings")}
+                  aria-label="Chat settings"
+                >
+                  <IconAdjustmentsHorizontal size={18} stroke={1.5} />
+                </ActionIcon>
+              </Popover.Target>
+            </Tooltip>
             <Popover.Dropdown>
               <ChatSettingsPanel draft={state.settingsDraft} errors={state.errors} />
             </Popover.Dropdown>
@@ -312,24 +328,32 @@ export const ChatPane = observer(function ChatPane({ bookId, state }: ChatPanePr
             chat" is a criterion (DoD-1/DoD-2). It stays OUT of the `openedPanel`
             discriminator — it opens no popover.
           */}
-          <ActionIcon
-            variant="subtle"
-            onClick={sideChatActive ? handleFinishSideChat : handleStartSideChat}
-            disabled={
-              sideChatActive ? !state.canFinishSideChat : !state.canStartSideChat
-            }
-            aria-label={sideChatActive ? "Finish side chat" : "Start side chat"}
+          <Tooltip
+            label={sideChatActive ? "Finish side chat" : "Start side chat"}
+            position="bottom"
+            withArrow
           >
-            {sideChatActive ? (
-              <IconMessageCheck size={18} stroke={1.5} />
-            ) : (
-              <IconArrowFork size={18} stroke={1.5} />
-            )}
-          </ActionIcon>
+            <ActionIcon
+              variant="subtle"
+              onClick={sideChatActive ? handleFinishSideChat : handleStartSideChat}
+              disabled={
+                sideChatActive ? !state.canFinishSideChat : !state.canStartSideChat
+              }
+              aria-label={sideChatActive ? "Finish side chat" : "Start side chat"}
+            >
+              {sideChatActive ? (
+                <IconMessageCheck size={18} stroke={1.5} />
+              ) : (
+                <IconArrowFork size={18} stroke={1.5} />
+              )}
+            </ActionIcon>
+          </Tooltip>
 
-          <ActionIcon variant="light" onClick={handleNewChat} aria-label="New chat">
-            <IconPlus size={18} stroke={1.5} />
-          </ActionIcon>
+          <Tooltip label="New chat" position="bottom" withArrow>
+            <ActionIcon variant="light" onClick={handleNewChat} aria-label="New chat">
+              <IconPlus size={18} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
         </Group>
       </Group>
 

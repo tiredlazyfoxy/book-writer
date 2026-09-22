@@ -1,5 +1,5 @@
 import { observer } from "mobx-react-lite";
-import { ActionIcon, Group, Paper, Stack, Text } from "@mantine/core";
+import { ActionIcon, Group, Paper, Stack, Text, Tooltip } from "@mantine/core";
 import {
   IconArrowBackUp,
   IconChevronDown,
@@ -99,46 +99,62 @@ export const SideChatGroup = observer(function SideChatGroup({
                 and only for a finished group — an active one is always
                 expanded, so it has nothing to collapse. */}
             {!group.active && (
+              <Tooltip
+                label={group.expanded ? "Collapse side chat" : "Expand side chat"}
+                position="bottom"
+                withArrow
+              >
+                <ActionIcon
+                  variant="subtle"
+                  size="sm"
+                  aria-label={
+                    group.expanded ? "Collapse side chat" : "Expand side chat"
+                  }
+                  aria-expanded={group.expanded}
+                  onClick={() => toggleSideChatGroup(state, group.sideChatId)}
+                >
+                  {group.expanded ? (
+                    <IconChevronDown size={14} stroke={1.5} />
+                  ) : (
+                    <IconChevronRight size={14} stroke={1.5} />
+                  )}
+                </ActionIcon>
+              </Tooltip>
+            )}
+            {/* A disabled `ActionIcon` takes no pointer events, so its hint
+                does not fire while the actions are unavailable — accepted: the
+                `disabled` prop stays the gate (D1); it is not softened into
+                `data-disabled` just to make a tooltip appear. */}
+            <Tooltip label="Inject side chat" position="bottom" withArrow>
               <ActionIcon
                 variant="subtle"
                 size="sm"
-                aria-label={group.expanded ? "Collapse side chat" : "Expand side chat"}
-                aria-expanded={group.expanded}
-                onClick={() => toggleSideChatGroup(state, group.sideChatId)}
+                aria-label="Inject side chat"
+                disabled={actionsDisabled}
+                onClick={() => {
+                  if (bookId === undefined) {
+                    return;
+                  }
+                  void injectSideChat(state, bookId, group.sideChatId);
+                }}
               >
-                {group.expanded ? (
-                  <IconChevronDown size={14} stroke={1.5} />
-                ) : (
-                  <IconChevronRight size={14} stroke={1.5} />
-                )}
+                <IconArrowBackUp size={14} stroke={1.5} />
               </ActionIcon>
-            )}
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              aria-label="Inject side chat"
-              disabled={actionsDisabled}
-              onClick={() => {
-                if (bookId === undefined) {
-                  return;
-                }
-                void injectSideChat(state, bookId, group.sideChatId);
-              }}
-            >
-              <IconArrowBackUp size={14} stroke={1.5} />
-            </ActionIcon>
+            </Tooltip>
             {/* Delete only ASKS here — the confirmation `Modal` is step 007's,
                 and this call reaches no api. */}
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              color="red"
-              aria-label="Delete side chat"
-              disabled={actionsDisabled}
-              onClick={() => requestDeleteSideChat(state, group.sideChatId)}
-            >
-              <IconTrash size={14} stroke={1.5} />
-            </ActionIcon>
+            <Tooltip label="Delete side chat" position="bottom" withArrow>
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                color="red"
+                aria-label="Delete side chat"
+                disabled={actionsDisabled}
+                onClick={() => requestDeleteSideChat(state, group.sideChatId)}
+              >
+                <IconTrash size={14} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
           </Group>
         </Group>
 

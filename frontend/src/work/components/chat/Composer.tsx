@@ -1,5 +1,14 @@
 import { observer } from "mobx-react-lite";
-import { ActionIcon, Alert, Button, Group, Stack, Text, Textarea } from "@mantine/core";
+import {
+  ActionIcon,
+  Alert,
+  Button,
+  Group,
+  Stack,
+  Text,
+  Textarea,
+  Tooltip,
+} from "@mantine/core";
 import { IconPlayerStop, IconSend } from "@tabler/icons-react";
 import type { ChatPaneState } from "./chatPaneState";
 
@@ -129,31 +138,39 @@ export const Composer = observer(function Composer({
         }}
         rightSection={
           streaming && !closeReadOnly ? (
-            <ActionIcon
-              color="red"
-              variant="light"
-              onClick={onStop}
-              // The accessible name Stop is queried by — an icon control has no text.
-              aria-label="Stop"
-            >
-              <IconPlayerStop size={18} stroke={1.5} />
-            </ActionIcon>
+            // The hint repeats the accessible name verbatim and points UP, out of
+            // the input: the control sits at the foot of the pane, so a hint below
+            // it would fall off the bottom. It renders nothing until hover, so the
+            // absolutely positioned section keeps its layout.
+            <Tooltip label="Stop" position="top" withArrow>
+              <ActionIcon
+                color="red"
+                variant="light"
+                onClick={onStop}
+                // The accessible name Stop is queried by — an icon control has no text.
+                aria-label="Stop"
+              >
+                <IconPlayerStop size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
           ) : (
             // While a close runs the pane offers NO stop of its own: aborting the
             // stream alone would leave the chapter `closing` server-side, so the
             // author's exit is the chapter page's Stop, which also posts
             // `close/cancel` (decision D4). The composer shows Send, disabled.
-            <ActionIcon
-              variant="light"
-              onClick={onSend}
-              // `canSend` does NOT itself account for the close window — the pane
-              // ANDs `closeReadOnly` in here, and the keyboard path below repeats the
-              // same pair. Both must stay written out.
-              disabled={!state.canSend || closeReadOnly}
-              aria-label="Send"
-            >
-              <IconSend size={18} stroke={1.5} />
-            </ActionIcon>
+            <Tooltip label="Send" position="top" withArrow>
+              <ActionIcon
+                variant="light"
+                onClick={onSend}
+                // `canSend` does NOT itself account for the close window — the pane
+                // ANDs `closeReadOnly` in here, and the keyboard path below repeats
+                // the same pair. Both must stay written out.
+                disabled={!state.canSend || closeReadOnly}
+                aria-label="Send"
+              >
+                <IconSend size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
           )
         }
         onChange={(event) => {

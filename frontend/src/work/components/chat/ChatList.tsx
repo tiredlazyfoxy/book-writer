@@ -5,6 +5,7 @@ import {
   ScrollArea,
   Stack,
   Text,
+  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import { IconArchive, IconArchiveOff } from "@tabler/icons-react";
@@ -76,18 +77,26 @@ export const ChatList = observer(function ChatList({
                   {formatDate(chat.modified_at)}
                 </Text>
               </UnstyledButton>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                onClick={() => onSetArchived(chat.id, !chat.archived)}
-                aria-label={chat.archived ? "Restore chat" : "Archive chat"}
+              {/* To the LEFT: the icon is the row's trailing element, so a
+                  hint on the other side would cover the row's own title text. */}
+              <Tooltip
+                label={chat.archived ? "Restore chat" : "Archive chat"}
+                position="left"
+                withArrow
               >
-                {chat.archived ? (
-                  <IconArchiveOff size={16} stroke={1.5} />
-                ) : (
-                  <IconArchive size={16} stroke={1.5} />
-                )}
-              </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => onSetArchived(chat.id, !chat.archived)}
+                  aria-label={chat.archived ? "Restore chat" : "Archive chat"}
+                >
+                  {chat.archived ? (
+                    <IconArchiveOff size={16} stroke={1.5} />
+                  ) : (
+                    <IconArchive size={16} stroke={1.5} />
+                  )}
+                </ActionIcon>
+              </Tooltip>
             </Group>
           );
         })}

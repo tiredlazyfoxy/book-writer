@@ -45,6 +45,15 @@
 - `frontend/src/work/components/chat/ChatPane.tsx` — ONE swapping `ActionIcon` before `New chat` (`aria-label` / icon / `disabled` / handler all switch on `activeSideChatId === null`; outside the `openedPanel` discriminator); the `@mantine/core` `Modal` delete confirmation (`Keep it` / `Delete side chat`, pending id read at click time, body naming the permanent message removal and the kept saved work); the `sideChatActionStatus === "error"` `Alert` beside the existing ones; `<MessageList state={state} bookId={bookId} />`
 - `frontend/src/work/components/chat/Composer.tsx` — one `Text` hint `Replying in the side chat` above the `Textarea`, gated only on `activeSideChatId !== null`; the read-only rule, `canSend`, the two `Alert`s and the Send / Stop slot byte-identical
 
+## Bug Fixes
+
+### Steps 006 / 007 — icon-only chat controls shipped with no hover hint (2026-09-21)
+- `frontend/src/work/components/chat/ChatPane.tsx` — `Tooltip` (`position="bottom"`, `withArrow`, no `openDelay`) on the settings, Start / Finish and New-chat icons. The settings hint WRAPS `Popover.Target` rather than sitting inside it: both components clone their child, and only this order leaves the button with its own `onClick` (the toggle — the popover is controlled) AND the target's `aria-haspopup` / `aria-expanded` / `aria-controls`; the other order moves those three onto the tooltip's own box.
+- `frontend/src/work/components/chat/Composer.tsx` — `Tooltip position="top"` on Stop and Send (they sit at the foot of the pane, so a hint below would fall off); the `rightSection` layout props are untouched and the hint mounts nothing until hover.
+- `frontend/src/work/components/chat/SideChatGroup.tsx` — `Tooltip position="bottom"` on the swapping expand / collapse icon and on Inject and Delete. `disabled` stays the gate (D1) — it is NOT softened to `data-disabled`, so a disabled action simply shows no hint.
+- `frontend/src/work/components/chat/ChatList.tsx` — `Tooltip position="left"` on the per-row Archive / Restore icon (the icon is the row's trailing element).
+- Every label is the control's existing `aria-label` verbatim, swapping on the same condition where the name swaps. No accessible name, role, `onClick` or `disabled` expression changed; steps 006 and 007 keep their contracts. `cd frontend && npm run build` clean.
+
 ## Notes & Issues
 
 - Step 004: `renderedTranscript`'s local `active` needed an explicit `: boolean` annotation — inferring it inside the loop tripped TS7022 (circular inference through the group literal). Behaviour unaffected.
@@ -387,6 +396,24 @@ Gate: `cd frontend && npm run build` — OK (tsc + vite). `cd frontend && npm ru
   - `DoD-10: with no side chat active the composer shows no such hint, and the input and Send are present and enabled just the same`
   - `DoD-10: the hint follows the server pointer — the same composer shows it once the active chat's active_side_chat_id is set, and drops it once it is cleared` (mutations in `act(() => runInAction(...))`)
 - Coverage: DoD-1 ✓, DoD-2 ✓, DoD-3 ✓, DoD-4 ✓, DoD-5 ✓, DoD-6 ✓, DoD-7 ✓, DoD-8 ✓, DoD-9 ✓, DoD-10 ✓, DoD-11 [manual/live, no test — end-to-end start / two turns / finish / inject / delete-with-codex-survival / leave-and-return, outstanding for the verifier's live-run record]
+
+### Step 007 — repro test (2026-09-21)
+
+reproduces: every icon-only control under `frontend/src/work/components/chat/` ships with an `aria-label` and no hint — no Mantine `Tooltip` anywhere, so a mouse user sees a bare glyph. For the Start / Finish slot this violates 007's Interface intent ("one `ActionIcon` (with `Tooltip`)").
+
+- `frontend/tests/work/ChatIconTooltips.test.tsx` — covers BF-1..BF-10 — hovers each icon-only control **in its enabled state** with `userEvent.hover` (Mantine `Tooltip` defaults to `events: { hover: true, focus: false, touch: false }`, so focus never opens it), then locates the hint with the polling `findByRole("tooltip")` and asserts its trimmed text is **exactly** the control's existing `aria-label`. `position` / `withArrow` / delay are implementation details and are not asserted; the `disabled` mechanism is untouched, so no disabled control is ever hovered. One hover per render (each case renders fresh) so a stale tooltip can never be mistaken for the one under test. Whole-module `vi.mock("../../src/api/chats", …)` with all eleven exports; state seeded directly via `runInAction`; `globals: false`
+  - `BF-1: hovering 'Start side chat' … shows a tooltip reading exactly 'Start side chat'` (`ChatPane`, `active_side_chat_id` null, idle turn; 007 DoD-1 + Interface intent)
+  - `BF-2: hovering 'Finish side chat' … exactly 'Finish side chat'` (`ChatPane`, pointer set, idle turn; 007 DoD-2)
+  - `BF-3: hovering 'New chat' … exactly 'New chat'`
+  - `BF-4: hovering 'Chat settings' … exactly 'Chat settings', and the settings popover does not open` (`state.openedPanel` still `null` after the hover — the `Popover.Target` wrap must not hijack the open mechanism)
+  - `BF-5: … hovering 'Send' … exactly 'Send'` (`Composer`, idle turn, non-empty prompt, `canSend === true`), `BF-5: … hovering 'Stop' … exactly 'Stop'` (`turnStatus: "streaming"`, `isComposerReadOnly === false`)
+  - `BF-6: a collapsed finished group — hovering 'Expand side chat' … exactly 'Expand side chat'`, `BF-6: the same group expanded — hovering 'Collapse side chat' … exactly 'Collapse side chat'` (expansion seeded through `state.expandedSideChats`; the `group` prop taken from `state.renderedTranscript`)
+  - `BF-7: … hovering 'Inject side chat' … exactly 'Inject side chat'`, `BF-7: … hovering 'Delete side chat' … exactly 'Delete side chat'` (standalone `SideChatGroup` with `sideChatActionsEnabled` true and a defined `bookId`; `queryByRole("dialog")` asserted null so the pane's confirmation button of the same name cannot be involved)
+  - `BF-8: a non-archived row — … exactly 'Archive chat'`, `BF-8: an archived row — … exactly 'Restore chat'` (standalone `ChatList` with a seeded `ChatsListPageState`, `showArchived` toggled; two `vi.fn()` props, no router)
+  - `BF-9: the pane's header controls keep their names and roles, and 'Start side chat' is still disabled while streaming`, `BF-9: the pane's Finish slot keeps its name and role`, `BF-9: the composer's Send and Stop keep their names and roles`, `BF-9: the group's controls keep their names, and Inject / Delete are still disabled when sideChatActionsEnabled is false`, `BF-9: the chat list's archive / restore control keeps its two names and its role` — the no-regression guard: wrapping in a `Tooltip` changes no accessible name, role or disabled state
+  - `BF-10: a rendered ChatPane with no pointer interaction has no tooltip in the document` (the negative; `expectTooltip` also re-checks this before every hover)
+- Coverage: BF-1 ✓, BF-2 ✓, BF-3 ✓, BF-4 ✓, BF-5 ✓, BF-6 ✓, BF-7 ✓, BF-8 ✓, BF-9 ✓, BF-10 ✓
+- Note: no test in this repo had ever asserted a tooltip (zero prior matches for `Tooltip` / `hover(` / `describedby` under `frontend/tests/`); this file establishes the pattern. Precedent that floating-ui works under the harness: `ChatModelPicker.test.tsx` (Mantine `Combobox`) and `ChatPaneSideChat.test.tsx` (Mantine `Modal`).
 
 ## Ultra phase
 
