@@ -1,0 +1,312 @@
+<!-- product-spec:start -->
+# Quick Reference
+
+Dense id registry — the **sole canonical id registry** for
+`docs/product/`. `features.md` keeps the spine (FEAT blocks only) and
+`relationships.md` holds feature relationships; neither holds registry
+tables. This file is exempt from the line budget.
+
+## Actors
+
+| id | name | one-liner |
+|---|---|---|
+| ACT-001 | Administrator | Sets up and operates the platform; moderates book content. |
+| ACT-002 | Author | A book-writing account; owns and co-authors books. |
+| ACT-003 | First-run operator | Bootstraps an unconfigured instance. |
+| ACT-004 | Book owner | The author who created a book (or received it by transfer). |
+| ACT-005 | Co-author | An author granted access to someone else's book. |
+| ACT-006 | Reader | A logged-in user browsing and reading public books they aren't a member of. |
+
+## Features
+
+| id | name | priority | status |
+|---|---|---|---|
+| FEAT-001 | First-run bootstrap | must | delivered |
+| FEAT-002 | Authentication & session | must | delivered |
+| FEAT-003 | User management | must | delivered |
+| FEAT-004 | LLM server connections | must | delivered |
+| FEAT-005 | Database consistency & management | must | delivered |
+| FEAT-006 | Book lifecycle & ownership | must | partially delivered |
+| FEAT-007 | Membership & visibility | must | delivered |
+| FEAT-008 | Chapter skeleton & sketches | must | delivered |
+| FEAT-009 | Chapter writing | must | partially delivered |
+| FEAT-010 | Proposal mode | should | proposed |
+| FEAT-011 | Content moderation | must | proposed |
+| FEAT-012 | Chapter summaries & state notes | must | partially delivered |
+| FEAT-013 | AI authoring assistant | must | partially delivered |
+| FEAT-014 | Chapter variants & fixes | must | proposed |
+| FEAT-015 | Book cloning | must | proposed |
+| FEAT-016 | Consistency check & chapter flags | must | partially delivered |
+| FEAT-017 | Codex | must | partially delivered |
+| FEAT-018 | Codex authoring from the composition chat | should | delivered |
+| FEAT-019 | Per-author system prompts | must | delivered |
+| FEAT-020 | Assistant modes & sub-agents | must | delivered |
+| FEAT-021 | Memos | must | proposed |
+| FEAT-022 | Side chats | must | proposed |
+
+## Use cases
+
+| id | title | feature | actor | status |
+|---|---|---|---|---|
+| UC-001 | Create DB + first admin | FEAT-001 | ACT-003 | delivered |
+| UC-002 | Import DB to bootstrap | FEAT-001 | ACT-003 | delivered |
+| UC-003 | Log in | FEAT-002 | ACT-001, ACT-002 | delivered |
+| UC-004 | Log out / session expiry | FEAT-002 | ACT-001, ACT-002 | delivered |
+| UC-005 | List users | FEAT-003 | ACT-001 | delivered |
+| UC-006 | Create user | FEAT-003 | ACT-001 | delivered |
+| UC-007 | Reset user password | FEAT-003 | ACT-001 | delivered |
+| UC-008 | Change user role | FEAT-003 | ACT-001 | delivered |
+| UC-009 | Disable user | FEAT-003 | ACT-001 | delivered |
+| UC-010 | Register LLM server | FEAT-004 | ACT-001 | delivered |
+| UC-011 | Test connection / probe models | FEAT-004 | ACT-001 | delivered |
+| UC-012 | Enable models | FEAT-004 | ACT-001 | delivered |
+| UC-013 | Edit / delete LLM server | FEAT-004 | ACT-001 | delivered |
+| UC-014 | Designate embedding server + model | FEAT-004 | ACT-001 | delivered |
+| UC-015 | View consistency report | FEAT-005 | ACT-001 | delivered |
+| UC-016 | Create missing table | FEAT-005 | ACT-001 | delivered |
+| UC-017 | Sync table schema | FEAT-005 | ACT-001 | delivered |
+| UC-018 | Export database | FEAT-005 | ACT-001 | delivered |
+| UC-019 | Import database (admin) | FEAT-005 | ACT-001 | delivered |
+| UC-020 | Rebuild vector index | FEAT-005 | ACT-001 | delivered |
+| UC-021 | Create a book | FEAT-006 | ACT-002 | delivered |
+| UC-022 | List my books | FEAT-006 | ACT-004 | delivered |
+| UC-023 | Archive a book | FEAT-006 | ACT-004 | delivered |
+| UC-024 | Transfer ownership | FEAT-006 | ACT-004 | delivered |
+| UC-025 | Admin reassigns ownership of a book whose owner is disabled | FEAT-006 | ACT-001 | proposed |
+| UC-026 | Add a co-author | FEAT-007 | ACT-004 | delivered |
+| UC-027 | Remove a co-author | FEAT-007 | ACT-004 | delivered |
+| UC-028 | Set book visibility (private / public) | FEAT-007 | ACT-004 | delivered |
+| UC-029 | Read a public book | FEAT-007 | ACT-006 | delivered |
+| UC-030 | List books shared with me | FEAT-007 | ACT-005 | delivered |
+| UC-031 | Add a chapter | FEAT-008 | ACT-004, ACT-005 | delivered |
+| UC-032 | Reorder chapters | FEAT-008 | ACT-004 | delivered |
+| UC-033 | Edit a chapter sketch | FEAT-008 | ACT-004, ACT-005 | delivered |
+| UC-034 | Remove a planned chapter | FEAT-008 | ACT-004, ACT-005 | delivered |
+| UC-035 | Open a chapter for writing | FEAT-009 | ACT-004 | delivered |
+| UC-036 | Close the open chapter | FEAT-009 | ACT-004 | partially delivered |
+| UC-037 | Reopen a closed chapter | FEAT-009 | ACT-004 | delivered |
+| UC-038 | Add an edit to the open chapter (free mode) | FEAT-009 | ACT-004, ACT-005 | delivered |
+| UC-039 | Save an edit to a chapter whose body changed underneath | FEAT-009 | ACT-004, ACT-005 | delivered |
+| UC-040 | Submit proposed edits | FEAT-010 | ACT-005 | proposed |
+| UC-041 | Owner reviews and applies proposals | FEAT-010 | ACT-004 | proposed |
+| UC-042 | Change the book's collaboration mode | FEAT-010 | ACT-004 | proposed |
+| UC-043 | Admin opens a book in the moderation view | FEAT-011 | ACT-001 | proposed |
+| UC-044 | Quarantine a book | FEAT-011 | ACT-001 | proposed |
+| UC-045 | Destroy a quarantined book | FEAT-011 | ACT-001 | proposed |
+| UC-046 | Owner sees a removal notice | FEAT-011 | ACT-004 | proposed |
+| UC-047 | System drafts a chapter's summary and state-note changes on close | FEAT-012 | ACT-004 | deferred |
+| UC-048 | Owner reviews and approves a chapter's continuity data | FEAT-012 | ACT-004 | deferred |
+| UC-049 | View the book's current state notes | FEAT-012 | ACT-004, ACT-005 | delivered |
+| UC-050 | Edit state notes | FEAT-012 | ACT-004, ACT-005 | partially delivered |
+| UC-051 | View a chapter's state-note changeset | FEAT-012 | ACT-004, ACT-005 | delivered |
+| UC-052 | Reopening a chapter flags its continuity data stale | FEAT-012 | ACT-004 | delivered |
+| UC-053 | Start a composition chat | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-054 | Iterate with the LLM on the next edit | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-055 | Produce an edit from a composition chat | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-056 | Composition request fails | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-057 | Leave a composition chat | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-058 | Edit a reopened chapter, creating a variant | FEAT-014 | ACT-004, ACT-005 | proposed |
+| UC-059 | View and compare a chapter's variants | FEAT-014 | ACT-004, ACT-005 | proposed |
+| UC-060 | Apply a variant to the chapter | FEAT-014 | ACT-004 | proposed |
+| UC-061 | Owner clones a book | FEAT-015 | ACT-004 | proposed |
+| UC-062 | Co-author clones a public book | FEAT-015 | ACT-005 | proposed |
+| UC-063 | Choose which members carry over to a clone | FEAT-015 | ACT-004, ACT-005 | proposed |
+| UC-064 | Run a consistency check on demand | FEAT-016 | ACT-004 | deferred |
+| UC-065 | Run the consistency check when closing a fixed chapter | FEAT-016 | ACT-004 | deferred |
+| UC-066 | Apply flags from consistency findings | FEAT-016 | ACT-004 | deferred |
+| UC-067 | Member raises a flag on a chapter | FEAT-016 | ACT-004, ACT-005 | delivered |
+| UC-068 | Resolve a flag | FEAT-016 | ACT-004 | delivered |
+| UC-069 | Create a codex entry | FEAT-017 | ACT-004, ACT-005 | delivered |
+| UC-070 | Edit a codex entry | FEAT-017 | ACT-004, ACT-005 | delivered |
+| UC-071 | Browse and search the codex | FEAT-017 | ACT-004, ACT-005 | delivered |
+| UC-072 | Archive a codex entry | FEAT-017 | ACT-004, ACT-005 | deferred |
+| UC-073 | View an entry's edit history | FEAT-017 | ACT-004, ACT-005 | deferred |
+| UC-074 | Restore an entry to an earlier version | FEAT-017 | ACT-004, ACT-005 | deferred |
+| UC-075 | Copy codex entries from another book | FEAT-017 | ACT-004, ACT-005 | proposed |
+| UC-076 | Generate a codex entry from a composition chat | FEAT-018 | ACT-004, ACT-005 | delivered |
+| UC-077 | Rewrite an existing codex entry from a composition chat | FEAT-018 | ACT-004, ACT-005 | delivered |
+| UC-078 | Composition chat draws on the codex | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-079 | State note references a named codex entry | FEAT-012 | ACT-004, ACT-005 | proposed |
+| UC-080 | Consistency check warns about content with no codex entry behind it | FEAT-016 | ACT-004 | deferred |
+| UC-081 | Manage and continue stored chats | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-082 | Archive a chat | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-083 | Load a chapter or codex entry into the content pane (read-only unless it is the open chapter) | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-084 | Give the assistant a text selection as focused source | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-085 | Assistant pulls another chapter into context on request | FEAT-013 | ACT-004, ACT-005 | proposed |
+| UC-086 | Assistant searches the book's material by meaning | FEAT-013 | ACT-004, ACT-005 | partially delivered |
+| UC-087 | Assistant consults the web | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-088 | Assistant runs a scoped consistency check in chat | FEAT-013 | ACT-004, ACT-005 | proposed |
+| UC-089 | View a chapter's summary | FEAT-012 | ACT-004, ACT-005 | delivered |
+| UC-090 | Browse the book's material from the working-page navigator | FEAT-013 | ACT-004, ACT-005 | partially delivered |
+| UC-091 | View Book state — the working-SPA landing view | FEAT-012 | ACT-004, ACT-005 | partially delivered |
+| UC-092 | Resume unsaved content-pane edits after navigating away | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-093 | Set the book's system prompt | FEAT-019 | ACT-004 | withdrawn (→ UC-098) |
+| UC-094 | Set a chapter's system prompt | FEAT-019 | ACT-004, ACT-005 | withdrawn (→ UC-099) |
+| UC-095 | Configure a working mode | FEAT-020 | ACT-001 | delivered |
+| UC-096 | Create a sub-agent | FEAT-020 | ACT-001 | delivered |
+| UC-097 | Edit or disable a sub-agent | FEAT-020 | ACT-001 | delivered |
+| UC-098 | Set my own book system prompt | FEAT-019 | ACT-004, ACT-005 | delivered |
+| UC-099 | Set my own chapter system prompt | FEAT-019 | ACT-004, ACT-005 | delivered |
+| UC-100 | Browse public books | FEAT-007 | ACT-006 | delivered |
+| UC-101 | A stored chat is titled from its own content | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-102 | See what the assistant did during a turn | FEAT-013 | ACT-004, ACT-005 | delivered |
+| UC-103 | Create a memo | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-104 | Edit a memo in place | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-105 | Reorder memos | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-106 | Switch a memo off and on | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-107 | Archive and restore a memo | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-108 | Assistant creates a memo on request | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-109 | Active memos reach every assistant run | FEAT-021 | ACT-004, ACT-005 | proposed |
+| UC-110 | Start a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-111 | Finish a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-112 | Inject a side chat into the main conversation | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-113 | Delete a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-114 | Leave and return with a side chat active | FEAT-022 | ACT-004, ACT-005 | proposed |
+| UC-115 | What the assistant is told while and after a side chat | FEAT-022 | ACT-004, ACT-005 | proposed |
+
+## Stories
+
+| id | title | feature | status |
+|---|---|---|---|
+| US-001 | First-run: create DB + admin | FEAT-001 | delivered |
+| US-002 | First-run: import DB | FEAT-001 | delivered |
+| US-003 | Log in | FEAT-002 | delivered |
+| US-004 | Log out / session expiry | FEAT-002 | delivered |
+| US-005 | Admin lists users | FEAT-003 | delivered |
+| US-006 | Admin creates user | FEAT-003 | delivered |
+| US-007 | Admin resets password | FEAT-003 | delivered |
+| US-008 | Admin changes role | FEAT-003 | delivered |
+| US-009 | Admin disables user | FEAT-003 | delivered |
+| US-010 | Register LLM server | FEAT-004 | delivered |
+| US-011 | Test connection / probe models | FEAT-004 | delivered |
+| US-012 | Enable models | FEAT-004 | delivered |
+| US-013 | Edit / delete LLM server | FEAT-004 | delivered |
+| US-014 | Designate embedding server | FEAT-004 | delivered |
+| US-015 | View consistency report | FEAT-005 | delivered |
+| US-016 | Create missing table | FEAT-005 | delivered |
+| US-017 | Sync table schema | FEAT-005 | delivered |
+| US-018 | Export database | FEAT-005 | delivered |
+| US-019 | Import database (admin) | FEAT-005 | delivered |
+| US-020 | Rebuild vector index | FEAT-005 | delivered |
+| US-021 | API-key $ENV indirection & secret masking | FEAT-004 | delivered |
+| US-022 | Author creates a book and becomes its owner | FEAT-006 | delivered |
+| US-023 | Author sees the books they own | FEAT-006 | delivered |
+| US-024 | Owner archives a book | FEAT-006 | delivered |
+| US-025 | Owner transfers a book to a co-author | FEAT-006 | delivered |
+| US-026 | Admin restores ownership of an orphaned book | FEAT-006 | proposed |
+| US-027 | Owner adds a co-author | FEAT-007 | delivered |
+| US-028 | Owner removes a co-author, content and attribution survive | FEAT-007 | delivered |
+| US-029 | Owner switches a book between private and public | FEAT-007 | delivered |
+| US-030 | Logged-in reader opens a public book read-only | FEAT-007 | delivered |
+| US-031 | Co-author sees books shared with them | FEAT-007 | delivered |
+| US-032 | Member adds a chapter to the skeleton | FEAT-008 | delivered |
+| US-033 | Owner reorders chapters | FEAT-008 | delivered |
+| US-034 | Member edits the sketch of a planned chapter | FEAT-008 | delivered |
+| US-035 | Member removes a planned chapter | FEAT-008 | delivered |
+| US-036 | Owner opens a chapter for writing | FEAT-009 | delivered |
+| US-037 | Only one chapter can be open at a time | FEAT-009 | delivered |
+| US-038 | Owner closes the open chapter | FEAT-009 | delivered |
+| US-039 | Owner reopens a closed chapter | FEAT-009 | delivered |
+| US-040 | Co-author adds an edit in free mode | FEAT-009 | delivered |
+| US-041 | A save against a changed chapter body warns the author | FEAT-009 | delivered |
+| US-042 | Co-author submits proposed edits | FEAT-010 | proposed |
+| US-043 | Owner applies proposals selectively | FEAT-010 | proposed |
+| US-044 | Owner changes the collaboration mode | FEAT-010 | proposed |
+| US-045 | Admin reads a book in the moderation view only | FEAT-011 | proposed |
+| US-046 | Admin quarantines a book | FEAT-011 | proposed |
+| US-047 | Admin destroys a quarantined book | FEAT-011 | proposed |
+| US-048 | Owner is told their book was removed and why | FEAT-011 | proposed |
+| US-049 | Continuity data is drafted when a chapter closes | FEAT-012 | deferred |
+| US-050 | Owner approves a chapter's summary and state-note changes | FEAT-012 | deferred |
+| US-051 | A chapter cannot close without approved continuity data | FEAT-012 | deferred |
+| US-052 | Member views the book's current state notes | FEAT-012 | delivered |
+| US-053 | Member edits state notes according to the collaboration mode | FEAT-012 | partially delivered |
+| US-054 | Member views what a chapter changed in the state notes | FEAT-012 | delivered |
+| US-055 | Reopening a chapter marks its continuity data stale | FEAT-012 | partially delivered |
+| US-056 | Author starts chats freely; chats persist until archived | FEAT-013 | delivered |
+| US-057 | The mode-dependent baseline is available to a composition chat | FEAT-013 | proposed |
+| US-058 | Author iterates with the LLM to refine the next edit | FEAT-013 | delivered |
+| US-059 | The assistant's shared-canvas write follows the book's collaboration mode at save | FEAT-013 | delivered |
+| US-060 | A failed composition shows an error, offers retry, preserves the conversation | FEAT-013 | delivered |
+| US-061 | A composition chat is visible only to its author, even once persisted | FEAT-013 | delivered |
+| US-062 | Editing a closed chapter creates a new variant | FEAT-014 | proposed |
+| US-063 | Member views and compares a chapter's variants | FEAT-014 | proposed |
+| US-064 | Owner applies a variant to the chapter | FEAT-014 | proposed |
+| US-065 | Applying a variant runs the chapter's consistency check | FEAT-014 | proposed |
+| US-066 | Owner clones a book | FEAT-015 | proposed |
+| US-067 | A clone is fully independent of its source | FEAT-015 | proposed |
+| US-068 | Co-author clones a public book and becomes its owner | FEAT-015 | proposed |
+| US-069 | Only the owner may clone a private book | FEAT-015 | proposed |
+| US-070 | The cloner chooses which members carry over | FEAT-015 | proposed |
+| US-071 | A clone carries content, continuity, mode and visibility | FEAT-015 | proposed |
+| US-072 | Owner runs a consistency check on demand | FEAT-016 | deferred |
+| US-073 | Closing a fixed chapter runs the consistency check | FEAT-016 | deferred |
+| US-074 | Owner responds to consistency findings by re-fixing or applying flags | FEAT-016 | partially delivered |
+| US-075 | Member raises a flag with a comment | FEAT-016 | delivered |
+| US-076 | A flag records whether it came from a check or a person | FEAT-016 | delivered |
+| US-077 | Owner resolves a flag | FEAT-016 | delivered |
+| US-078 | Member creates a codex entry of a given kind | FEAT-017 | delivered |
+| US-079 | Codex entries follow the book's collaboration mode | FEAT-017 | delivered |
+| US-080 | Member browses and searches the codex | FEAT-017 | delivered |
+| US-081 | Member archives a codex entry rather than deleting it | FEAT-017 | deferred |
+| US-082 | Member views an entry's edit history | FEAT-017 | deferred |
+| US-083 | Member restores an entry to an earlier version | FEAT-017 | deferred |
+| US-084 | Member copies codex entries from another book they belong to | FEAT-017 | proposed |
+| US-085 | The codex is invisible to readers and non-members | FEAT-017 | delivered |
+| US-086 | Author has the assistant fill a codex entry on the shared canvas | FEAT-018 | delivered |
+| US-087 | Author has the assistant rewrite an existing entry on the shared canvas | FEAT-018 | delivered |
+| US-088 | A chat-authored entry is saved only on explicit request | FEAT-018 | delivered |
+| US-089 | A composition chat can draw on the book's codex | FEAT-013 | delivered |
+| US-090 | A state note names the codex entry it is about | FEAT-012 | proposed |
+| US-091 | The check warns when a chapter references something absent from the codex | FEAT-016 | deferred |
+| US-092 | An archived codex entry does not silently break existing state notes | FEAT-016 | deferred |
+| US-093 | The moderation view includes the codex | FEAT-011 | proposed |
+| US-094 | A clone carries the source book's codex | FEAT-015 | proposed |
+| US-095 | Chats persist and are managed (list, pick, continue) | FEAT-013 | delivered |
+| US-096 | Archive a chat instead of ending it | FEAT-013 | delivered |
+| US-097 | The content pane shows any chapter, read-only unless it is the open one | FEAT-013 | delivered |
+| US-098 | The author hands the assistant a text selection as focused source | FEAT-013 | delivered |
+| US-099 | The assistant reads another chapter on request | FEAT-013 | proposed |
+| US-100 | The assistant searches the book's material by meaning | FEAT-013 | proposed |
+| US-101 | The assistant may consult the web | FEAT-013 | delivered |
+| US-102 | The assistant runs a scoped consistency check in chat and returns a focused result | FEAT-013 | proposed |
+| US-103 | The assistant writes into the open artifact; nothing persists until saved | FEAT-013 | delivered |
+| US-104 | A member views a chapter's summary | FEAT-012 | delivered |
+| US-105 | Author browses the book's material by kind from the working page | FEAT-013 | partially delivered |
+| US-106 | Book state is the working-SPA landing view and shows the book at a glance | FEAT-012 | partially delivered |
+| US-107 | Unsaved content-pane edits are retained and restored | FEAT-013 | delivered |
+| US-108 | Owner sets the book's system prompt, applied to every chat in the book | FEAT-019 | withdrawn (→ US-115) |
+| US-109 | Member sets a chapter's system prompt, narrowing the book's | FEAT-019 | withdrawn (→ US-116) |
+| US-110 | Admin sets a mode's optional system prompt | FEAT-020 | delivered |
+| US-111 | Admin sets which tools a mode may use | FEAT-020 | delivered |
+| US-112 | Admin sets which sub-agents a mode may delegate to | FEAT-020 | delivered |
+| US-113 | Admin creates a sub-agent | FEAT-020 | delivered |
+| US-114 | Admin edits or disables a sub-agent | FEAT-020 | delivered |
+| US-115 | Member sets their own book system prompt, applied to their own chats in that book | FEAT-019 | delivered |
+| US-116 | Member sets their own chapter system prompt, layered under their own book prompt | FEAT-019 | delivered |
+| US-117 | Author undoes the assistant's last write to the open artifact | FEAT-013 | delivered |
+| US-118 | Reader browses public books they are not a member of | FEAT-007 | delivered |
+| US-119 | Author's chats carry meaningful titles without naming them | FEAT-013 | delivered |
+| US-120 | Author sees which tools the assistant used and what they returned | FEAT-013 | delivered |
+| US-121 | Author asks the assistant to create a codex entry outright | FEAT-018 | delivered |
+| US-122 | The assistant's mode follows the author's current content-pane subject | FEAT-013 | delivered |
+| US-123 | Author creates a memo and writes in it immediately | FEAT-021 | proposed |
+| US-124 | A memo is visible only to its author | FEAT-021 | proposed |
+| US-125 | Author edits a memo in place; it saves when focus leaves | FEAT-021 | proposed |
+| US-126 | Author reorders memos by dragging and by arrows | FEAT-021 | proposed |
+| US-127 | Author switches a memo off without losing it | FEAT-021 | proposed |
+| US-128 | Author archives a memo and can restore it | FEAT-021 | proposed |
+| US-129 | Author asks the assistant to create a memo | FEAT-021 | proposed |
+| US-130 | The assistant creates no memo unasked | FEAT-021 | proposed |
+| US-131 | Every active memo reaches the assistant, in the author's order | FEAT-021 | proposed |
+| US-132 | Memos reach every mode and every sub-agent | FEAT-021 | proposed |
+| US-133 | A clone carries the cloner's own memos | FEAT-015 | proposed |
+| US-134 | The moderation view excludes memos | FEAT-011 | proposed |
+| US-135 | Author starts a side chat in the middle of a conversation | FEAT-022 | proposed |
+| US-136 | The assistant sees the whole conversation while a side chat is active | FEAT-022 | proposed |
+| US-137 | Author finishes a side chat and it collapses, readable but closed | FEAT-022 | proposed |
+| US-138 | A finished side chat no longer reaches the assistant | FEAT-022 | proposed |
+| US-139 | Author injects a side chat and its messages become ordinary | FEAT-022 | proposed |
+| US-140 | Author deletes a side chat after confirming; saved work survives | FEAT-022 | proposed |
+| US-141 | A side chat survives leaving and returning | FEAT-022 | proposed |
+<!-- product-spec:end -->

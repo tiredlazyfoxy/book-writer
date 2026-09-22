@@ -1,0 +1,220 @@
+<!-- product-spec:start -->
+# Glossary
+
+- **Admin** — user role that manages the system: users, LLM servers, database.
+- **Author** — user role that writes books; owns and co-authors books
+  through the book-owner/co-author relationships (ACT-004/ACT-005).
+- **First-run bootstrap** — the one-time setup flow on an unconfigured
+  instance: create a new database + first admin, or import an existing
+  database export.
+- **Session** — the authenticated state a user holds after logging in, ended
+  by logout or expiry.
+- **Disable (vs delete)** — the terminal state for a user account: credentials
+  are nulled so it can't log in, but its data and attribution are preserved.
+  There is no hard delete of a user account.
+- **LLM server (provider)** — a registered connection to an LLM-serving
+  endpoint: name, backend type, base URL, API key, enabled models.
+- **Backend type** — the kind of LLM server a connection points to: either
+  llama-swap or openai. `[confirmed: user]` interview 2026-07-20, "Reference
+  mapping"
+- **Probe** — a live connection test against a registered LLM server that
+  returns the models it currently offers.
+- **Enabled models** — the subset of a server's probed models an admin has
+  approved for use.
+- **Embedding server** — the single LLM server + model designated to produce
+  embeddings; only one may be designated at a time.
+- **$ENV API-key indirection** — storing an API key as a reference to an
+  environment variable rather than the raw value; the raw value is resolved
+  only at the point of use and never returned to a caller.
+- **Schema drift** — a mismatch between a table's actual structure and its
+  expected structure (missing or extra columns).
+- **Consistency report** — the per-table status view (ok / drift / missing)
+  used to detect and remediate schema drift.
+- **Database export / import** — a portable snapshot of the database that can
+  be produced (export) and restored (import); import is idempotent —
+  re-importing the same export does not duplicate data.
+- **Vector index** — the search index for semantic lookup, rebuilt from
+  source rows rather than exported/imported directly.
+- **Book** — a set of chapters, owned by one author, optionally shared with
+  co-authors. Internal structure beyond chapters is `_TBD: deferred to a
+  later session, per interview 2026-07-20 "book structure — chapters,
+  states, sketches"._`
+- **Book owner** — the author who created a book or received it by
+  transfer; the only one who orders chapters and opens/closes/reopens them.
+  Not an account role — see *owner/co-author vs admin/author* below.
+- **Co-author** — an author granted access to someone else's book; not an
+  account role — see below.
+- **Chapter** — a member of a book's ordered skeleton; states below.
+- **Chapter states (planned / open / closing / closed)** — *planned*:
+  sketch only, not yet written. *open*: being written; at most one open
+  or closing per book. *closing*: close requested; the system is drafting
+  and checking the chapter's continuity. Still holds the book's single
+  open slot, and lasts only for the duration of the run — a clean run
+  closes the chapter, and a stop, failure or blocking flag returns it to
+  open with the drafts discarded. *closed*: written, not editable,
+  reopenable by the owner. Fourth state added round 7, reconciling the
+  architecture pass; closing's clean-run behaviour amended finalization of
+  plan 016 (2026-07-31).
+- **Sketch** — the idea/outline for a planned (not-yet-written) chapter;
+  editable by any member, in parallel, distinct from the chapter's written
+  content.
+- **Edit** — the unit of chapter writing a member adds: free text, any
+  length, no internal structure, appended to the chapter's body when
+  applied. Not separately addressable afterwards — the body is one text;
+  concurrency is per chapter, not per edit. `[confirmed: user]` interview
+  2026-07-24, "augment round 7", divergence 5 (C-r7-2); renamed from
+  "block" `[confirmed: user]` interview 2026-07-30, "finalization — 021 +
+  014 + 015", challenge C2. Distinct from a sketch, which precedes
+  writing.
+- **Block** *(formerly used term)* — see **Edit** above; renamed in the
+  2026-07-30 finalization pass, same underlying concept. Kept visible here
+  so existing plan and architecture prose that still says "block" stays
+  readable.
+- **Collaboration mode** — a book-level property, set by the owner at
+  creation and changeable any time: *free* or *proposal*.
+- **Free mode** — a co-author's edits land in the open chapter on save.
+- **Proposal mode** — a co-author's edits are held as proposals until the
+  owner applies them.
+- **Proposal (proposed edit)** — an edit submitted in proposal mode,
+  pending the owner's review; the owner may apply some and not others.
+- **Private book** — visible to its owner and co-authors only.
+- **Public book** — read-only to any logged-in user; never anonymous.
+- **Archive (book)** — the owner's reversible removal of a book from active
+  use; never destroys it. Distinct from quarantine/destroy (admin-only).
+- **Quarantine** — an admin action making a book invisible to everyone,
+  including its members; a fast, reversible-from-mistake takedown, distinct
+  from destroy (which is permanent).
+- **Moderation view** — the admin-interface-only read view over any book's
+  content, used to find content to quarantine or destroy; grants no
+  authoring access.
+- **Summary (chapter)** — the condensed narrative of what a chapter
+  contained; drafted by the system on chapter close, reviewed and approved
+  by the owner.
+- **State note** — free text recording a fact that must stay true going
+  forward (a change or state of a character or place); not a shorter
+  version of the chapter. No entity model — a note is plain text, not
+  attached to a character or place record.
+- **State-note changeset** — the set of state notes a chapter added,
+  modified or deleted; preserved per chapter even as the live set moves on.
+- **Continuity data** — a chapter's summary and its state-note changeset,
+  together; a clean close run is what produces and approves them.
+- **Stale continuity** — the flag applied to a chapter's summary and
+  state-note changeset when the chapter is reopened; re-closing re-runs
+  the close procedure, producing a fresh summary and changeset.
+- **Composition chat** — a free-form chat with the LLM used to create,
+  recreate and polish the next edit before producing it; private to its
+  author.
+- **Produced edit** — an edit generated by a composition chat; enters the
+  chapter under the book's collaboration mode, the same as a manually
+  written edit.
+- **Variant (chapter)** — An un-applied, proposed alternative change to a
+  chapter, stored beside the chapter's text. Applying it makes it the
+  chapter's text (through the same path as any other change); a variant
+  is never a parallel live body and there is no pointer selecting one.
+  `[confirmed: user]` interview 2026-07-24, "augment round 7".
+- **Revision (chapter)** — A recoverable prior body of a chapter, kept
+  automatically when a change is applied; distinct from a variant (which
+  is an un-applied proposal). Any two revisions can be compared.
+  `[confirmed: user]` interview 2026-07-24, "augment round 7".
+- **Fix** — editing a chapter after reopening it; keeps the chapter's
+  prior text as a revision rather than overwriting it.
+- **Clone (book)** — a new, fully independent book created from an
+  existing one; no link, sync or comparison with its source.
+- **Consistency check** — an LLM inspection of a book's chapters,
+  summaries and state notes for contradictions; reports to the owner,
+  never rewrites anything.
+- **Flag** — a recorded concern on a chapter, carrying a comment and an
+  origin (consistency check, or a person); resolved once dealt with. One
+  term throughout — for the record and for what an author reads.
+  Supersedes the round-6 "warning" synonym (reversed 2026-07-31,
+  `[confirmed: user]`, finalization of plan 016, challenge C-f16-4).
+- **Flag origin** — whether a flag came from the consistency check or a
+  person; the two carry different weight.
+- **Resolve (a flag)** — marking a flag dealt with; does not undo whatever
+  prompted it.
+- **Codex** — a book's reference volume: the set of things the book is
+  *about*, as opposed to the prose itself. One per book, shared across
+  chapter variants (FEAT-014).
+- **Codex entry** — an item in the codex, of kind character, location or
+  fact; follows the book's collaboration mode; archived, never deleted.
+- **Character (kind)** — a named codex entry for a person.
+- **Location (kind)** — a named codex entry for a place.
+- **Fact (kind)** — an unnamed codex entry for a lore fact; no timeline, no
+  state-note reference.
+- **Named entry** — a character or location entry: carries state-note
+  reference and is name-addressable, unlike a fact.
+- **Edit history (codex)** — an entry's past versions; a member can view
+  and restore from it.
+- **Assistant mode** — one of a fixed system set of five working
+  contexts the assistant runs "in" (edit-character, edit-location,
+  edit-fact, write-chapter, close-chapter); each carries an optional
+  system prompt, available tools and accessible sub-agents, set by the
+  admin (FEAT-020).
+- **Sub-agent** — an admin-created delegated worker: a unique name,
+  system prompt, available tools, and the modes that may invoke it.
+  Disabled, never deleted; disabling detaches it from every mode.
+- **Tool (MCP)** — a system-registered backend function exposed to the
+  assistant; not external web MCP. The admin selects a subset per mode
+  or sub-agent (FEAT-020).
+- **Memo** — a standing note an author keeps for one book, carried into
+  every run of their assistant without being retyped; private to its
+  author, even from the book owner. Body text only, no title.
+- **Active (memo)** — in the author's list and included in the
+  assistant's context.
+- **Inactive (memo)** — still in the author's list, visibly off,
+  excluded from context — the everyday switch.
+- **Archived (memo)** — out of the working list entirely, restorable;
+  the only way a memo is ever removed — there is no delete.
+- **Side chat** — a detour inside a composition chat: while active, the
+  assistant sees the conversation so far and the side chat; once
+  finished it collapses and leaves the assistant's view. One level; one
+  active at a time.
+- **Finished side chat** — a collapsed, readable, non-resumable group in
+  the chat's history that the assistant is no longer told about; can be
+  injected or deleted.
+- **Inject (side chat)** — turning a side chat's messages back into
+  ordinary main-line messages in place, one-way; they reach the
+  assistant again.
+
+**Distinctions** — each pair is confusable, kept separate deliberately:
+- *Archive* (owner, reversible, never destroys) vs *quarantine* (admin,
+  reversible takedown) vs *destroy* (admin, permanent) vs *side-chat
+  delete* (author, permanent, part of a chat) — destroy and side-chat
+  delete are the two sanctioned exceptions to archive-only.
+- *Private* (members only) vs *public* (read-only to any logged-in user).
+- *Free mode* (applies on save) vs *proposal mode* (owner applies later) —
+  same edit unit, different gate.
+- *Sketch* (idea/outline, planned chapters, parallel-editable) vs *edit*
+  (written content, open chapter only).
+- *Owner/co-author* (a relationship to one book) vs *admin/author* (the
+  account role from FEAT-003) — one Author account can be owner of some
+  books and co-author of others at once; these never collide.
+- *Summary* (backward-looking narrative of what a chapter contained) vs
+  *state note* (a fact that must stay true going forward) — one condenses
+  what happened, the other is what's currently true because of it.
+- *State note* (backward fact, tied to a closed chapter's changeset) vs
+  *sketch* (forward outline for a not-yet-written chapter) — both feed
+  generation; neither replaces the other.
+- *Produced edit* (what a composition chat generates) vs *proposal* (an
+  edit pending the owner's review in proposal mode) — a produced edit
+  becomes a proposal only when the book is in proposal mode; in free mode
+  it lands directly, same as any other edit.
+- *Variant* (an un-applied alternative change kept beside a chapter,
+  within the same book) vs *clone* (a whole independent book) — a
+  variant never leaves the chapter it's proposed against; a clone is a
+  separate book entirely.
+- *Fix* (correct this book, keeping the chapter's prior text as a
+  revision) vs *clone* (start a separate, fully independent book) —
+  fixing stays inside the book; cloning leaves it.
+- *Flag* (a note about a problem, from a check or a person) vs
+  *proposal* (content pending the owner's application in proposal mode)
+  — a flag never carries content to apply; a proposal is content itself.
+- *Codex entry* (the stable thing — who a character is) vs *state note*
+  (what a chapter changed about the world) — identity vs. change; a
+  state note may name the codex entry it is about.
+- *Mode/sub-agent system prompt* (FEAT-020, admin-set, system-wide) vs
+  *book/chapter system prompt* (FEAT-019, per-author — each member owns
+  and reads only their own) — two independent prompt layers feeding the
+  same assistant. **Finalization, 2026-07-30:** corrected from "per-book"
+  — there is no book-wide prompt, only per-author ones (challenge C4).
+<!-- product-spec:end -->

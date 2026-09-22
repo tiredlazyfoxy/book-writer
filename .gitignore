@@ -41,7 +41,17 @@ backend/data/
 # Docker
 docker-compose.override.yml
 
+# Pipeline caches (product/roadmap/etc. scratch)
+docs/.cache/
+
 # Claude Code local settings
 .claude/settings.local.json
 
 .handoffs
+
+# Deploy artifacts
+/data/
+*.7z
+
+# Dev log file sink (BOOKWRITER_LOG_DIR, set by start.ps1 -app)
+/logs/

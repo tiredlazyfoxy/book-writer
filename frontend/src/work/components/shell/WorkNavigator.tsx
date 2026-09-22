@@ -1,0 +1,93 @@
+import { observer } from "mobx-react-lite";
+import { NavLink, Stack, Tooltip } from "@mantine/core";
+import { Link as RouterLink, useLocation } from "react-router-dom";
+import { WORK_NAV_ITEMS, isWorkNavItemActive, workNavHref } from "./navItems";
+
+export interface WorkNavigatorProps {
+  /** The book id the entries are scoped to (from `/work/:bookId`). */
+  bookId: string;
+  /**
+   * Desktop icon-rail mode (fast/005). OPTIONAL, defaulting to `false` — making it
+   * required would break the existing call sites and `npm run test:types`. When
+   * set, each entry is wrapped in a right-positioned `Tooltip` carrying its label
+   * and the `NavLink` gets the `work-nav-rail-*` `classNames`; the label hiding
+   * itself is CSS (`global.css`, inside `@media (min-width: 48em)`), never JS, so
+   * the full-width mobile drawer keeps its labels.
+   */
+  collapsed?: boolean;
+}
+
+/**
+ * The work SPA's left-hand navigator: renders the eight `WORK_NAV_ITEMS` — ALL of
+ * them identically, as in-SPA react-router links under the current book id,
+ * marking the active one via `isWorkNavItemActive`. No data loading, no MobX
+ * fields (mirrors `AdminNav`).
+ *
+ * 023 REMOVED `onShowChatList` AND THE `paneTarget` BRANCH. Chats used to be the
+ * one entry that rendered a `<button>` control over the chat pane instead of a
+ * link (011/004, US-105.AC-3); 023 moves the chat list into the content pane, so
+ * Chats is now an ordinary route link like the other six and nothing in this body
+ * branches on `paneTarget` any more (DoD-12). The doc reconciliation this
+ * knowingly outruns is `outcome.md`'s obligation.
+ *
+ * `useLocation()` is react-router's own hook reading the URL it owns (not a custom
+ * `useX` hook, not reactive app state), called once for the whole list — never one
+ * per item, which would be a hook in a loop.
+ *
+ * fast/005: `collapsed` turns the list into an icon-only rail. The labels are
+ * hidden by CSS (`global.css`, inside `@media (min-width: 48em)`) via the
+ * `work-nav-rail-*` `classNames`, never by dropping the `label` prop — Mantine's
+ * `NavLink` always renders the body span, so dropping the label would leave an
+ * empty flex spacer that left-shifts the icon, and a JS boolean cannot be
+ * breakpoint-aware without the repo-wide-banned `useMediaQuery`, which would blank
+ * the full-width mobile drawer too.
+ */
+export const WorkNavigator = observer(function WorkNavigator({
+  bookId,
+  collapsed = false,
+}: WorkNavigatorProps) {
+  const { pathname } = useLocation();
+
+  return (
+    <Stack gap={4}>
+      {WORK_NAV_ITEMS.map((item) => {
+        const ItemIcon = item.icon;
+        const railClassNames = collapsed
+          ? {
+              root: "work-nav-rail-root",
+              section: "work-nav-rail-section",
+              body: "work-nav-rail-body",
+            }
+          : undefined;
+
+        // `aria-label` is set UNCONDITIONALLY, in both modes: Mantine spreads
+        // unknown props onto the root element, so it keeps the entry findable by
+        // accessible name once CSS hides the visible label, and leaves
+        // `textContent` untouched when the label is visible.
+        // 023: ONE shape for all eight entries — no `paneTarget` branch left.
+        const entry = (
+          <NavLink
+            key={item.path}
+            component={RouterLink}
+            to={workNavHref(bookId, item)}
+            label={item.label}
+            aria-label={item.label}
+            leftSection={<ItemIcon size={18} stroke={1.5} />}
+            active={isWorkNavItemActive(pathname, bookId, item)}
+            classNames={railClassNames}
+          />
+        );
+
+        if (!collapsed) return entry;
+
+        // In the rail the label is the only thing identifying the icon, so it
+        // comes back on hover.
+        return (
+          <Tooltip key={item.path} label={item.label} position="right" withArrow openDelay={200}>
+            {entry}
+          </Tooltip>
+        );
+      })}
+    </Stack>
+  );
+});

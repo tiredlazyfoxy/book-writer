@@ -1,0 +1,391 @@
+# Frontend Architecture
+
+React SPAs plus a standalone Login page, built with **TypeScript + React + MobX + Mantine** and bundled by Vite as a multi-page app. Each SPA has its own entry point but shares conventions, the state model, the API layer, and the folder layout. This document is self-contained: it holds the full set of enforced frontend rules, and they bind every entry.
+
+**Book-domain surfaces are in `frontend-workspace.md`** — the five-entry map (Shell, Working page, Reader, Admin, Login), the per-entry route map, and the working page's navigator / content pane / chat pane. Its **draft tier** — the restore buffer, the module-state modules beside it, the canvas target registry and reconciliation — is in **`frontend-work-drafts.md`**. This document keeps the rules; those two apply them to the book domain. The **server side** of the assistant the chat pane talks to — prompt composition, the tool/agent loop, and the SSE frame vocabulary — is in `assistant-runtime.md`.
+
+## Stack and versions
+
+| Concern | Choice |
+|---------|--------|
+| Language | TypeScript 5.8 (strict) |
+| Framework | React 19.1 |
+| Bundler | Vite 6.3 + `@vitejs/plugin-react` (multi-page, `appType:"mpa"`) |
+| UI | Mantine v7.17 (`@mantine/core`, `@mantine/form`, `@mantine/hooks`) + `@tabler/icons-react` + `react-markdown` |
+| State | MobX 6.13 + `mobx-react-lite` — **only** |
+| Routing | react-router-dom 7 |
+| Drag and drop | `@dnd-kit/core` + `@dnd-kit/sortable` (feature `014.chapter-skeleton`) |
+| Rich-text editing | `@mantine/tiptap` over TipTap / ProseMirror + `tiptap-markdown` (feature `015.chapter-writing-free-mode`) |
+
+No Redux, Zustand, React-Query, React-Context, zod, Tailwind, CSS modules, or styled-components.
+
+**`@dnd-kit` is the project's first drag-and-drop dependency (feature `014.chapter-skeleton`)** — neither `react-beautiful-dnd` nor `@hello-pangea/dnd` was ever present, so nothing was replaced and there is no second idiom to reconcile.
+
+**Why the chapter order list has two affordances.** The user asked for **move buttons *and* dragging**, so it offers both — and **both funnel into one persist path**, a single bulk order `PUT`. That convergence is what makes testing only one of them sufficient: the two affordances differ in how the author expresses the new order, not in what is saved.
+
+**The button path is the tested one; the drag gesture is a `[manual/live]` criterion.** `@dnd-kit`'s pointer sensor needs real element geometry, and jsdom reports zero-sized rectangles for everything, so a jsdom "drag" cannot exercise the sensor. The only way to make it pass would be to call the library's own callbacks by hand — which tests the test, not the feature. The gesture is verified live instead, and the fact is recorded because "why is only half of this tested" is the first question a reader will have.
+
+**Consuming a library's hooks is not a breach of the no-custom-`useX` rule.** The rule below forbids *authoring* hooks, not calling a library's API. `@dnd-kit`'s hooks are called **directly in the row component** rather than wrapped in a local `useSortableRow`-style hook — wrapping them is what the rule actually prohibits. Feature `015` read the rule the same way for TipTap's `useEditor`; **two features is a pattern**.
+
+### The rich-text editor and the chapter's content format (feature `015.chapter-writing-free-mode`)
+
+`@mantine/tiptap` (over TipTap / ProseMirror) plus `tiptap-markdown` is the **second frontend runtime dependency decision** in the project, after `014`'s `@dnd-kit`. Five things are recorded because each will be asked again:
+
+- **`Chapter.text` is Markdown.** Migration cost was **zero** — the column existed and nothing wrote it. **Markdown stops at chapter text**: the codex entry body is untouched and `CodexEntryPage` was not reworked. "Why is the chapter Markdown but the codex not" is answered here: because nothing forced the codex to change, and changing it would be a rewrite with no requirement behind it.
+- **Why TipTap and not Milkdown.** TipTap is the dominant React rich-text editor and `@mantine/tiptap` **inherits the app theme for free**. Milkdown's exact-Markdown round-trip was the alternative and was **rejected because its theming cost outweighs a round-trip whose worst case is cosmetic** — the whole body is re-saved every time, so an imperfect slice round-trip **cannot corrupt stored data**, and the author sees the rendered result before saving.
+- **Version pinning is a rule, not a string.** The TipTap major is pinned to **`@mantine/tiptap`'s declared peer range for the Mantine major** in `package.json`, and `tiptap-markdown` to a release targeting that same major. Stated as a rule because the range **moves with Mantine**.
+- **The library's stylesheet is imported from the component**, not from an entry `main.tsx`, so it ships with the only bundle that uses it. This is **not** a CSS-module / styled-component breach; it is a **vendored stylesheet for a vendored widget**.
+- **`react-markdown` renders the read-only chapter body**, still with **no plugins configured** — that default was **inherited, not re-decided**.
+
+## `tsconfig.json` flags
+
+Strict mode with the extra safety flags on:
+
+- `strict: true`, `noUnusedLocals: true`, `noUnusedParameters: true`, `noFallthroughCasesInSwitch: true`
+- `noEmit: true` (Vite owns emit; `tsc` is typecheck-only, preventing stray `.js` siblings next to `.tsx`)
+- `moduleResolution: "bundler"`, `jsx: "react-jsx"`, `target: "ES2022"`
+
+## `vite.config.ts` shape
+
+A multi-page build with a dev proxy. **Five inputs** — `work` and `read` joined `user` / `admin` / `login` with feature 010, and `spaFallback` branches `/work` and `/read` before its catch-all. See `frontend-workspace.md` for why the workspace and the reader get their own bundles.
+
+```ts
+export default defineConfig({
+  appType: 'mpa',
+  plugins: [react(), spaFallback()], // spaFallback: custom dev plugin, see below
+  build: {
+    rollupOptions: {
+      input: {
+        user:  resolve(__dirname, 'index.html'),        // Shell SPA at /
+        work:  resolve(__dirname, 'work/index.html'),   // Working page SPA at /work
+        read:  resolve(__dirname, 'read/index.html'),   // Reader entry at /read
+        admin: resolve(__dirname, 'admin/index.html'),  // Admin SPA at /admin
+        login: resolve(__dirname, 'login/index.html'),  // Login at /login
+      },
+    },
+  },
+  server: {
+    port: 8194,
+    proxy: { '/api': 'http://localhost:8185' },
+  },
+});
+```
+
+- `appType: "mpa"` disables Vite's built-in single-page history fallback; a custom **`spaFallback`** dev plugin rewrites deep links back to the right entry `index.html` so client-side routes resolve in dev. It branches `/work` and `/read` **before** its catch-all `else`, which is what makes `/work/:bookId/...` deep links resolve rather than falling through to the Shell entry.
+- `/api` is proxied to the backend on `:8185` in dev.
+
+## npm scripts
+
+```json
+"scripts": {
+  "dev": "vite --port 8194",
+  "build": "tsc && vite build",
+  "preview": "vite preview"
+}
+```
+
+`npm run build` typechecks (`tsc`) then bundles (`vite build`); treat it as the typecheck-and-bundle command. `npx tsc --noEmit` is typecheck-only. The test scripts (`test`, `test:watch`, `test:types`) were added alongside Vitest — see "Testing" below and the root `CLAUDE.md`, which owns the command list.
+
+## Theming
+
+- Styling is Mantine's built-in system plus a single `global.css` and a `theme.ts`.
+- `theme.ts` calls `createTheme()` with a **custom primary palette** and a **custom dark scale**.
+- **Dark is the default color scheme** — the app mounts with `defaultColorScheme="dark"` on the `MantineProvider`.
+- No Tailwind, no CSS modules, no styled-components.
+
+## Date and time display
+
+**Every timestamp rendered anywhere in the UI goes through `src/utils/date.ts` `formatDate`, and the format is `YYYY-MM-DD HH:MM UTC`.** `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` / `Intl.DateTimeFormat` are **forbidden in `src/`** — that is the greppable form of the rule, and a hit is a code-review failure. Three reasons, in the order they bite:
+
+- **A locale render is machine-dependent.** `toLocaleString()` gave `9/14/2026, 3:04:00 PM` on one box and something else on the next, so no test could assert it and no screenshot was reproducible. `formatDate` derives its output from `toISOString()`, never from a local getter.
+- **The zone is named, so nobody has to guess.** These are UTC instants; a bare wall-clock time invites the reader to assume it is theirs.
+- **ISO field order sorts lexicographically**, which is what a column of timestamps wants.
+
+Seconds are dropped (not rounded); an absent value renders as an **em dash**; an unparseable string is **echoed back verbatim** rather than becoming `Invalid Date`, so a wire-shape problem surfaces instead of hiding. But a **domain-meaningful** absence stays at the call site — `/admin/users` shows `"Never"` for an account that never logged in, which is a fact about the account, not a missing timestamp.
+
+**This depends on the backend labelling the zone.** `UtcDateTime` (`backend.md` → Typing discipline) guarantees every JSON timestamp carries an explicit UTC designator, because JS parses a tz-less ISO string as **local** time. Before that guarantee the render sites silently displayed instants shifted by the viewer's offset — the display helper alone would not have fixed it.
+
+The rule exists because the helper had been copy-pasted into three pages (`BookStatePage`, `CodexListPage`, `ChatList` — byte-identical bodies under two names) while a fourth site rendered the raw wire string with no helper at all.
+
+## Folder layout
+
+The build has five entries: `login/` (separate entry, outside React Router), `user/` (Shell SPA), `admin/` (Admin SPA), `work/` (working page SPA) and `read/` (reader). Each SPA owns its `pages/` and `components/`; `api/`, `types/`, `utils/`, `components/` (cross-SPA shells), `theme.ts`, and `auth.ts` are shared at `src/` root. See `frontend-workspace.md` for the entry-by-entry route map.
+
+```
+frontend/
+  index.html              # User SPA entry
+  admin/index.html        # Admin SPA entry
+  login/index.html        # Login entry
+  theme.ts                # createTheme() — custom primary + dark scale
+  global.css
+  src/
+    api/                  # HTTP layer — flat, one file per resource
+      client.ts           # fetch wrapper: Bearer auth, ApiError normalization, AbortSignal
+      sse.ts              # streamPost() — SSE frame reader (not EventSource)
+      <resource>.ts       # one per backend resource
+    types/                # full API surface — DTOs only, flat (.d.ts)
+      <resource>.d.ts
+    utils/                # shared helpers — date.ts (formatDate), navigate.ts
+    components/           # cross-SPA shells: AppLayout, AppHeader, AppSidebar
+    auth.ts              # current user / token — module-level state, not a class
+    user/                 # User SPA
+      main.tsx, App.tsx, routes.tsx
+      pages/              # flat: page component + adjacent state file
+      components/         # grouped by area
+    admin/                # Admin SPA — same shape as user/
+    login/                # Login entry — main.tsx, Login.tsx (no router, no page state)
+    work/                 # Working page SPA
+      main.tsx, App.tsx, routes.tsx
+      workGate.ts         # auth-only entry gate, run before createRoot
+      subject.ts          # the content-pane subject model + editability table
+      restoreBuffer.ts      # device-local draft buffer      ─┐
+      activeChat.ts         # per-book active-chat pointer    │
+      contentSubject.ts     # canvas + selection registry     │
+      chapterUndo.ts        # assistant-write undo snapshots  ├─ module tier
+      closeTurn.ts          # close-turn controller + active  │
+      chatPaneController.ts # open a chat in the chat pane   ─┘
+      pages/              # flat: page component + adjacent state file
+      components/shell/   # navigator, workspace shell, chat-pane slot
+      components/chat/    # the chat pane (feature 011)
+    read/                 # Reader SPA (ACT-006)
+      main.tsx, App.tsx, routes.tsx
+      readGate.ts         # auth-only entry gate, run before createRoot
+      pages/              # table of contents, chapter, not-found — each with its state file
+```
+
+**`src/work/` is real** as of feature 010, and its **six** root modules (`restoreBuffer.ts`, `activeChat.ts`, `contentSubject.ts`, `chapterUndo.ts`, `closeTurn.ts`, `chatPaneController.ts` — added by features 010, 011, 013, 015, 016 and 023) form a state tier of their own, documented in `frontend-work-drafts.md`.
+
+**`src/read/` is a built SPA** as of feature `022.reader-mode`: an **auth-only gate** run before `createRoot` (a structural mirror of `workGate.ts`), a `<BrowserRouter basename="/read">` in `App.tsx`, and a three-route table — table of contents, one chapter read-only, and a terminal not-found catch-all — over three pages in `pages/`. It replaced the feature-010 stub, which was a table-of-contents placeholder with no router and no gate. Routes, the gate's reasoning and the no-editor property are in `frontend-workspace.md` → Reader.
+
+**`vite.config.ts` was not touched by feature 022** — the `read` Rollup input and the `spaFallback` `/read` branch already existed from feature 010, so building the reader needed no build-config change. Worth a clause, because the natural assumption is that a new SPA needs a new input.
+
+**Scaffold scope (feature 002).** The layout above is the target. What the scaffold actually ships today: the **Login entry is a bare placeholder** ("Login (coming soon)" — real login is feature 004); the cross-SPA **`AppLayout` / `AppHeader` / `AppSidebar` shells are not yet built** — `src/components/` is a seeded-empty folder (`.gitkeep`); routing beyond the User **health page** and an **Admin placeholder** is deferred. The seams (empty `components/`, placeholder entries) are intentional, not missing work.
+
+**Admin SPA — LLM servers section (feature 006).** The Admin SPA has grown its **second section** at `/admin/llm-servers`: a list page (`admin/pages/LlmServersPage.tsx` + `llmServersPageState.ts`) plus **three modals** under `admin/components/llm-servers/` — a server form (create/edit), a models modal (probe available models + enable a subset), and an embedding-designation modal. It is backed by the `api/llmServers.ts` resource module and `types/llmServers.d.ts` (which includes the `"llama-swap" | "openai"` backend-type union). `LlmServer.id` is typed **`string`**, per the string-id convention (see "types/" below). Adding this section realized the minimal **`Users | LLM Servers`** nav that feature 005 deferred "until 006 adds pages" — still under the **minimal local Admin layout**; the shared cross-SPA `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred.
+
+**Admin SPA — Database section (feature 007).** The Admin SPA grew a **third section** at `/admin/database`: `admin/pages/DatabasePage.tsx` + `databasePageState.ts` (a report async trio plus external `(state, …, signal)` action functions), rendering a per-table consistency table (an ok / drift / missing badge, the drift column lists, and per-row **Create** / **Sync** actions) plus **Export** / **Import** / **Rebuild** controls. Nav is now **`Users | LLM Servers | Database`**, still under the minimal local Admin layout (the shared `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred). It is backed by `api/db.ts` and `types/db.d.ts`.
+
+**Admin SPA — Assistant configuration (feature 012).** The Admin SPA grew **two more flat sections**, `/admin/assistant-modes` and `/admin/sub-agents`, backed by `api/assistantConfig.ts` and `types/assistantConfig.d.ts`:
+
+- `admin/pages/AssistantModesPage.tsx` + `assistantModesPageState.ts` — the repo's **first three-trio page state** (modes, tools and sub-agents load together in one `Promise.all`, and all three trios move as a unit into `ready` or `error`; the page renders the first non-null error and `modesStatus` is what suppresses the table). It is not an aggregation type — it is three trios, per the rule below.
+- `admin/components/assistant-config/` — `ModeEditorModal.tsx` + `modeEditorDraft.ts`, the mode editor.
+- `admin/pages/SubAgentsPage.tsx` + `subAgentsPageState.ts` (four trios — the three above plus LLM servers, needed to label model assignments) and `admin/components/sub-agents/` — `SubAgentFormModal.tsx` + `subAgentFormDraft.ts`.
+- Nav is now **`Users | LLM Servers | Database | Assistant Modes | Sub-agents`**, still under the minimal local Admin layout; the shared `AppLayout` / `AppHeader` / `AppSidebar` shells remain deferred.
+
+The Mantine inventory grew with it: the mode editor introduces the repo's **first `<Textarea>`**, and the first use of the **`ScrollArea.Autosize` + `Checkbox` multi-select idiom** outside `components/llm-servers/ModelsModal.tsx`. Both editors reuse that idiom for tool and mode/sub-agent pickers rather than reaching for a new component, because a checkbox list inside a bounded scroll area is already the repo's answer to "pick a subset of a catalogue whose size is unknown."
+
+**`Popover` — first use in the repo (feature `023.chat-ux-revision`)**, for the chat pane's model and settings controls. Beside the existing `Menu`: use **`Menu.Item` for a simple action**, **`Popover` when the content does not fit a menu item** — a `NumberInput`, a `Select`.
+
+**A controlled `Popover`** (an `opened` boolean passed in) deliberately does **not** attach its own toggle to the target. Its click-outside handler treats **both target and dropdown as "inside"**, so the target's own click handler owns the toggle with no double-fire, and dismissal — click-outside, Escape — comes back through **`onChange(false)`**, never through a close callback alone. Bind both or the popover becomes unclosable in one of the two directions.
+
+**The icon-in-input recipe (feature `023`'s Send/Stop)** is the repo's first `rightSection` use anywhere, and four facts each cost real time:
+
+1. **`rightSectionPointerEvents` defaults to `"none"`.** A control placed there renders correctly and is **completely dead to the pointer** — and jsdom does not hit-test, so **no `fireEvent`-based test can catch it**. Set it to `"all"`.
+2. **The section is absolutely positioned across the input's full height with centred alignment**, so it **re-centres as an autosizing textarea grows**. Corner anchoring needs an explicit alignment override through `rightSectionProps`.
+3. **The default section width derives from the input-height variable**, which an autosizing `Textarea` has no fixed value for. An explicit width is what makes both the slot and the input's own text padding deterministic.
+4. **Mantine's disabled-input styling targets the input element, not its sections.** That is exactly what lets **Stop stay live and undimmed inside a textarea that is `disabled` mid-stream** — mid-stream abort depends on it, so do not "fix" it by disabling the wrapper.
+
+## MobX hard rules
+
+These rules work as a system; loosening one breaks the others.
+
+### State library
+
+- **MobX, only.** No Redux, Zustand, React-Query, React-Context.
+- `enforceActions: 'always'` is **off** — direct two-way binding (`state.field = value`) is legitimate and common; `runInAction` is used only for multi-field atomic mutations.
+
+### Observer everywhere
+
+- **Every component is wrapped in `observer`** (from `mobx-react-lite`). No exceptions — not "leaf only," not "container only." A missing `observer` is a code-review failure (it produces silent staleness, not a loud error).
+
+### The state ladder
+
+Three layers, each with a clear lifetime:
+
+| Layer | Where | Lifetime | Holds |
+|-------|-------|----------|-------|
+| Module-level globals | `src/auth.ts`, `src/utils/*` | app boot → unload | Auth token + current user, global settings — **plain module state, not a class, not a store** |
+| `<Page>State` | `pages/<page>PageState.ts` | page mount → unmount | Loaded data, drafts, modes, pagination, status flags |
+| `<Component>State` | inline or sibling file | component mount → unmount | Local UI state too noisy to lift |
+
+Globals are plain functions (`getToken()`), not reactive stores — auth changes navigate away; settings changes re-read on next use.
+
+**Auth seam (scaffold vs. target).** The row above states the *target*: `auth.ts` will hold both token and current user. The current scaffold (feature 002) ships a **subset** — `auth.ts` exposes only `getToken()` (a localStorage read) plus a minimal `logout()` stub. `getCurrentUser()` / JWT-decode and the `App.tsx` token-gate redirect are **deferred to feature 004**, which expands `auth.ts` and adds the token gate. This is recorded so 004 is read as an expansion, not a rewrite.
+
+### State is data + computed, never effectful methods
+
+A state object holds **observable fields** and **pure `get` computed derivations** (validation, `isDirty`, `isValid`, `canSubmit`, filtered/sorted views). It is **not** a class with `load()` / `save()` / `delete()` or any method that calls an API.
+
+### Effectful operations are external functions
+
+All loads, saves, deletes — anything touching the network — are **top-level functions** in the same file as the page state, taking `(state, args, signal)` and writing via `runInAction`:
+
+```ts
+export async function loadItems(state: ItemsPageState, signal: AbortSignal): Promise<void> {
+  state.itemsStatus = 'loading';
+  state.itemsError = null;
+  try {
+    const items = await itemsApi.list(signal);
+    runInAction(() => { state.items = items; state.itemsStatus = 'ready'; });
+  } catch (err) {
+    if (signal.aborted) return;
+    runInAction(() => { state.itemsStatus = 'error'; state.itemsError = String(err); });
+  }
+}
+```
+
+### Async resource trio
+
+Every loadable resource is a triple — no wrapper type, no booleans:
+
+```ts
+items: Item[];
+itemsStatus: 'idle' | 'loading' | 'ready' | 'error';
+itemsError: string | null;
+```
+
+No `AsyncValue<T>`, no `isLoading`. Naming is `<name>` / `<name>Status` / `<name>Error`. A page with three loadables has three trios; there is no aggregation type.
+
+### Mutation rules
+
+- Trivial single-field assignment from a component is fine (`state.search = e.target.value`).
+- Multi-field mutations wrap in `runInAction` to fire observers once.
+- State exposes **derivations, not setters** — a `get filteredCount`, never a `setFilteredCount`.
+
+### React hook rules
+
+- **`useState`** only to own a stable instance: `const [state] = useState(() => new ItemsPageState())`. Never for reactive data.
+- **`useEffect`** only at the page-component level, only for initial load on mount and cleanup/abort on unmount. Empty deps `[]` is the only deps array you should write — pages remount on path-param change via router `key`. Forbidden in leaf components, for derivations, and for prop-watching.
+- **No `useCallback` / `useMemo`** for stability — `observer` re-renders are already scoped.
+- **No `useReducer`.**
+- **No custom `useX` hooks.** Reusable stateful UI is a wrapper component owning a `<Component>State` class instance; page state is `<Page>State`; extracted effectful logic is an external `(state, args, signal)` function. **Calling a third-party library's hooks is not authoring one** — see the `@dnd-kit` note under "Stack and versions" — and **taking a DOM handle through a callback ref prop is not authoring one either.** `fast/010.transcript-autoscroll` takes the **first DOM handle anywhere under `frontend/src/`** (there were zero `useRef` hits before it) as `viewportRef={(el) => …}`, an ordinary JSX attribute, with **no `useRef`, no `useCallback` and no `useEffect`**. This is stated because the rules above are strict enough that a coder needing "the scrolling element" otherwise reaches for the two forbidden tools or freezes. One consequence the receiving code must tolerate: an inline callback ref has a **fresh identity on every render**, so React detaches with `null` and re-attaches the same node on **every** render — during a stream, once per delta. The receiving operation must therefore **store the node and do nothing else** — no re-pin, no cancel — or it will fight its own re-renders.
+- For rare imperative side-effects on observable change (e.g. auto-scroll while streaming), use a single `autorun` started in the mount `useEffect` and disposed on cleanup — **and, when the effect is deferred to a frame, cancel the pending frame and drop the DOM handle in that same cleanup** (see the worked example below).
+
+**Worked example — the chat transcript's follow (`fast/010.transcript-autoscroll`).** The `autorun` rule above was written in the abstract; this is the first feature to exercise it. Three mechanics the bare rule does not imply, each of which is what the next person will get wrong:
+
+- **An `autorun` fires synchronously on mutation, *before* React re-renders.** Any side-effect that must read post-render DOM geometry has to be **deferred to `requestAnimationFrame`**. An autorun that reads `scrollHeight` inline looks correct and typechecks, but it measures the pre-update layout and lands short by exactly the height of whatever just arrived. This is the repo's **first `requestAnimationFrame` use anywhere**.
+- **Deferral implies coalescing.** A stream mutates per token, so the pending frame handle is stored and a second schedule is skipped — a turn then costs one frame per paint rather than one per delta.
+- **Deferral adds a second thing to unwind at unmount.** Alongside the autorun disposer, the **pending frame must be cancelled and the DOM handle dropped in the same cleanup**, or a frame scheduled on the last mutation fires against a detached node.
+
+The autorun is added **inside the page's existing mount effect**, never as a second effect — `WorkspaceShell` now runs two autoruns inside its one effect. Where the pieces sit in the pane, and why the pinned flag is non-observable, is `frontend-workspace.md` → Chat pane.
+
+**External writes into a controlled third-party editor are applied by remount, not by an effect (feature `015.chapter-writing-free-mode`).** A rich-text editor reads its initial content **once**. The page therefore **keys** it on a counter bumped by every *external* draft write — an assistant apply, an undo, a buffer restore, a reconciliation — and **never** by a keystroke.
+
+The idiom costs **zero** effects, zero `autorun`s and zero imperative refs, all of which this section either forbids in leaf components or reserves for page level, and it is the **same "force a fresh instance" idiom the router already uses** with `key={id}`. Its one visible cost is a **lost caret on an assistant write**, which is arguably the correct behaviour anyway. The next feature to embed a third-party editor, canvas or chart should copy this rather than reaching for an effect that watches a draft.
+
+### Routes and pages
+
+- **A page owns the browser route** — one route = one page = one fresh state instance per navigation.
+- **Path-param changes force a remount** via React Router `key={id}`; the same mount `useEffect` handles the new load.
+- **Each page loads its own data by URL id** — no warm start from a parent's data; every page is deep-linkable.
+- **No upward callbacks across pages.** Save → API → done; returning to a parent route remounts and refetches. The backend is the only cross-page source of truth.
+- **URL query params are the persistence layer** for filter, sort, mode, scroll-anchor — anything that should survive navigation, refresh, or bookmark. Query-param changes are handled in the event handler that changed them, never by a `useEffect` watching the query string.
+
+**The mechanism — the returned-search-string convention (feature 013).** The rule above says *where* the URL write happens but named no mechanism, and the enforced MobX split makes the obvious one illegal: an external effect function **cannot call `setSearchParams`**, which is a React hook binding owned by the component. The seam, first built for the codex list's search needle:
+
+> the effect function **returns the new search string** — `"q=…"`, or `""` to drop the param — and the **submit handler pushes it** with `setSearchParams(...)`.
+
+The commit-and-reload therefore stays in the state layer and the URL write stays in the event handler, with neither reaching into the other. The initial read is done **once**, inside the `useState(() => new …State(searchParams.get("q") ?? ""))` initializer, so a deep link filters the first fetch and nothing watches the query string afterwards. Copy this rather than reaching for a hook inside a state module.
+
+**Persisted-state exception — the working page's restore buffer.** The rule above is about *view* state: small, shareable, and correct to put in a bookmarkable link. Unsaved **draft content** (UC-092, US-107) is none of those — it is large, private to one author on one device, and must not travel in a URL. It therefore lives in **`localStorage`, keyed per item**, in **`src/work/restoreBuffer.ts`** — plain module-level functions in the `work` entry, in the same tier of the state ladder as `auth.ts` (which already reads `localStorage` for the token). Feature 010 shipped it as a **pure module with no editable subject wired to it**; feature 013's codex entry page is its first writer. It is a deliberate exception, not a general licence to persist state outside the URL; its full design — key shape, quota eviction, the stale-version reconciliation it feeds, and the two sibling modules that joined it — is in **`frontend-work-drafts.md`**.
+
+### Components
+
+- Pure props, no React context — stores and slices are passed explicitly down the tree.
+- Generic components (Button, Modal, Input) take primitives + callbacks, no domain knowledge.
+- Page-aware components take state slices.
+- Page-specific orchestration and handlers are inner functions inside the component, closing over `state` and props — not extracted "to keep the component small."
+- A growing component is split into smaller `observer` subcomponents, each owning its JSX slice and inner handlers; state stays in the page.
+
+**Worked example — a shell owns one state instance and shares it with a child (feature 011).** The chat pane needs the same state from two places: the pane itself, and the navigator entry that reveals it. The shipped shape, which is what "pass stores and slices explicitly, one owner" looks like in practice:
+
+- `WorkspaceShell` **owns** the single `ChatPaneState` (`useState(() => new ChatPaneState(…))`) and starts its load inside the **existing** mount `useEffect` — no second effect was added.
+- It passes **the instance** down to `ChatPane` (through `ChatPaneSlot`), and passes `WorkNavigator` a **zero-arg `onShowChatList` handler** rather than the state — the navigator needs to trigger, not to read.
+- **No React context.** The slice travels explicitly down the tree, which is why there is exactly one owner and the ownership is visible at the call site.
+- `ChatPane` runs **no effect** — a child that receives a state instance does not also acquire a lifecycle.
+
+**Established idiom — a page reaches shell-owned state through a module-level register/unregister module, never through React context.** Context is banned outright, a cross-page callback would make the shell the owner of something neither side owns, and a custom `useX` hook is forbidden too; a module of plain functions is what is left. Three independent features now converge on it — the canvas/selection registry (`contentSubject.ts`, 013/015), the close-turn controller (`closeTurn.ts`, 016) and **`chatPaneController.ts` (023**, by which the chats list page opens a chat in the pane without a route change**)** — so it is an idiom, not three one-offs. The shape:
+
+> the shell **registers** its controller in its **existing** mount effect and **unregisters** with an identity guard on unmount (a late unmount from a superseded owner is a no-op); the caller gets a **no-throw request function that reports whether anyone was listening**, because the pane may legitimately not be mounted yet.
+
+The sanctions for each member live with the module tier in `frontend-work-drafts.md`.
+
+### Forms
+
+- Drafts live in page state (modal-dialog drafts may live in component-local state).
+- Validation is `get` computed derivations (`errors`, `isValid`, `isDirty`, `canSubmit`) — pure functions of observable fields.
+- Server-side field errors are stored separately (e.g. `serverErrors`) and unioned with client errors in the `errors` getter.
+- **The union is the shape *when client validation exists* (feature 021).** Some fields have no client-side rules at all — the per-author system-prompt editor accepts every string, `""` included — and such a form carries only its server-error map (`systemPromptServerErrors`), with **no `clientErrors` and no `errors` union**. The server-error surface is then the only error surface. Do not manufacture an empty `clientErrors` and a pass-through `errors` getter to satisfy the pattern; a field with no client rules **binds the server-error map directly**.
+- **Four instances across two features make that a pattern, not an exception (feature `014.chapter-skeleton`).** The **chapter sketch editor** and the **chapter prompt editor** both accept every string including `""`, so both carry a `…ServerErrors` map with no `clientErrors` and no `errors` union — the same shape as 021's. The chapter **add form** is the counter-example that keeps the rule honest: its title must be non-blank, so it *does* compute client errors and *does* union them. The rule as first written read as mandatory; it is not. **Client validation drives the union — no client rules, no union.**
+- **Do not use Mantine `useForm`.** The draft-in-state + computed-validation model is the form system.
+
+## API layer
+
+All HTTP lives in `src/api/`. Direct `fetch()` outside `client.ts` (and `sse.ts`) is a code-review failure.
+
+**Blob-download / multipart-upload exception (feature 007).** `api/db.ts` introduces the frontend's **first blob-download and multipart-upload** helpers, and both **bypass `request<T>`** — which is JSON-only. `exportDatabase()` does a Bearer `fetch` and reads `res.blob()` to trigger a browser save of the archive; `importDatabase(file)` posts a `FormData` field `file` with **no JSON `Content-Type`** (the browser sets the multipart boundary), mirroring 003's `api/auth.ts::setupImport`. Both still read the Bearer token from `auth.ts` `getToken()`. These are **sanctioned exceptions** to "all HTTP goes through `request<T>`," in the same spirit as `sse.ts` — the wrapper handles only JSON, so non-JSON transfers live in their own resource helpers.
+
+### `client.ts`
+
+A single `request<T>()` wrapper is responsible for:
+
+- Passing the `url` straight to `fetch` (resource modules supply absolute `/api/...` paths, typically via a per-module `BASE`).
+- **Bearer auth** — reads the JWT from `auth.ts` (`getToken()`) and sets `Authorization: Bearer <token>`.
+- **JSON parsing** on success; `204` returns `undefined`.
+- **Error normalization** — non-2xx becomes a typed `ApiError(status, message, details?)`.
+- **AbortSignal pass-through** — every request accepts an optional `signal` and forwards it.
+
+Dependency direction is one-way: `api/` imports from `auth.ts`; `auth.ts` never imports from `api/`; pages/components import from `api/`.
+
+### `api/<resource>.ts`
+
+One file per backend resource, exporting typed async functions named by REST verb (`list`, `get`, `create`, `update`, `remove`). `signal?: AbortSignal` is always the last argument; return types are DTOs from `types/`, never `any`. Import in state files via the namespace: `import * as itemsApi from '../api/items'`.
+
+### `types/`
+
+Hand-written DTO `.d.ts`, flat, one file per resource. **Grep rule: if a type appears in any `api/` function signature, it lives in `types/`.** DTOs are pure shapes matching wire JSON 1:1 — no methods, no classes, no getters. State and prop interfaces live with their state/component, not here.
+
+**Entity ids are `string`, not `number`.** Backend entity ids are 64-bit snowflakes that exceed JavaScript's `Number.MAX_SAFE_INTEGER` (2^53), so the backend serializes them as strings; type them as `string` in every `.d.ts` DTO. See `backend/auth-ids.md` → Conventions — entity ID strategy.
+
+### No runtime validation
+
+No zod / io-ts / runtypes. `response.json() as Item[]` — the backend (Pydantic) is the single source of truth for shapes; a mismatch is fixed at source rather than double-bookkept with a client schema. Strict TypeScript plus end-to-end testing is the safety net.
+
+### SSE / streaming
+
+Streaming endpoints use `streamPost()` in `src/api/sse.ts`: a `fetch`-based reader that issues a `POST` (with `Bearer` auth) and parses `event:` / `data:` frames from the response body. This is **not** the browser `EventSource` API (which supports neither POST bodies nor auth headers). Frame handlers push updates into observable state via `runInAction`.
+
+**The first call site and its two sanctioned deviations (feature 011).** The chat pane's turn stream (`api/chats.ts::streamChatTurn`) is the repo's first `streamPost()` consumer, and it exposed two places where the streaming path cannot obey the conventions above. Both are deliberate; the next streaming surface will meet them again.
+
+1. **Refresh before stream.** `streamPost` uses raw `fetch` + `authHeaders()` and therefore **bypasses `client.ts`'s `request<T>` on-401 silent refresh** — by the time a 401 arrives the stream is already open and there is nothing to transparently retry. `client.ts` therefore exports a **reusable refresh entry point** (`refreshAuthToken`), and `streamChatTurn` **awaits it before opening the stream**. Refreshing up front is cheap; retrying a half-consumed stream is not.
+2. **The stream owns its controller, so the effect takes no `signal`.** `streamPost` **creates and returns its own `AbortController` and accepts no `signal`**, which does not fit the `(state, args, signal)` effect convention. Consequently the send/retry effect functions **take no trailing `signal`**, store the returned controller on the state, and expose an **explicit stop** function that the shell's unmount cleanup calls. This is the one sanctioned break of the trailing-`signal` convention — a stream's lifetime is longer than a request's and belongs to the state that displays it.
+
+**The terminal payload needs a reload.** `streamPost` calls `onDone()` with **no argument**, so the `done` frame's persisted assistant-message DTO is unreachable through it. The send/retry path therefore obtains the stored message by **reloading the chat once via `getChat`** on `done` and swapping `messages` atomically, which makes the in-flight bubble disappear with no duplicate or orphan. If a future streaming surface needs the terminal payload without a reload, `streamPost`'s `onDone` signature has to forward the parsed `done` data — a frozen-signature change, not a local workaround.
+
+The frame vocabulary itself is the assistant runtime's, not this layer's: `thinking` / `delta` / `done` / `error` / `canvas` / `tool_call` / `tool_result` (the last two from feature `024`), documented in `assistant-runtime.md`. `sse.ts` carries named handling for the frames it was written against and a **generic event branch** beside it, which is why feature 013 could add `canvas` in the resource module (`api/chats.ts`) **without opening `sse.ts` at all**. Keep new frames on that path: the reader is transport, and a frame name is not.
+
+**Markdown rendering.** Feature 011 is also the repo's **first use of `react-markdown`** — assistant message content only (user text renders plain), with **no plugins configured**, because none were needed. That no-plugin default is the baseline for future markdown surfaces; adding a plugin is a decision to record, not a default to inherit.
+
+### Testing
+
+Vitest + jsdom + React Testing Library. Specs live under `frontend/tests/`; the exact commands are in the root `CLAUDE.md`.
+
+**Specs mock `api/` resource modules, never `fetch`** (first done in `tests/user/BookshelfPage.test.tsx`). State files never know they are mocked, and a spec never encodes a URL, a header or a status code — those belong to `api/`. `client.ts` is the exception and is tested directly, for auth injection, error normalization and abort behavior.
+
+**A heavy third-party widget is mocked in page specs the same way an `api/` module is (feature `015.chapter-writing-free-mode`).** ProseMirror needs DOM APIs jsdom does not implement — `Range.getClientRects`, real layout rectangles — so driving real typing and selection under Vitest would make **every page spec flaky for reasons unrelated to the page**.
+
+The shape that follows from that:
+
+- the editor has a **frozen four-prop seam** — initial Markdown, change callback, selection callback, accessible label;
+- **page specs substitute a trivial stub** at that seam;
+- the editor's **own** behaviour — real Markdown round-trip, real selection, real theming — is covered by **`[manual/live]` criteria**.
+
+This is the same reasoning `014` used to leave `@dnd-kit`'s drag gesture manual: **faking the library's callbacks would test the test.**
+
+**Splitting geometry into a pure module is the house answer to "this behaviour depends on layout" — three features make it an idiom, not three one-offs.** `fast/005` extracted `chatWidthFromPointer`, `fast/008` extracted `clampComposerHeight` / `composerHeightFromDrag`, and `fast/010` extracted the transcript's pin-threshold predicate and bottom-position helper. In each case the extraction existed **purely to make the behaviour testable**: the arithmetic moves into a module that takes plain numbers, imports no DOM and no MobX, and is covered exhaustively at its boundaries, leaving a DOM edge thin enough to read. Reach for this before writing a spec that depends on a layout jsdom will not compute.
+
+**The jsdom scroll boundary.** jsdom computes no layout: `scrollHeight` and `clientHeight` read `0` on **every** element, always. Any scroll-position assertion therefore runs against a stub installed **per element** with `Object.defineProperty`, and **real pinning is necessarily a `[manual/live]` criterion** — the same boundary the chat pane's flex chain already has (`frontend-workspace.md` → Chat pane).
+
+**Deferring to a frame under Vitest — a hazard, not a reported bug.** jsdom's `requestAnimationFrame` is **real and timer-backed**, and `fast/010` is the **first `requestAnimationFrame` use anywhere in this repo**, so there is no prior spec to copy. Because it is timer-backed, **`vi.useFakeTimers()` changes its behaviour**: a spec that defers work to a frame should flush by **awaiting a real frame** rather than reaching for fake timers, and a spec that genuinely needs fake timers must **drive the frame explicitly** rather than assume it will fire on its own.
+
+**Two typecheck programs, on purpose.** `npm run build` (`tsc && vite build`) covers `src` only — `frontend/tsconfig.json` keeps `include: ["src"]` — so **a broken test can never break the bundle**. `frontend/tsconfig.test.json` is the only program covering `tests/`, and **`npm run test:types` is the only command that runs it**. Both must pass; neither substitutes for the other.

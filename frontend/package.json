@@ -1,0 +1,47 @@
+{
+  "name": "bookwriter-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 8194",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@mantine/core": "^7.17",
+    "@mantine/form": "^7.17",
+    "@mantine/hooks": "^7.17",
+    "@mantine/tiptap": "^7.17",
+    "@tabler/icons-react": "^3.40.0",
+    "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/pm": "^2.27.2",
+    "@tiptap/react": "^2.27.2",
+    "@tiptap/starter-kit": "^2.27.2",
+    "mobx": "^6.13",
+    "mobx-react-lite": "^4.1",
+    "react": "^19.1",
+    "react-dom": "^19.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.14.2",
+    "tiptap-markdown": "^0.8.10"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4",
+    "@testing-library/jest-dom": "^6.6",
+    "@testing-library/react": "^16.3",
+    "@testing-library/user-event": "^14.6",
+    "@types/react": "^19.1",
+    "@types/react-dom": "^19.1",
+    "@vitejs/plugin-react": "^4.4",
+    "jsdom": "^26",
+    "typescript": "^5.8",
+    "vite": "^6.3",
+    "vitest": "^3.2"
+  }
+}

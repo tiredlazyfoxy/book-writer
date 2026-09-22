@@ -1,0 +1,196 @@
+<!-- product-spec:start -->
+# Stories — FEAT-012 Chapter summaries & state notes
+
+### US-049 — Continuity data is drafted when a chapter closes
+- **Feature:** FEAT-012 · **Actor:** ACT-004 · **Realizes:** UC-047
+- **Status:** deferred
+- **Story:** As a book owner, I want the chapter's summary and state-note
+  changes drafted automatically when I close it, so that I don't write
+  continuity data from scratch.
+- **Acceptance criteria:**
+  - **US-049.AC-1** — Given the owner initiates closing a chapter, when the
+    close begins, then the system produces a draft summary of the chapter.
+  - **US-049.AC-2** — Given the owner initiates closing a chapter, when the
+    close begins, then the system produces a draft state-note changeset
+    (notes added, modified, deleted) for the chapter.
+- **Note (finalization, 2026-07-31):** the mechanism is built —
+  `docs/plans/016.chapter-close-continuity/` delivered the close-chapter
+  turn, its five tools and the deterministic post-turn finalize step, all
+  test-covered. It is **deferred** because the tools ship unreachable
+  until an administrator assigns them to the `close-chapter` mode (a
+  FEAT-020 capability), and because the plan's one end-to-end live-run
+  criterion was never exercised. Remaining to deliver: that mode/tool
+  assignment, then one live run.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "LLM proposes, owner approves. On closing a
+  chapter the system drafts them." Deferred, mechanism built: `[confirmed:
+  user]` interview 2026-07-31, finalization of plan 016, challenge
+  C-f16-1.
+
+### US-050 — Owner approves a chapter's summary and state-note changes
+- **Feature:** FEAT-012 · **Actor:** ACT-004 · **Realizes:** UC-048
+- **Status:** deferred
+- **Story:** As a book owner, I want to review, edit and approve the
+  drafted summary and state notes, so that continuity data reflects what
+  actually happened.
+- **Acceptance criteria:**
+  - **US-050.AC-1** — Given a drafted summary or state-note changeset, when
+    the owner edits it, then the edited version replaces the draft.
+  - **US-050.AC-2** — Given a reviewed summary and state-note changeset,
+    when the owner approves, then the chapter's continuity data is marked
+    approved.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "the owner reviews, edits and accepts."
+  Deferred, no review surface shipped: `[confirmed: user]` interview
+  2026-07-31, finalization of plan 016, challenge C-f16-2.
+
+### US-051 — A chapter cannot close without approved continuity data
+- **Feature:** FEAT-012 · **Actor:** ACT-004 · **Realizes:** UC-048
+- **Status:** deferred
+- **Story:** As a book owner, I want closing blocked until continuity data
+  is approved, so that every closed chapter has complete, checked
+  continuity.
+- **Acceptance criteria:**
+  - **US-051.AC-1** — Given a chapter whose summary or state-note changeset
+    is not approved, when the owner attempts to close it, then the close
+    is refused and the chapter remains open.
+- **Note (finalization, 2026-07-31):** The shipped close refuses to
+  complete unless a drafted summary, a drafted state-note changeset and a
+  proposed resulting note set are all present and no blocking check flag
+  exists — so "a chapter cannot close without complete continuity data"
+  holds mechanically. What is deferred is specifically the **owner's
+  approval** of that data.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "Approval required to close... The closed
+  chapter is closed. All summaries are done, all notes are taken."
+  Deferred and note added: `[confirmed: user]` interview 2026-07-31,
+  finalization of plan 016, challenge C-f16-2.
+
+### US-052 — Member views the book's current state notes
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-049
+- **Status:** delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book member, I want to view the current state notes, so
+  that I know what's currently true before writing.
+- **Acceptance criteria:**
+  - **US-052.AC-1** — Given the book has state notes, when a member opens
+    the state-notes view, then the current live set is shown.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "There is one live set of state notes...
+  Chapter N sees current truth."
+
+### US-053 — Member edits state notes according to the collaboration mode
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-050
+- **Status:** partially delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book member, I want to edit state notes under the book's
+  collaboration mode, so that changes follow the same rules as edit
+  writing.
+- **Acceptance criteria:**
+  - **US-053.AC-1** — Given the book is in free mode, when a member adds,
+    modifies or deletes a state note, then the change applies to the live
+    set immediately.
+  - **US-053.AC-2** — Given the book is in proposal mode, when a co-author
+    adds, modifies or deletes a state note, then the change is held as a
+    proposal until the owner applies it.
+- **Note (finalization, 2026-07-31):** AC-1 delivered. AC-2 deferred — a
+  proposal-mode state-note edit is refused: FEAT-010's
+  proposal-holding mechanism does not exist for this artifact (see
+  `relationships.md`, FEAT-012 → FEAT-010).
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "Follows the book's collaboration mode."
+  Delivery split: `[confirmed: user]` interview 2026-07-31, finalization
+  of plan 016.
+
+### US-054 — Member views what a chapter changed in the state notes
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-051
+- **Status:** delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book member, I want to see which state notes a chapter
+  added, modified or deleted, so that I can trace when a fact changed.
+- **Acceptance criteria:**
+  - **US-054.AC-1** — Given a chapter with a recorded state-note changeset,
+    when a member views that chapter's changeset, then the notes it added,
+    modified and deleted are shown.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "each chapter records which notes it added,
+  modified or deleted."
+
+### US-055 — Reopening a chapter marks its continuity data stale
+- **Feature:** FEAT-012 · **Actor:** ACT-004 · **Realizes:** UC-052
+- **Status:** partially delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book owner, I want a reopened chapter's continuity data
+  flagged stale, so that I know to re-check it before closing again.
+- **Acceptance criteria:**
+  - **US-055.AC-1** — Given a closed chapter with approved continuity data,
+    when the owner reopens it, then its summary and state-note changeset
+    are flagged stale.
+  - **US-055.AC-2** — Given a chapter flagged stale, when the owner
+    attempts to close it again without re-approving, then the close is
+    refused (per US-051).
+- **Note:** Whether the staleness cascades to later chapters' changesets is
+  checked by FEAT-016's consistency check (US-072/US-073), not by these
+  criteria — see FEAT-016.
+- **Note (finalization, 2026-07-31):** AC-1 delivered. AC-2 deferred with
+  US-051 — the shipped close mechanically refuses to complete unless a
+  drafted summary, a drafted state-note changeset and a proposed
+  resulting note set are all present and no blocking check flag exists,
+  so "cannot close again without re-approving" holds mechanically; what
+  is deferred is specifically the owner's re-approval step.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "Augment round 2",
+  "summaries & state notes": "Flagged stale, owner must re-confirm."
+  Delivery split and AC-2 note: `[confirmed: user]` interview 2026-07-31,
+  finalization of plan 016, challenge C-f16-2.
+
+### US-090 — A state note names the codex entry it is about
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-079
+- **Status:** proposed
+- **Story:** As a book member, I want to name the codex entry a state note
+  is about, so that the note's change is traceable to a stable identity.
+- **Acceptance criteria:**
+  - **US-090.AC-1** — Given a named codex entry exists, when a member writes
+    or edits a state note about it, then the note carries a reference to
+    that entry.
+- **Source:** `[confirmed: user]` interview 2026-07-20, "codex" round 4: "A
+  state note may reference a codex entry."
+
+### US-104 — A member views a chapter's summary
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-089
+- **Status:** delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book member, I want to view a closed chapter's approved
+  summary, so that I can catch up on continuity without opening the
+  working page.
+- **Acceptance criteria:**
+  - **US-104.AC-1** — Given a closed chapter with an approved summary,
+    when a member opens the continuity view, then that chapter's summary
+    is shown read-only.
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 5",
+  "SPA pages — the plain surfaces around the working page".
+
+### US-106 — Book state is the working-SPA landing view and shows the book at a glance
+- **Feature:** FEAT-012 · **Actor:** ACT-004, ACT-005 · **Realizes:** UC-091
+- **Status:** partially delivered
+- **Delivered:** docs/plans/016.chapter-close-continuity/ (2026-07-31)
+- **Story:** As a book member, I want Book state to be the first thing I
+  see on opening the working SPA, so that I get an at-a-glance continuity
+  picture before I start writing.
+- **Acceptance criteria:**
+  - **US-106.AC-1** — Given the author opens the book's working SPA, when
+    it loads, then Book state is the first view shown.
+  - **US-106.AC-2** — Given a chapter with an approved summary and state
+    notes, when Book state is shown, then that chapter's title, summary
+    and after-chapter notes appear.
+  - **US-106.AC-3** — Given a chapter with an active flag, when Book
+    state is shown, then that flag appears next to the chapter.
+  - **US-106.AC-4** — `_TBD: book-level fields shown on Book state — field
+    list deferred to /architect (book object); not written as a testable
+    AC._`
+- **Note (finalization, 2026-07-31):** AC-1 through AC-3 delivered. AC-4
+  stays `_TBD:` — the only open gap.
+- **Source:** `[confirmed: user]` interview 2026-07-23, "Augment round 6",
+  "Book state — the landing view". Vocabulary ("warning" → "flag"):
+  `[confirmed: user]` interview 2026-07-31, finalization of plan 016,
+  challenge C-f16-4.
+<!-- product-spec:end -->

@@ -1,0 +1,30 @@
+# Keep the repo-root build context small and secret-free.
+
+# VCS
+.git
+
+# Backend
+backend/.venv
+backend/data
+
+# Frontend
+frontend/node_modules
+frontend/dist
+
+# Docs and agent tooling
+docs/
+*.md
+.claude/
+
+# Secrets
+.env*
+
+# Build/run tooling that never belongs in the image
+start.ps1
+build.ps1
+update.sh
+docker-compose.dev.yml
+
+# Deploy artifacts
+data/
+*.7z

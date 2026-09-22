@@ -1,0 +1,1 @@
+"""BookWriter backend application package."""

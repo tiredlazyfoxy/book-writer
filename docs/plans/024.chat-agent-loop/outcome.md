@@ -1,0 +1,145 @@
+# Outcome — 024.chat-agent-loop
+
+Intended `docs/architecture/` changes, for `/architect` to apply at finalization. Seeded from
+`docs/.cache/ultra/024.chat-agent-loop/design-notes.md` (D1–D7) and this plan. Nothing here is
+applied by the coder — `docs/architecture/` stays read-only through this feature.
+
+## `docs/architecture/assistant-runtime.md`
+
+- **Section "The shared-canvas write for chapters, as built" → "The tools ship unreachable, by
+  design."** Currently states no `mode_tool` rows were seeded and changing that "would be a
+  FEAT-020 default-policy decision" pointing the default "in the unsafe direction the
+  empty-allowlist rule exists to avoid." **Reversed by this feature, by explicit author
+  decision (D4):** `write-chapter`'s chapter tools are now seeded by default. Update to record
+  that the default-policy decision was made, by whom (the author, not an inferred default), and
+  that the empty-allowlist *rule* is unchanged — only the seeded starting state.
+- **Section "The close-chapter procedure, as built" → "The tools ship registered but unreachable —
+  and the feature is inert without them."** States feature 016 "is delivered but inert until an
+  administrator assigns the five tools to the `close-chapter` mode." **No longer true** — this
+  feature seeds those five tools by default. Update to state feature 016's close procedure is now
+  live on a fresh install, and record the accepted risk (a model-driven close run now writes real
+  artifacts) alongside the existing domain rules in `domain-continuity.md`.
+- **Section "Tool gating" → case 1 discussion, and the "013.codex closed it" decision history.**
+  The codex modes (`edit-character`/`edit-location`/`edit-fact`) previously resolved to an empty
+  allowlist by default; they now resolve to a seeded default set (`web_search`, `codex_search`,
+  `codex_read_entry`, `write_codex_draft`). Update the narrative to note the seeded starting state
+  without changing the stated gating rule (mode-bearing subject gets exactly its `mode_tool` rows;
+  zero rows is still an empty allowlist for a mode an admin has since edited down to nothing).
+- **Section "The SSE frame vocabulary."** Currently: "Five named frames as shipped: `thinking`,
+  `delta`, `done`, `error`... and `canvas`." Add `tool_call` and `tool_result` (seven total),
+  carrying `ToolCallFrame(tool_name, arguments)` / `ToolResultFrame(tool_name, result, ok)`. Note
+  they are emitted generically by a wrapper around every bound tool call (not by individual tools
+  calling `emit_frame` themselves, unlike `canvas`), and that tool arguments arrive whole (same
+  accepted-whole-not-streamed property `canvas` already has).
+- **New subsection, "Tool-call visibility (feature 024)."** Record the wrapper pattern: every
+  entry of a turn's `tool_map` is wrapped once, uniformly, in `chat_turn.py`, closing over the
+  turn's `emit_frame` and a per-turn trace list; `chat_with_tools` itself is unmodified and
+  unforked. Cross-reference the reference-project pattern this generalizes from (harvest 3) and
+  that BookWriter has exactly one call site so the wrapper is written once, unlike the reference's
+  three duplicated wrappers.
+
+Reason for all of the above: design notes D1 and D4, both explicit author decisions, both
+reversing or extending statements this document currently makes as settled fact.
+
+## `docs/architecture/domain-chat.md`
+
+- **`ChatMessage` field table.** Add a row: `tool_trace` | nullable — the ordered tool-call trace
+  for this message, when the turn made any tool calls; JSON-in-TEXT gated by a Pydantic model
+  (`ToolTrace`/`ToolTraceEntry`), same pattern `Chat.sampling_params` uses. Cross-reference
+  `backend/persistence.md`'s "JSON-in-TEXT gated by a Pydantic model" section as the third
+  instance of the pattern (after `LlmServer.enabled_models` and `Chat.sampling_params`).
+
+Reason: design note D2 — a genuinely new persisted column, not previously in the entity map.
+
+## `docs/architecture/quick-reference.md` (the architecture one, not `docs/product/`'s)
+
+- Add `tool_call` / `tool_result` to whatever SSE frame table exists there alongside the other
+  five.
+- Add `ChatMessage.tool_trace` to whatever column/DTO table lists `ChatMessage`'s fields.
+
+Reason: this file is the architecture folder's dense concrete-detail exception (endpoints, DTOs,
+columns) — new frame kinds and a new column belong there per the folder's own write-rules.
+
+## Cross-cutting note for `/architect`
+
+**Delivery-status implication.** `docs/product/features.md` (2026-07-31 reconciliation) records
+explicitly: "the five assistant modes seed with no prompts and no tool assignments, so every
+assistant-facing feature below needs an administrator to configure it... before it does
+anything." This feature removes that precondition for a fresh install. Whether this changes any
+`docs/product/` status field (e.g. a `partially delivered` → `delivered` transition for ids that
+were only blocked by the empty seed) is **`/product-spec`'s call, not `/architect`'s** — surfacing
+it here because the architecture-side cause of that product note is exactly what this feature
+changes.
+
+## Observations
+
+- The "ships unreachable" claim is repeated in SOURCE docstrings as well as in the architecture
+  docs — `backend/app/services/tools.py`, `chapter_tools.py` and `close_tools.py` each state that
+  their registry entries are unreachable until an admin assigns them to a mode. All three are now
+  stale for a fresh install, and all three are outside this feature's Source areas so they were
+  left untouched. Possible impact: fold into the same `/architect` pass that applies the
+  `assistant-runtime.md` reversals above, as a source-docstring sweep.
+- `ChatMessageResponse.tool_trace` is populated in `services/chats.py:_to_message_response`, which
+  the plan's `## Source areas` does not list — the DTO field was specified but no owner was named
+  for the one mapper that fills it, and both the `done` frame and `finishTurn`'s reload go through
+  it. Possible impact: when a plan adds a field to an existing response DTO, its mapper's module
+  belongs in Source areas by default.
+- **Adding a column to an existing table has a second non-optional obligation, undocumented until
+  now.** Feature 024 added `ChatMessage.tool_trace` and the change was complete by every rule the
+  docs state — except that `SQLModel.metadata.create_all` never alters an existing table, so the
+  column reached fresh databases only and every `chat_messages` INSERT failed on an existing
+  install. The remedy is `db/engine.py`'s additive-migration seam, now filled and driven by an
+  `ADDITIVE_COLUMNS` declaration table. Possible impact: state the rule alongside root `CLAUDE.md`'s
+  "DB Import/Export" obligation and in `docs/architecture/backend/persistence.md` — *a new column on
+  an existing table requires an `ADDITIVE_COLUMNS` entry in the same change, exactly as it requires
+  an import/export codec update*; `docs/architecture/backend.md` should describe the seam as the
+  project's in-code migration mechanism (additive only, idempotent by introspection, nullable-only
+  per SQLite).
+- **The seam only fires where `init_db()` is called — the two setup flows (`create_database`,
+  `import_all`) — never at application startup** (`main.py`'s `lifespan` deliberately defers schema
+  creation, and that was explicitly out of scope for this repair). So an instance that is already
+  configured still picks up a new column only via feature 007's admin `sync_table_schema` page or a
+  re-import. Possible impact: whichever architecture doc describes 007's schema-sync page should
+  name the two mechanisms as complementary (seam = fresh-create/import path, admin sync = running
+  instance), and the question of whether reconciliation should ever run at startup is an
+  `/architect` decision that this note deliberately leaves open.
+- The three-layer JSON-in-TEXT trio is now `LlmServer.enabled_models`, `Chat.sampling_params` and
+  `ChatMessage.tool_trace`, and only the last one is read through a gate that TOLERATES an
+  unparseable stored value (mirroring `services/chats.py:_parse_sampling`, which does the same for
+  `sampling_params` at the service layer rather than in the model). Possible impact: state the
+  tolerance rule once in `backend/persistence.md` → "JSON-in-TEXT gated by a Pydantic model", so
+  the next instance does not have to rediscover where it belongs.
+
+---
+Status: Applied 2026-08-10
+Applied items: 13
+Rejected items: 3 (notes below)
+
+**Architecture files updated for this feature:** `docs/architecture/assistant-runtime.md` (both
+seeding reversals — the chapter tools and the five close tools, each with its owner and the
+accepted risk; tool gating case 1 and its decision history; the frame vocabulary widened to seven;
+a new "Tool-call visibility" subsection realizing UC-102 / US-120),
+`docs/architecture/domain-chat.md` (`ChatMessage.tool_trace` and UC-102 / US-120 in the header),
+`docs/architecture/domain-continuity.md` (the deferred-ids paragraph — the close tools are seeded
+and reachable, so "deferred" now means unexercised), `docs/architecture/backend/persistence.md`
+(the "run at startup" correction, the additive-column seam as a non-optional obligation with its
+mechanism, its two firing paths and the open startup question, and `tool_trace` as the third
+JSON-in-TEXT instance with the tolerance rule), `docs/architecture/backend.md` (the seam as the
+project's in-code migration mechanism, pointing at the area file),
+`docs/architecture/system-overview.md` (the inverted `/chats` claim, shared with 023),
+`docs/architecture/quick-reference.md` (the two new frames and their DTOs, `ToolTraceEntry` /
+`ToolTrace`, `ChatMessageResponse.tool_trace`, the `ChatMessage.tool_trace` column with its seam
+note, and the three now-false "shipped unreachable" entries) and `docs/architecture/CLAUDE.md`
+(the frame count).
+
+**Not applied, and why:**
+
+- **The stale source docstrings** in `services/tools.py`, `chapter_tools.py` and `close_tools.py`.
+  Real and now wrong, but they are **source edits** — outside `/architect`'s write scope. The
+  orchestrator is carrying them as a follow-up.
+- **The observation that a DTO's mapper module belongs in a plan's Source areas by default.** A
+  `docs/plans/` contract lesson, not architecture.
+- **The cross-cutting delivery-status note addressed to `docs/product/`.** **Discharged by
+  `/product-spec` on 2026-08-10** — product now records UC-047 / UC-064 / UC-065 / UC-080 as
+  reachable-but-unrun. Nothing was written to `docs/product/`; `domain-continuity.md` was aligned
+  to the amended wording instead.

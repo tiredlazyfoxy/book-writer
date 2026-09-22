@@ -1,0 +1,403 @@
+# Assistant Runtime — how configuration and a request become one assistant call
+
+**Realizes:** FEAT-013 (the built slice) — UC-081 (the turn-execution half only; the stored-chat entities and their management are `domain-chat.md`'s), UC-087, UC-088; FEAT-018 (the assistant-side canvas write only) — UC-076, UC-077; US-086, US-087; **FEAT-021 (the runtime half only)** — UC-108, UC-109; US-129, US-130, US-131, US-132
+
+This document realizes the **FEAT-013 runtime**; the **FEAT-020 configuration requirements it consumes (UC-095, UC-096, UC-097, US-110..US-114) are realized by `assistant-config.md`** — the runtime reads that stored configuration but does not implement the admin surface.
+
+How the stored FEAT-020 configuration plus the author's request become **one live assistant call**: which mode the turn runs in, what system prompt it carries, which tools it may call, how the tool loop is driven, how a sub-agent is delegated to, which model answers, and what comes back over the wire.
+
+This is the **built slice of the otherwise-deferred FEAT-013 assistant subsystem**. `assistant-config.md` holds the configuration model it reads. `domain-chat.md` holds the `Chat` / `ChatMessage` entities and the boundary of what remains deferred.
+
+> **Provenance.** This document was carved out of `assistant-config.md` on 2026-07-29, when features `011.chat-panel` and `013.codex` built the runtime out and the combined file outgrew the folder's ~400-line rule. The configuration half stayed there; everything here moved, and was extended with what those two features shipped.
+
+Index and cross-cutting conventions: `domain-model.md`. Related: `assistant-config.md`, `domain-chat.md`, `frontend-workspace.md` (the activity that determines the mode), `frontend-work-drafts.md` (the canvas target registry and the restore buffer), `retrieval.md` (what the codex search tool queries), `backend/persistence.md` (settings, secrets, the `$ENV` indirection), `backend/features.md` (the shipped route inventory).
+
+## The as-built modules
+
+| Module | Owns |
+|---|---|
+| `services/assistant_runtime.py` | mode determination, mode prompt lookup, tool allowlist resolution |
+| `services/subagent_delegation.py` | synthetic delegation tools and the nested loop |
+| `services/codex_tools.py` | the first mode-gated tools, including the shared-canvas write |
+| `services/chapter_tools.py` | the chapter read path and the three chapter canvas writes (feature `015`) |
+| `services/close_tools.py` | the five close-chapter tools, including the consistency check (feature `016`) |
+| `services/memo_tools.py` | the `create_memo` tool — the first tool with a database write behind it (FEAT-021) |
+| `services/prompt_composition.py` | the pure prompt-composition function |
+| `services/chat_turn.py` | **the single call site** that composes them all |
+
+**The runtime reads the five FEAT-020 `db/` modules directly and never touches `services/assistant_config.py`.** It therefore carries **no dependency on feature `012.assistant-config-editor`** — the config half and the runtime half were built independently against the same tables. This is deliberate and worth keeping: the admin editor's validation and error taxonomy are a write-edge concern (`assistant-config.md`), and importing them into a read path would couple a turn to CRUD rules it does not need.
+
+## Mode determination — from the workspace activity
+
+The runtime "current mode" is **not stored on a chat** (a chat is not bound to a subject — `domain-chat.md`); it is derived from the **workspace activity** — which navigator subject / content-pane artifact the author is acting on (`frontend-workspace.md`). The mapping resolves FEAT-013's coarse "chapter mode / codex-entry mode" to FEAT-020's five:
+
+| Workspace subject | FEAT-013 coarse mode | FEAT-020 mode |
+|---|---|---|
+| Codex entry, `kind = character` | codex-entry mode | `edit-character` |
+| Codex entry, `kind = location` | codex-entry mode | `edit-location` |
+| Codex entry, `kind = fact` | codex-entry mode | `edit-fact` |
+| **Characters list** | codex-entry mode | `edit-character` |
+| **Locations list** | codex-entry mode | `edit-location` |
+| **Facts list** | codex-entry mode | `edit-fact` |
+| Chapter in state `open` | chapter mode | `write-chapter` |
+| Chapter in state `closing` | chapter mode | `close-chapter` |
+
+`close-chapter` mode is the assistant's behaviour **while a close run is streaming** for a chapter in `closing` (feature `016`; the procedure is `domain-continuity.md`'s). That the chapter body is **read-only** in that state (`frontend-workspace.md`) is orthogonal — the mode selects prompt and tools, not write permission. Subjects outside these five (Book state, the chapters and variants lists, the chats view) fall **outside FEAT-020's mode set**; what the assistant may do there is answered under "Tool gating" below, not left open.
+
+#### A lore list resolves to its entries' mode — the same row, not a twin
+
+The three codex lists are **not** mode-less, and they do **not** have list-specific modes of their own: the characters list resolves to `edit-character`, the locations list to `edit-location`, the facts list to `edit-fact` (`services/assistant_runtime.py:_CODEX_LIST_MODES`). Browsing the lore and editing it are **one activity** — the author creates an entry *from* the list, and `create_codex_entry` takes its `kind` as a model argument and reads no subject at all, so it works there unchanged. A separate row would make an administrator tune the same guidance twice and let the two copies drift.
+
+This is the **one branch of `determine_mode` keyed off the subject's `kind`** rather than off a loaded row: a list carries no id, so there is nothing to load. The three branches are ordered most-specific-first (`entry` → `chapter` → `kind`), so a codex entry is never mistaken for its list.
+
+**Before this mapping the three lists fell to `BASE_TOOL_NAMES`** — `web_search` and nothing else — so on the characters list the assistant could not search the codex it was being asked about, nor create the entry the list exists to collect. That was an unintended consequence of "no mode ⇒ base tools", not a decision.
+
+`write_codex_draft` stays in the allowlist on a list, and that is correct rather than an oversight: `services/codex_tools.py:_refuse_write` refuses any subject whose `kind` is not `codex-entry` and returns the refusal **to the model**, which is a better answer than an absent tool — the model learns why and can reach for `create_codex_entry` instead. The three seeded codex prompts name both situations explicitly.
+
+#### The chapter rows were design only until feature `015.chapter-writing-free-mode`
+
+The table above read as as-built. **Half of it was aspirational**, and which half matters to the next feature that adds a mode-bearing subject. Until `015`, `determine_mode` (`services/assistant_runtime.py`) was, verbatim, `if subject.entry is None: return None` / `return _mode_for_codex_kind(subject.entry.kind)`, with `_CODEX_KIND_MODES` mapping only the three codex kinds. **No chapter handling existed**, and the function's own docstring assigned the two chapter modes to `015` / `016`.
+
+As built now:
+
+- an **`open`** chapter subject resolves to **`write-chapter`**;
+- a **`closing`** chapter resolves to **`close-chapter`**;
+- a chapter in **`planned`** or **`closed`** resolves to **no mode** — and therefore to `BASE_TOOL_NAMES`, which was **exactly `("web_search",)`** at feature `015` and is **`("web_search", "create_memo")`** since FEAT-021 — not an empty allowlist. "No mode" is never "no tools" (see "Tool gating", case 2).
+
+Two changes carried it, and the second is the one worth remembering:
+
+- **`ResolvedSubject` gained a chapter member** beside its `entry`.
+- **The early return had to move from "no codex entry" to "no subject at all".** Left as it was, the chapter branch would have been unreachable while every codex test still passed — a silently dead branch rather than a failure.
+
+**The cross-book rule applies unchanged.** A `subject_id` naming a chapter in **another book** resolves to no subject, exactly as stated above for a codex entry, and it is implemented by the **same resolution step** rather than by a second check.
+
+**`allowed_tool_names` and `resolve_turn_tools` were not touched.** The three-case gating below already handled everything once a mode key existed.
+
+#### The five seeded modes are load-bearing for a silent failure
+
+`determine_mode` returning a mode **key with no `AssistantMode` row** fails **silently**: the mode-prompt lookup and the `mode_tool` lookup (`db/mode_tools.py`) both come back empty, the turn runs with base tools and no mode prompt, and nothing errors. The five rows are seeded by `seed_default_modes()` on **both first-run paths** and are idempotent by `key` (`assistant-config.md` → the seeding section), which is why the chapter branch could be added with no seeding work at all.
+
+The coupling is worth naming anyway, because **a returned key and a stored row are two different things** and nothing else connects them in prose. Feature `015` added a regression assertion that a freshly initialised database carries the `write-chapter` and `close-chapter` rows. The next mode-bearing subject will meet the same silent path.
+
+### The wire shape it derives from
+
+The workspace activity reaches the backend as **four optional flat fields on `TurnRequest`**: `subject_kind`, `subject_id`, `codex_kind` and — since feature `015` — the author's **current selection text** (see "The shared-canvas write for chapters" below for why it is text only and why it is flat). There is **no subject object on the request** and none was introduced. Two rules are load-bearing:
+
+**Why `codex_kind` exists at all.** UC-076 opens a *blank* codex entry with no row behind it, so the kind cannot be read off a row — and without the request carrying it, mode determination would be impossible for exactly the case FEAT-018 is about. For an **existing** entry the row's `kind` wins and the request's `codex_kind` is ignored; the client cannot talk the runtime into a different mode for a row that already says what it is.
+
+**A `subject_id` naming an entry in another book resolves to no subject**, not to that entry's mode. Mode determination reads a row, so it would otherwise be a cross-book read dressed as a routing hint. No subject means no mode, which means the base tool set (below) — a safe, non-leaking fallback.
+
+**`SubjectKind` gains a `memos` member (FEAT-021) — a wire-honesty change, not a routing one.** Every other navigator destination already has a kind, **including the three mode-less ones** (`chapters`, `variants`, `chats`), so a mode-less kind is the existing precedent rather than a new category; the memos list registers its subject like every other content-pane page, and `TurnRequest.subject_kind` therefore carries `memos` from that page rather than `null`. **Behaviour is identical either way** — nothing keys a mode off `memos`, so the turn lands in tool-gating **case 2** whichever value is sent. The kind exists so the wire is honest about what the author is looking at. Stated explicitly because the two are easy to conflate: **`ResolvedSubject` is still not widened with a memo member, and `determine_mode` still gains no branch.** A `SubjectKind` member and a `ResolvedSubject` member are different things, and this round adds only the first.
+
+## System-prompt composition
+
+When the assistant runs (US-110.AC-3), the runtime composes the **named** system prompts in this fixed order, each as its own delimited section:
+
+```
+1. base prompt      — app-level assistant identity (a module constant)
+2. mode prompt      — AssistantMode.system_prompt      (admin: how to behave in this activity)
+3. author prompt    — BookAuthorPrompt.system_prompt   (the author running the turn; per-author, not per-book)
+4. memos            — the author's ACTIVE memos, in their own ordinal order (FEAT-021)
+5. chapter prompt   — ChapterAuthorPrompt.system_prompt (chapter subjects only; the caller's own row)
+```
+
+The section label the runtime renders for layer 3 is **`AUTHOR`**. The parameter was **renamed, not merely repointed**: a parameter named `book` carrying an author's prompt is a trap for the next reader, and the rename is the cheap way to stop that reading before it starts.
+
+**An empty or absent prompt contributes nothing** — no section, no separator, no blank block (US-110.AC-4 for the mode prompt; the chapter prompt is optional by FEAT-019). Composition concatenates only the non-empty layers, in the order above.
+
+Realized as a **pure function** in `backend/app/services/prompt_composition.py` taking **five** optional layers, with the base layer as a module constant. Pure because composition has no reason to touch a session or a clock, and because the ordering and skip rules are exactly the kind of thing that should be testable without a database.
+
+**Why this order.** The base establishes ground identity; the **mode** prompt layers the admin's operational "what activity is this and how to behave in it"; the **author**, **memo** and **chapter** layers belong closest to the material. Most-general → most-specific, admin → author, the most-specific layer nearest the task. The mode prompt is orthogonal to the author and chapter prompts (admin authorship vs author authorship, FEAT-020 vs FEAT-019), so the two never contend for the same slot.
+
+> The earlier justification — that the chapter prompt must follow the book prompt because FEAT-019 defines it as *narrowing* the book's — **no longer holds and has been removed.** There is no book-wide layer left for it to narrow. The ordering survives on the argument above alone.
+
+**The chapter layer is passed, and its caveat is closed (feature `015.chapter-writing-free-mode`).** This section used to carry a caveat saying that `Chapter.system_prompt` had nothing left to append to and that the question was `014.chapter-skeleton`'s to answer. It is answered: `014` replaced the field's *meaning* with a **per-author `ChapterAuthorPrompt`** row (`domain-chapter.md`) and left the column dormant, and **`015` passes that row as the last layer** for turns whose subject is a chapter. (It was **layer 4 until FEAT-021 inserted the memos layer above it**; it is layer 5 now, and its position — last, nearest the task — is unchanged.) It is read for **the chat's own author**, through `db/chapter_author_prompts.py` **directly — no `BookAccess`** — the identical reasoning layer 3 carries below. **`Chapter.system_prompt` is read by nothing, still.**
+
+**Why it became passable is the reusable part.** `014`'s stated blocker was "which chapter is this turn about", which it read as undesigned context assembly. That blocker was **dissolved by `015`'s subject registration, not by designing context assembly**: `015` registers the open chapter as the content-pane subject, so the **turn request itself** answers the question. **Context assembly remains undesigned and out of scope** — nothing about US-057 or UC-085/086/078 changed, and its entry under "Out of scope — still deferred" stays exactly where it is.
+
+**How the runtime obtains layer 3.** `services/chat_turn.py` reads the `(book_id, author_id)` row through the `db/` module **directly** (`services → db`, the enforced direction), using **the chat's own author** — the same identity `services/chats.py`'s ownership guard scopes every chat read and write to. **No `BookAccess` is built for this**, and the reason matters: the turn is already scoped to the chat's author by construction, so a second access resolution would re-derive an identity that cannot differ. "Whose prompt?" is now a real question with a non-obvious answer, and this is the answer every future runtime slice must reuse.
+
+### Layer 4 — the author's active memos (FEAT-021)
+
+The section label is **`MEMOS`**. **Realizes US-131**: **every** one of the author's active memos is present (AC-1), **in the author's ordinal order** (AC-2); inactive and archived memos contribute nothing (AC-3). Active-and-not-archived is a derived reading rule, not a stored state — `domain-book.md`.
+
+**Why position 4, beside AUTHOR rather than after the chapter prompt.** A memo is **per-author-per-book** — the same scope as layer 3 — so it sits beside the AUTHOR layer, while the chapter prompt stays the most-specific layer, nearest the task. The most-general → most-specific, admin → author argument above is **preserved, not replaced**; the new layer slots into it rather than bending it.
+
+**The empty-contributes-nothing rule extends unchanged.** An author with **no active memos contributes no section, no separator and no blank block** — exactly as an empty mode or chapter prompt does.
+
+**How the runtime obtains it — layer 3's resolution copied exactly.** `services/chat_turn.py` reads `db/memos.py` **directly** (`services → db`, the enforced direction) for `(book_id, <the chat's own author>)`, with **no `BookAccess` built**, on the identical reasoning layer 3 carries above: the turn is already scoped to the chat's author by construction, so a second access resolution would re-derive an identity that cannot differ. **Rendering the set into one section string happens *before* the pure function** — the composer gains a fifth optional **string** layer and nothing else, never learns what a memo is, and still has no reason to touch a session. That same rendered string is what delegation receives (below), which is what makes the parent and every sub-agent see an identical set.
+
+#### Memos are not context assembly — the deferral is unchanged
+
+Stated prominently, because a reader who sees author-written material entering the prompt will conclude the deferred context-assembly work shipped. **It did not.**
+
+> Context / content assembly is about **retrieved** material — building, ordering, ranking and truncating book/chapter/codex content that the *system* selected (US-057, UC-085/086/078). A memo is **authored, standing, and selected by nobody.** There is no retrieval, no ranking, no relevance question and no truncation decision. Memos therefore belong with the **named system prompts**, which is what this composer has always composed.
+
+Consequently the **"Out of scope — still deferred" list below is unchanged**: context assembly, token-level canvas streaming, token budgeting and UC-078's relevance criterion all stay exactly where they are — said here explicitly rather than left to inference. **Product narrowed its own context-assembly non-goal rather than reversing it:** the *observable* promise is only that the assistant receives the author's active memos in the author's order, and **where the memo block sits relative to chapter text, summaries or state notes is still architecture's question, which product does not answer** (UC-105's postcondition, US-131's source note). What this design *does* answer is the narrower question — the memos layer's position **among the named prompt layers**, above.
+
+**Decision history.** At feature `011.chat-panel` the layers were `base / mode / book / chapter`, and only **base and book** were ever non-empty — the mode was always null (no mode-bearing subject existed yet) and `Chapter.system_prompt` had no chapter subject to come from. Feature `013.codex` made **layer 2** reachable, with the three codex modes. Feature `021.per-author-system-prompt` replaced layer 3 `BOOK` with `AUTHOR`. Feature `015.chapter-writing-free-mode` made the **chapter layer** reachable for the first time, from `ChapterAuthorPrompt` rather than from the dormant column — it was numbered 4 then. **FEAT-021 inserted `MEMOS` at position 4 and pushed the chapter prompt to 5**, the first time the composition grew a layer rather than repointing one. That is history, not current state.
+
+Only the composition of these named prompts is in scope here. Assembling retrieved book/chapter/codex **content** into context (US-057, UC-085/086/078) stays deferred — see "Out of scope" and `retrieval.md`.
+
+## Tool gating
+
+The settled rule is **three cases, not two**:
+
+1. **A mode-bearing subject** gets **exactly its `mode_tool` rows.** Zero rows is an **empty allowlist**, not the whole registry (`assistant-config.md` carries the reasoning). A tool not selected for the mode is never built into the definitions, so it is unavailable to the model in that mode (US-111.AC-2). **The rule is unchanged by feature `024`; the starting state is not** — the five modes now **seed with a default tool set**, so the codex modes (`edit-character` / `edit-location` / `edit-fact`) resolve by default to `web_search`, `codex_search`, `codex_read_entry` and `write_codex_draft` rather than to nothing. A mode an administrator has since edited down to zero rows still gets an empty allowlist.
+2. **A subject with no mode** — book state, the chapters and variants lists, the chats view, **the memos list**, or no subject at all — gets a code-defined **`BASE_TOOL_NAMES`**, holding **`web_search` and `create_memo`** (FEAT-021 widened it from one entry to two; see below). **The three lore lists are no longer in this case**: they carry their entry mode and therefore case 1's `mode_tool` rows (see "A lore list resolves to its entries' mode" above).
+3. `services/tools.py:resolve_tools`'s **`None ⇒ whole registry` branch is no longer reached by the turn.** Feature `011.chat-panel` opened that seam; feature `013.codex` closed it.
+
+#### `BASE_TOOL_NAMES` widens to two entries (FEAT-021)
+
+`create_memo` joins `web_search` in the base set **and** is additionally seeded into all five modes' `mode_tool` rows (`assistant-config.md`). Both halves are needed, and each does a different job.
+
+**Why BASE.** Product put memos **outside FEAT-020's mode set on purpose** — no sixth mode; the memos list joins FEAT-020's stated non-goal list as navigation, not authoring. So the memos list, Book state, the chapters / variants / chats lists and any `planned` or `closed` chapter all fall into case 2. With `create_memo` mode-gated only, asking the assistant to create a memo would fail **on the memos list itself and on the landing view** — the same shape as the lore-list defect feature `025` fixed, where the assistant could not search the codex it was standing in front of. Widening BASE prevents that **by construction**, rather than by growing a mode taxonomy product deliberately declined to grow.
+
+**Why the seeded `mode_tool` rows too: they are what keep US-129.AC-5 reachable.** An administrator can still edit a mode down and remove `create_memo` from it, and the visible refusal is then observable — so UC-108's FEAT-020 precondition and US-129.AC-5's criterion stay **testable rather than vacuous**. BASE covers only the **no-mode** case; it does **not** override a mode's allowlist.
+
+**Widening BASE is safe**, because `create_memo` binds `book_id` from `ToolContext` (which comes from the route) and the author from `access.user_id` — **never from the resolved subject**. The cross-book rule is therefore untouched: a `subject_id` naming another book's row still resolves to no subject, and `create_memo` still writes only into the book the route named. **`ResolvedSubject` is NOT widened and `determine_mode` is NOT touched** — the memos list is not a mode-bearing subject and adds no branch, which is worth saying because the last two mode-bearing surfaces each cost one. The constant's meaning shifts by one word: `BASE_TOOL_NAMES` now reads as *"the tools that make sense regardless of what the author is looking at"*, which is what it was always for — feature `011` simply had only one such tool.
+
+**Case 2 is the load-bearing part, and it was a new decision made during `013.codex`'s planning.** Without a base allowlist, wiring real gating would have **silently stripped web search from the chats view feature `011.chat-panel` had just shipped** — a null mode would then have meant "no tools". A capability disappearing as a side effect of tightening a different rule is the failure mode this case exists to prevent.
+
+**Mechanics.** Read the mode's `mode_tool` rows → resolve each `tool_name` against `TOOL_REGISTRY` → build the OpenAI tool definitions with `pydantic_to_openai_tool(name, description, args_schema)` and a name→callable map (context-bearing tools bound from the turn's `ToolContext` — `assistant-config.md`). A selected name with **no registry entry is skipped and logged**: the code catalogue is the source of truth and a selection is only an allow-mark. Allowlist resolution deliberately does *not* filter against the registry itself, so the skip-and-log rule lives in exactly one place.
+
+**Decision history, three lines.** Feature `011.chat-panel` shipped an interim rule where **a null mode allowed the whole `TOOL_REGISTRY`**, because no mode-bearing subject existed yet — a deliberate temporary widening of an allowlist, recorded as a seam rather than discovered later as a hole. Feature `012.assistant-config-editor` explicitly left the seam in place and named `013.codex` as its owner; `013.codex` closed it as above. **Feature `024.chat-agent-loop` ends the history not with the empty allowlist but with seeded defaults** — every mode starts with a tool set and a system prompt, and an administrator edits *down* from there rather than *up* from nothing.
+
+## The tool / function-call protocol — built on `chat_with_tools`
+
+The protocol is the `llm` client's built-in agent loop:
+
+```
+chat_with_tools(
+    messages,
+    tools_definitions = [pydantic_to_openai_tool(t.name, t.description, t.args_schema) for t in allowed],
+    tools            = {t.name: t.callable for t in allowed},   # + synthetic delegation tools, below
+    system           = composed_prompt,
+    max_loops        = MAX_LOOPS,
+) -> str    # final assistant text only
+```
+
+`chat_with_tools` **owns the loop**: it dispatches to the callables (sync or async), iterates up to `max_loops`, and returns the **final assistant string only** — it surfaces no per-tool-call events. `MAX_LOOPS` is a module constant in `services/chat_turn.py`, **4** as shipped.
+
+**The seam, recorded with reasoning.** Choosing the built-in loop was deliberate. It satisfies everything the FEAT-020 runtime needs — prompt composition, tool gating and delegation all resolve *before and around* the call — and it avoided pulling forward a manual driver (calling `chat` in a loop, dispatching tools and emitting SSE per step) before anything needed per-step visibility.
+
+**The seam is realized as designed** (`011.chat-panel`): `chat_with_tools` is called from **one place**, `services/chat_turn.py`, and the config model, registry, gating and composition are all independent of it. Swapping in a manual driver is therefore an **interior change**.
+
+**The shared-canvas write did not force the swap** (`013.codex`), and the reason it did not is the design's load-bearing part. This document previously predicted that the canvas protocol would require driving the loop manually. It did not: the canvas tool **emits its frame onto the same `asyncio.Queue` `run_turn` already pumps** for `thinking` and `delta`, so a tool can reach the wire without the loop surfacing anything per-step.
+
+**Accepted consequence: the draft arrives whole, not streamed.** `chat_with_tools` hands a tool its arguments only after the model has finished emitting them, so the canvas frame carries a complete draft rather than growing token by token. **Token-level canvas streaming remains the later manual-loop swap**, and the seam is still replaceable.
+
+## Sub-agent delegation — allowed sub-agents as synthetic tools
+
+A mode's allowed sub-agents (`mode_subagent` rows, **excluding `disabled` ones**) are exposed to the parent assistant as **synthetic tools** — one per sub-agent, alongside the real `TOOL_REGISTRY` tools in the same `tools` / `tools_definitions` maps. Invoking a synthetic tool runs a **nested, bounded `chat_with_tools`** for that sub-agent, with:
+
+- the sub-agent's own `system_prompt` as `system`, **plus the `MEMOS` section and nothing else** — not the mode, author or chapter layers. This **narrows a question this section previously parked**; see below;
+- its own tool allowlist (`subagent_tool` rows → `TOOL_REGISTRY`) — **tools only, never other sub-agents**, so the nested loop cannot itself delegate;
+- its own model (assigned, or inherit-parent — below);
+- its **own `max_loops` constant, separate from `chat_turn.MAX_LOOPS`**, so tightening the parent's bound does not silently retune delegation.
+
+The nested call's returned string becomes the synthetic tool's result to the parent. **Only sub-agents in the mode's set are invokable** (US-112.AC-3), and a disabled one is invokable through neither its (deleted) links nor a stale reference — the runtime filters on `disabled` as well. This is the concrete form of UC-088's "sub-agent scoped check", and the one-level-deep bound is structural (no `subagent_subagent` table) plus the per-call `max_loops`.
+
+**As built** (`013.codex`, `services/subagent_delegation.py`):
+
+- Synthetic tools are derived **one per non-disabled sub-agent of the mode**, with names **derived and sanitised from `SubAgent.name`, not stored**. Nothing persists a tool name for a sub-agent, so renaming one cannot leave a stale identifier behind.
+- A **collision guard** protects the derived names — against real `TOOL_REGISTRY` names and against each other. A colliding name is **skipped and logged**, and **the real tool always wins**: a registry entry is code the system depends on, while a synthetic name is a derived convenience.
+- The nested call receives the sub-agent's `system_prompt` alone, its `subagent_tool` allowlist only, and its own `max_loops`.
+- Every delegation failure — a missing or inactive assigned server, an unresolvable credential, a transport or LLM error, a raising nested tool, an exhausted nested loop — comes back to the parent as a **short error string**, never an exception: a raising tool would abort the whole turn.
+
+### The parked question is answered, narrowly (FEAT-021)
+
+This section used to give a sub-agent its own `system_prompt` **alone**, and explicitly parked "whether the author's voice should thread into delegated work" as *"a later question, not decided here"*. **US-132.AC-2 forces it open**, and the answer is deliberately narrow rather than wholesale: the nested `chat_with_tools` call's `system` becomes the sub-agent's own `system_prompt` **plus the `MEMOS` section**, and nothing else — not the mode, author or chapter layers.
+
+- **Reasoning.** Product requires memos in *every* delegated run and requires nothing else to thread through. Threading the whole composition would end the sub-agent's **self-contained admin-configured worker** property. Threading memos alone keeps that property for **behaviour** — how the worker works is still the admin's alone — while honouring the author's standing **facts**. The broader parked question, whether the author's *voice* belongs in delegated work, **stays open**; it was narrowed, not closed.
+- **Mechanically, the memo section is rendered once**, in `services/chat_turn.py`, and passed to **both** the composer and the delegation builder. It is **not re-read in `services/subagent_delegation.py`**. Two reasons: one DB read per turn, and — the load-bearing one — it guarantees the parent and every sub-agent see the **identical** set. A second read could pick up a memo the `create_memo` tool added mid-turn, and parent and child would then disagree about what the author asked to be remembered.
+- **Realizes US-132.** AC-2 is this subsection; **AC-1 falls out of the composition itself** — every mode composes the same five layers, so no mode can be missing the memos layer.
+
+**Clients are constructed per delegation, not cached.** This closes an open note the design previously left to the planner. `LLMClient` must be entered as `async with` and has **no standalone `close()`**, so a cache would have to own client lifetimes across a whole turn — real bookkeeping, for a call already bounded by `max_loops`. The construction cost is not worth the lifetime problem it would create.
+
+## Model resolution
+
+For a sub-agent with a set `(llm_server_id, model_name)`, the runtime constructs a client:
+
+```
+get_llm_client(
+    server_type = <mapped from LlmServer.backend_type>,   # ollama | openai | llamaswap
+    base_url    = LlmServer.base_url,
+    model       = model_name,
+    bearer_token= resolve_env_ref(LlmServer.api_key),      # services/secrets.py, $ENV at use time
+)
+```
+
+For a sub-agent with a **null** assignment, the runtime uses the **parent turn's own server, resolved key and model** (US-113.AC-6).
+
+**The main chat's model is chosen by the author, per chat.** It is stored as a `(llm_server_id, model_name)` pair on `Chat` and picked from the active servers' `enabled_models` (`domain-chat.md`). This was previously recorded here as an open FEAT-013 `_TBD:`; it was **resolved by a user decision during `011.chat-panel`'s planning**, not by inference. `docs/product/` FEAT-013 still records it as open — that is **`/product-spec`'s to close**, a follow-up, not an architecture edit.
+
+**A set-but-unusable assignment is a delegation failure, not an inherit-main fallback.** The two happy cases above say nothing about a sub-agent whose assigned `LlmServer` has been deleted, deactivated, or carries an unresolvable `$ENV` key. As built, the delegation **does not silently fall back to the parent's model** — it returns a short error string to the parent loop. The reasoning: a sub-agent explicitly assigned a model **is not the same worker when run on someone else's**, so quietly substituting one would produce output the admin did not configure and could not detect.
+
+### Client construction — one path, and one known leak
+
+`services/llm_servers.py` grew a **model-bound** construction path beside the pre-existing `_create_client` (which hardcodes `model=""` for `list_models()` and is a documented test seam); both share one `backend_type` → `server_type` branch, so the mapping (`"llama-swap"` → `"llamaswap"`) lives in exactly one place. Clients are entered as **async context managers**, because `LLMClient` exposes `__aenter__` / `__aexit__` and **no standalone `close()`**.
+
+**Known defect, recorded once rather than rediscovered:** the pre-existing `_create_client` / `list_models` path **still leaks its `aiohttp.ClientSession`**. It was deliberately out of scope for `011.chat-panel` and is **still open** — worth its own fix.
+
+### Two `llm-client` v0.1.5 constraints that shape every sampling decision
+
+Verified during `011.chat-panel`. These are dependency facts that silently change behaviour and would otherwise be re-discovered by whoever next touches sampling.
+
+- **(a) Options are filtered against a hardcoded allowlist** — `temperature`, `top_p`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `seed`, `enable_thinking`, `reasoning_effort`. Consequently **`top_k`, `repeat_penalty` and `min_p` are persisted by feature `011.chat-panel` but cannot reach either backend.** They go live with **no schema and no API change** if the dependency is patched — which is why they are stored anyway.
+- **(b) The allowlist always injects** `temperature=1.0` / `top_p=1.0` / `presence_penalty=0.0` / `frequency_penalty=0.0`. So **"unset means server default" is not expressible**, and there is **no `extra_body` escape hatch**.
+- **Sampling emission is backend-conditional, in two arms:** a `llama-swap` server receives the **full sampling set**; an `openai` server receives **`enable_thinking` alone**. The second arm is `fast/011.tools-path-reasoning`'s change to `build_sampling_options`, a **narrow partial reversal** of `011.chat-panel`'s decision 4 / DoD-6. That decision still stands for everything else: the llama.cpp-specific params do not belong on an OpenAI endpoint. `enable_thinking` crosses alone because it is the one param in the set the OpenAI path genuinely supports — the `llm` library maps it to `reasoning_effort` for OpenAI models.
+
+## The SSE frame vocabulary
+
+Seven named frames as shipped: **`thinking`, `delta`, `done`, `error`** (`011.chat-panel`), **`canvas`** (`013.codex`), and **`tool_call` / `tool_result`** (`024.chat-agent-loop`). The first four were chosen to match what the frontend's `api/sse.ts` already special-cases, so the first streaming surface in the repo needed no transport work.
+
+`tool_call` carries `ToolCallFrame(tool_name, arguments)` and `tool_result` carries `ToolResultFrame(tool_name, result, ok)`. Two properties are worth stating:
+
+- **They are emitted generically, by a wrapper around every bound tool** — not by individual tools calling the emit function for themselves, which is how `canvas` works. A tool added later therefore gets visibility **for free**, and cannot forget to.
+- **Tool arguments arrive whole, not streamed** — the same accepted-whole property `canvas` already has, and for the same reason: the loop hands a tool its arguments only after the model has finished emitting them.
+
+The standing two-seam warning below applied again here. **Both new frames needed their own client-side narrowing functions**, each dropping a malformed payload **whole** rather than forwarding a half-built frame.
+
+`canvas` carries `CanvasFrame(subject_kind, subject_id, field, op, text)`. Two properties make it safe to add:
+
+- the emitting tool **touches no database** (see below), so a frame can never be mistaken for a write;
+- `routes/chats.py`'s serializer is **generic over the event name** — `event: <name>` / `data: <payload JSON>` — so a new frame needed **no route change** at all.
+
+`field` exists because a character entry has both a `name` and a `body`, and the assistant may draft either. `op` — the operation discriminator added by feature `015` — is described under "The shared-canvas write for chapters" below.
+
+**Widening a frame has two client seams, not one** (feature `015`, learned the hard way). A field added to a frame on the backend must be
+
+1. declared in the frontend's hand-written `.d.ts` twin, **and**
+2. carried through **`api/chats.ts`'s module-private `canvasFrame` narrowing** — the place a frame is **reconstructed field by field** on the client before it reaches the dispatcher.
+
+The narrowing **silently drops any field nobody added to it**, and it is invisible to page-level specs, which deliver frames by calling the real dispatcher rather than by crossing the wire. `015`'s `op` discriminator was lost exactly there and no automated criterion could see it. Treat the narrowing as part of the frame's declaration, not as transport.
+
+**This vocabulary is deliberately narrow — a floor, not the design.** Feature `011.chat-panel` recorded its four frames as exactly that; `013.codex` was the first widening, `015.chapter-writing-free-mode` the second (a field on an existing frame) and `024.chat-agent-loop` the third. **Token-level streaming is still undesigned.** A shipped frame set tends to be read as the protocol; it is not.
+
+## Tool-call visibility (feature `024.chat-agent-loop`)
+
+**Realizes:** UC-102, US-120 — the author sees what the assistant did during a turn.
+
+Every entry of a turn's tool map is **wrapped once, uniformly**, in `services/chat_turn.py`, closing over the turn's frame emitter and a per-turn trace list. The wrapper emits `tool_call` before the call and `tool_result` after it, and appends the same pair to the trace.
+
+- **`chat_with_tools` itself is unmodified and unforked.** This is the **third** time the built-in loop survived a feature that looked like it would force a manual driver, and it survived for the same reason as the two canvas features: the wrapper reaches the wire through **the queue the turn already pumps**, so nothing needs per-step visibility *from the loop*.
+- **BookWriter has exactly one `chat_with_tools` call site**, so the wrapper is written **once**. (The reference project this pattern generalizes from duplicated it three times — one wrapper per call site — which is the cost of not having that single seam.)
+- **The wrapper never raises.** A raising tool becomes an **error-string result with `ok=false`**; a **failed frame emission is swallowed**, and the tool's real result still reaches the model, the trace and the caller. A lost visibility frame must never rewrite what the assistant was told a tool returned. Note the tension the implementation had to resolve: "convert any exception to an error result" and "never let a failed frame emission abort the tool call" **contradict each other if read distributively**, and the invariant that wins is the dominant one — *a tool never raises*, and a visibility failure is not a tool failure.
+- **The assembled trace is persisted onto the assistant message** (`ChatMessage.tool_trace`, `domain-chat.md`), so the record survives a reload and belongs to the **answer** rather than to the session.
+
+## The shared-canvas write for codex, as built
+
+A **mode-gated `write_codex_draft` tool** validates editability **server-side**, emits **one `canvas` frame**, and **persists nothing**.
+
+**There is no chat → codex write path, by construction.** US-086.AC-2 / US-087.AC-2 / US-088.AC-2 hold **structurally, not by a check**: no code path exists from a chat turn to the `codex_entries` table. The canvas tool reads the resolved subject and writes a frame; the only writer is the ordinary codex route the author calls on save (UC-069 / UC-070, `domain-codex.md`). "Nothing persists until saved" is normally an assertion about a check; here it is a structural property, **and that is worth more than the check would be** — a check can be bypassed by a later code path, an absent dependency cannot.
+
+The frontend half — the module-level canvas target registry, and the restore buffer as the fallback when no target is registered — is **`frontend-work-drafts.md`**'s; it is not duplicated here.
+
+**The editability rule now has two implementations, deliberately.** `services/codex_tools.py:_refuse_write` is the assistant's **server-side mirror** of `frontend/src/work/subject.ts:checkWritePermission`, and **its refusals are tool strings, not HTTP statuses**. The assistant's canvas write is refused with a message **the model reads**; the author's save is refused with the 403 / 400 / 409 taxonomy `services/codex.py` owns. The two speak different languages **by design**: a raising tool would abort the turn, so the assistant's refusal must be something the model can respond to rather than an exception. Both express the same rule — a read-only subject refuses the author and the assistant alike.
+
+## The shared-canvas write for chapters, as built
+
+**Realizes:** FEAT-013 / UC-055 — shipped by feature `015.chapter-writing-free-mode`. This document listed the chapter protocol as undesigned in three places (here, `backend.md` and `docs/architecture/CLAUDE.md`); it is designed and built, and all three lists have been shortened. A reader who trusts a stale "deferred" list builds a second protocol.
+
+**Four tools in `services/chapter_tools.py`** — a read path returning the chapter's **saved** body, and three writes: the **whole body**, the **author's current selection**, and **append-to-end**. All four are **context-bearing** (bound from the per-turn `ToolContext`, `services/tools.py`), mode-gated, and registered in `TOOL_REGISTRY`.
+
+**`CanvasFrame` gained an operation discriminator** (`models/schemas/chats.py`) — replace / append / replace-selection — **defaulted to replace**. The default is what made the widening free: there is exactly **one** canvas emission in the codebase (`services/codex_tools.py`), it is unchanged, and **no codex file was edited at all**. On the client the registered apply-draft callback's **type** widened by one optional parameter, which a two-parameter implementation still satisfies, so `CodexEntryPage` was not modified either. (The one thing that did not come free is the client-side narrowing — see "The SSE frame vocabulary" above.)
+
+**The rejected alternative for the operation:** encoding it into `field` as `"text.append"`. Refused for the reason `domain-chapter.md` gives for storing placement as a discriminator plus columns — a discriminator keeps "which part of this is meaningful" answerable **without parsing**.
+
+**`CanvasField` was deliberately NOT widened**, and this is the first thing a reader will expect to have changed. It stays `Literal["name", "body"]`, because **a chapter's body *is* the `"body"` field** — the same principal text field a codex entry uses. Adding a `"text"` member would give one concept two names across two subjects, for no gain.
+
+**`TurnRequest` gained an optional selection text** — a **fourth flat field** beside `subject_kind` / `subject_id` / `codex_kind`. **Text only: no offsets and no line numbers**, never persisted; `ToolContext` gained the same text as a fifth field. Two reasons, both structural:
+
+- only the **finished body** is saved, so a selection never has to survive a request;
+- **`ChapterChange.line_from` / `line_to` deliberately never expresses it**, because snapping character offsets onto line numbers is lossy in exactly the way the stale-change rule (`domain-chapter.md`) refuses.
+
+**The refusal mirror.** `chapter_tools.py`'s `_refuse_write` counterpart refuses a **non-chapter subject**, a chapter **not in `open`**, an **archived book**, and a **co-author in proposal mode** — each as a **tool string, never an exception**, on the codex mirror's reasoning above. The last two are **field reads off `ToolContext.access`**, which already carries `book_state`, `collaboration_mode` and `role`: the assistant-side mirrors of the archived-book and proposal-mode rules (`authorization.md`) needed **no new plumbing at all**. The chapter row of the two-implementations / two-vocabularies table is in `frontend-workspace.md`.
+
+**The `chat_with_tools` seam survived again.** The chapter canvas write did not force a manual loop any more than the codex one did — the frame goes onto the queue `run_turn` already pumps (`services/chat_turn.py`). **The draft still arrives whole, not streamed**; token-level canvas streaming stays deferred.
+
+**Accepted limitation, stated plainly: the assistant reads the *saved* body, not the author's draft.** The draft is device-local and never leaves the browser until the author saves (US-107.AC-4), so after unsaved edits the model's view of the chapter is stale. This is a consequence of draft-until-saved, not a gap in the protocol.
+
+**The tools are seeded by default (feature `024.chat-agent-loop`, reversing the previous stance).** `write-chapter`'s four chapter tools now come with `mode_tool` rows on a fresh install, so **the assistant can write into the chapter editor with no administrator configuration at all**. This document previously recorded the opposite — no rows seeded, and changing that described as a FEAT-020 default-policy decision pointing the default "in the unsafe direction". That decision was **made, by the author, explicitly** (design-note D4); it is a decision with an owner, not an inferred default.
+
+**The empty-allowlist *rule* is unchanged — only the seeded starting state moved.** A mode an administrator edits down to zero tools still resolves to zero tools, and registration alone still grants nothing. What changed is where a fresh install starts, not how gating works.
+
+## The close-chapter procedure, as built
+
+**Realizes:** feature `016.chapter-close-continuity` (2026-07-31). The domain half — what the artifacts are, and what a clean run means — is `domain-continuity.md` → "The close procedure, as built". This section is the runtime half only.
+
+### Five more tools, in `services/close_tools.py`
+
+`draft_chapter_summary`, `draft_chapter_notes`, `propose_active_notes`, `raise_check_flag` and `read_continuity_context`. Same shape as feature `015`'s chapter tools — **context-bearing, mode-gated, registered in `TOOL_REGISTRY`**, with the args schemas colocated beside the tools rather than in `models/schemas/` — and the same refusal discipline: **a refusal is a string the model reads, never an exception**, because a raising tool aborts the turn.
+
+The refusal chain runs in a fixed order: a **non-chapter subject**, a chapter **not in `closing`**, an **archived book**, and **a caller who does not hold `Capability.set_chapter_state`**. The first three mirror `chapter_tools.py`'s chain link for link; the fourth is new, and the section below is why it exists.
+
+### `ToolContext` gained a sixth field
+
+`active_notes_proposal: str | None`, **mutated in place** by `propose_active_notes` and read once by `finalize_close_turn`. It is the mechanism behind the domain rule that the proposed note set is **held in memory and written only if the run ends clean**: a tool that persisted it would have to be undone on every discard path, and `db/` has no transaction to undo it with (`domain-chapter.md`).
+
+**`None` and `""` are different values here, and the distinction is load-bearing.** `""` is a legitimate proposal — the live note set becomes empty; `None` means the tool was never called. Only `None` routes the run to the wipe branch.
+
+### The post-turn finalize hook
+
+`services/chat_turn.py` calls `chapters.finalize_close_turn` **once**, when a close-chapter turn's generator reaches **natural completion** — a `done` **or** an `error` frame — and **not on cancellation**. **`run_turn`'s signature is unchanged**; this is a new interior call, **not a second turn runner**.
+
+**The turn is no longer "stream, persist, done".** The finalize step runs after the tool loop and **before the terminal frame is yielded**, which is exactly what makes the three endings differ:
+
+| Ending | Finalize runs? | Why |
+|---|---|---|
+| `done` | yes | natural completion |
+| `error` | yes | the run ended; a failed run must still return the chapter to `open` rather than strand it in `closing` |
+| client disconnect / abort | **no** | the generator never reaches the step — the explicit `POST …/close/cancel` is that path's exit |
+
+**Feature `016` changed the frame vocabulary not at all** — it added no frame and reshaped none (the two that exist beyond `011`/`013`'s five are `024`'s). What changed is what happens *between* the loop and the last frame, which is precisely the thing a reader will infer wrongly from the frame list alone.
+
+### A per-subject mode is not a claim of ownership
+
+Stated once, generally, because the next mode-scoped post-turn hook will meet it:
+
+> **Mode determination is per *subject*, not per *caller*.** A mode says what a turn is about; it says nothing about whether this caller owns the activity.
+
+Concretely: while an owner's chapter sits in `closing`, a **co-author's own chat** with that chapter as its subject also resolves to `close-chapter`. Without a further check, their ordinary turn would run the finalize step and therefore **discard the owner's in-flight close run** — a turn nobody asked to be part of the procedure silently ending it.
+
+The finalize call site is consequently gated on the caller holding **`Capability.set_chapter_state`** — the same capability that gated the close request itself — and the close *tools* carry the identical gate as the fourth link of their refusal chain. **Two layers, one rule**, with no new state and no run-ownership token to keep in step. Feature `016`'s own risk list named this hazard for the tools only; the same hazard exists one layer up, which is why it is written here as a rule rather than there as a fix.
+
+### The five tools are seeded — the close procedure is live on a fresh install
+
+**Reversed by feature `024.chat-agent-loop`.** This section previously read "the tools ship registered but unreachable, and the feature is inert without them": no `mode_tool` rows were seeded, so feature `016` was delivered but **inert until an administrator assigned the five tools to the `close-chapter` mode**. The consequence was sharper here than for the chapter canvas tools — an unassigned close tool meant the procedure **could not execute at all**, because a turn with no tools drafts nothing and `finalize_close_turn` then returns the chapter to `open` every single time.
+
+**All five are now seeded by default**, so feature `016`'s close procedure runs on an installation nobody has configured.
+
+**The accepted risk, stated plainly: a model-driven close run now writes real artifacts on a fresh install.** It drafts a summary and a note changeset, may replace the book's live note set, may raise flags, and may end with the chapter `closed`. The previous stance — that seeding would point the default in the unsafe direction the empty-allowlist rule exists to avoid — was **reversed deliberately** (design-note D4, the author's decision), and the counterweight is the reason: **a feature that is inert by default is also a feature nobody discovers is broken.** Sixteen shipped and was exercised by nobody until the seed landed. The domain rules that bound what a run may write are unchanged and live in `domain-continuity.md`.
+
+## `create_memo` — the first tool with a database write behind it (FEAT-021)
+
+**Realizes:** UC-108; US-129, US-130.
+
+One **context-bearing (bound)** tool in a new module `services/memo_tools.py`, args schema `CreateMemoArgs(body: str)`, registered in `TOOL_REGISTRY` (`assistant-config.md` owns the catalogue entry). It creates one memo for `(book_id, the turn's author)`, active, appended last — exactly what UC-103 produces by hand.
+
+**It needs NO new `ToolContext` field, and that is worth saying.** The last three tool features each widened the context — `015` added the fifth field, `016` the sixth — so a reader will expect a seventh. There is none: `book_id` is already on `ToolContext` and `access.user_id` is already on its `access`, so the binder resolves `(book_id, author)` from what feature `016` left behind. **The context stays six fields.**
+
+**It PERSISTS, and that is the new thing.** Every existing context-bearing write tool — `write_codex_draft` and the three `chapter_tools` writes — **persists nothing**: it validates, emits one `canvas` frame, and the author saves. `create_memo` writes the row outright, because product is explicit that there is **no draft and no save step** (US-129.AC-1).
+
+**This does not break `domain-chat.md`'s "there is no chat → codex write path, by construction".** Spelled out at length, because that rule is written as a proud structural guarantee and the next reader will take it for a global one:
+
+> The no-write property was never a rule about tools in general — it was a **codex** rule, load-bearing because a codex entry is **book content** subject to collaboration mode, a version token, and an owner's review. A memo has **none** of those: no proposal semantics, no version token, no collaboration mode, and no second reader. There is nothing for a draft-and-save step to protect. That is precisely why this write is safe where the codex one would not be, and why the codex rule stands untouched.
+
+**Refusal discipline unchanged:** a refusal is **a string the model reads, never an exception**, because a raising tool aborts the turn. The tool refuses when `access` is absent. **Do not add an archived-book link to this chain**, unlike `chapter_tools.py`'s — per `authorization.md`, memos stay writable on an archived book, and the assistant is refused by the same rule as the author, which here means not refused at all. Stated explicitly because the neighbouring chain has that link and a reader will copy it.
+
+**Visibility comes free, and the frame vocabulary does not move.** `tool_call` / `tool_result` are emitted by the **generic wrapper around every bound tool** (feature `024`), so `create_memo` gets UC-102 / US-129 visibility without emitting anything itself. **The SSE vocabulary is unchanged — still seven frames, no new frame and no widened frame** — said plainly because the last three assistant features each touched it. **No `get_memos` tool and no `edit_memo` tool exist either, a structural absence with reasoning:** every active memo is already in the composed prompt, so a fetch tool would be a **second path to bytes the model already has**, and the two could disagree. Product states the same absence from the requirements side (UC-109's postcondition).
+
+**US-130 — "the assistant creates no memo unasked" — is prompt-enforced, not structural.** The seeded mode prompts carry the guidance, mirroring US-121.AC-3's precedent and inheriting its honest caveat: **an administrator who rewrites a mode prompt can weaken it.** Recorded as a known limitation with a named owner (the mode's prompt, `assistant-config.md`), not as a guarantee.
+
+## Out of scope — still deferred
+
+Built here: the FEAT-020 runtime and the FEAT-013 slice above. **Still deferred** (see `domain-chat.md` for the full assistant boundary):
+
+- **Context / content assembly** — building, ordering, ranking and truncating retrieved book/chapter/codex material into the prompt (US-057, UC-085/086/078 internals). Only the *named system prompts* are composed; retrieval ends at "here are the relevant chunks" (`retrieval.md`).
+- **Token-level canvas streaming** — the manual-loop swap described under the protocol seam, still deferred.
+- **Token budgeting and truncation.**
+- **UC-078's relevance criterion** — an open product `_TBD:` (challenge C27). `013.codex` shipped **pull-only** codex search with a result limit and **no score threshold**, deliberately, so the product question is not closed by a design choice.
+
+**FEAT-021 removed nothing from this list** — memos enter the prompt as a **named authored layer**, not as retrieved content (see "Memos are not context assembly" above). **No longer deferred:** the **shared-canvas write protocol for chapters** (UC-055) shipped with `015.chapter-writing-free-mode` — see the section above; and web search (UC-087) shipped with `011.chat-panel` — see `backend/persistence.md` for its two settings and the decision to call the Google Custom Search JSON API through **direct `httpx`, not an MCP client** (the product's "MCP" wording is generic; tools here are plain backend functions).
